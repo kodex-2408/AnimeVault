@@ -1,112 +1,96 @@
 # AnimeVault
 
-A personal desktop anime & manga library manager built with Electron. Organize your local anime and manga collection, track watch/read progress, explore new titles, download via Nyaa.si, and sync with MyAnimeList — all in one app.
-
-## MangaVault Mode
-
-AnimeVault includes a built-in **MangaVault** mode, toggled via the Anime/Manga pill in the titlebar. Switching modes:
-
-- Swaps to your **manga library folders** and separate read history
-- Routes all MAL API calls to `/manga/` endpoints (chapters instead of episodes)
-- Searches Nyaa using the **English-translated manga** category (`c=3_1`)
-- Changes all UI labels: Ep→Ch, Watching→Reading, Plan to Watch→Plan to Read
-- Shows **manga source shortcuts** in the Explore tab (MangaDex, MangaFire, MangaReader, etc.)
-- Opens `.cbz`/`.cbr` files with your configured reader (OpenComic, CDisplayEx, SumatraPDF, or system default)
-
-Anime and manga data are fully isolated — separate folders, watch/read histories, and MAL list endpoints.
+A personal desktop anime & manga library manager built with Electron. Organize your local collection, track watch/read progress, explore new titles, download via Nyaa.si, and sync with MyAnimeList — all in one app.
 
 ---
 
 ## MangaVault Mode
 
-AnimeVault doubles as a manga library manager. Toggle the **Anime / Manga** pill in the titlebar to switch modes:
+Toggle the **Anime / Manga** pill in the titlebar to switch modes:
 
-- **Separate libraries**: Anime and manga folders are managed independently
-- **MAL manga sync**: All API calls switch to manga endpoints — chapters read, manga list, manga details
-- **File support**: Scans `.cbz`, `.cbr`, `.zip`, `.pdf` files; parses chapter numbers from filenames
-- **Reader integration**: Opens manga files with your system default reader (OpenComic, CDisplayEx, SumatraPDF, etc.) or a configured reader path
-- **Nyaa manga**: Searches Nyaa category `c=3_1` (English-translated manga/literature)
-- **Source shortcuts**: Quick-access buttons to MangaDex, MangaFire, MangaReader, Nyaa, MangaSee, ComicK
-- **Smart labels**: All UI labels adapt — Ep → Ch, Watching → Reading, Plan to Watch → Plan to Read
+- **Separate libraries** — Independent anime and manga folders with isolated watch/read histories
+- **MAL manga sync** — All API calls route to `/manga/` endpoints (chapters read, manga list, manga details)
+- **File support** — Scans `.cbz`, `.cbr`, `.zip`, `.pdf`; parses chapter numbers from filenames
+- **Reader integration** — Opens manga files with your configured reader (OpenComic, CDisplayEx, SumatraPDF) or system default
+- **Nyaa manga** — Searches Nyaa category `c=3_1` (English-translated manga)
+- **Smart labels** — UI adapts automatically: Ep → Ch, Watching → Reading, Plan to Watch → Plan to Read
 
 ---
 
 ## Features
 
-### Collection
-- Auto-scan library folders and display anime with cover art
-- Netflix-style UI with hero banners and animated card grid
-- 16 built-in themes + accent color picker and animation speed control
-- MAL status and category filters (Watching, Completed, Plan to Watch, On Hold, Dropped)
+### Library & Collection
+- **Auto-scan** library folders and display series with cover art from AniList
+- **Netflix-style UI** with hero banners, animated card grids, and liquid-glass styling
+- **16 built-in themes** + accent color picker, font selector, and animation speed control
+- **Category filters** with custom folder organization (Series, Seasonal, Movies, etc.)
+- **Continue Watching** row sorted by recency
+- **Duplicate file detection** with codec/size comparison and auto-resolution
+- **Library Health Check** — scans for missing episodes, duplicates, and orphaned files
 
-### Explore
-- Browse MAL top anime rankings and current seasonal anime
-- Live search with instant results and cover previews
-- Clickable cards with synopsis, stats, genres, and streaming links
+### Explore & Discovery
+- Browse MAL **top anime/manga** rankings and current **seasonal anime**
+- **Live search** with instant results and cover previews
+- **Donghua filter** — optionally hide Chinese anime from results
+- Clickable cards with synopsis, stats, genres, and streaming/source links
 
-### My List
-- Full MAL library with grid and list views
-- Smart progress bars: accent = watched, blue = aired-but-unwatched
-- Broadcast schedule for airing series (Mexico City timezone)
-- Sorting by title, score, progress + genre filtering
+### My List & MAL Sync
+- **Full MAL library** with grid and list views, "Load More" pagination
+- **Smart progress bars** — accent = watched/read, blue = aired-but-unwatched
+- **Broadcast schedule** for airing series (Mexico City timezone)
+- **Auto-sync** progress, status, and score bidirectionally
+- **Sync conflict resolution** — choose Keep MAL, Keep Local, or Merge when progress diverges
+- **Sync audit log** — persistent ring buffer of the last 50 sync operations
+- **Bulk auto-linking** — fuzzy-match unlinked series to MAL entries
+- **Manual MAL ID linking** — directly enter a MAL ID when search fails
 
-### Downloads
-- **Split Download button** on every series detail — click for smart default, arrow (▾) for options:
-  - **Latest Episode** — targets the latest *aired* episode (not just watched+1); uses preferred uploader for airing series
-  - **Entire Series** — broad eng sub search ordered by seed count
-  - **Batch / Season Pack** — tries batch, complete, S01, Season 1, Blu-ray, BD naming variants
-  - **Browse on Nyaa.si** — opens browser search
-- **Download Mode**: External Client (default) opens `.torrent` in qBittorrent/etc.; Built-in uses bundled aria2c
-- Configure preferred uploader (Erai-raws, SubsPlease, Judas, VARYG) and quality (1080p/720p/480p) in Settings
+### Downloads & Nyaa
+- **Smart split-button** on every series — quick default or granular options:
+  - **Latest Episode** — targets next aired episode using preferred uploader
+  - **Entire Series** — broad search ordered by seed count
+  - **Browse on Nyaa.si** — open browser search
+- **Auto-Download** for airing series — polls Nyaa periodically for new episodes
+- **HEVC/x265 priority** — codec-aware scoring with size awareness to avoid bloated releases
+- **1-hour deduplication window** with full download history and retry
+- Configure preferred uploader, quality (1080p/720p/480p), and source
 
-### Playback (Bundled MPV)
-- MPV bundled — no external player installation required
-- VLC and custom MPV paths supported as alternatives
-- Auto-mark episodes at configurable % (default 80%)
-- Subtitle language injection (primary + fallback)
-- Optional −300ms audio offset for Bluetooth headphone latency
+### Playback
+- **Bundled MPV** — no external player installation required
+- **VLC and custom MPV** paths supported as alternatives
+- **Auto-mark** episodes at configurable percentage (default 80%)
+- **Subtitle language** injection (primary + fallback)
+- Optional **−300ms audio offset** for Bluetooth headphone latency
 
-### Watch Progress & MAL Sync
-- MyAnimeList OAuth2 integration
-- Sequential checkbox logic for episode tracking
-- Sync pause toggle in the status bar
+### File Management & Organization
+- **Format Loose Files** — auto-rename and organize video/manga files
+- **Rename in Folder** — inject series name into filenames
+- **Batch Process** — multi-folder operations with undo support
+- **Group/Ungroup folders** — merge or split series folders
+- **Delete series** — individual or batch deletion with path-traversal guards
+- **Download Watcher** — 5-minute polling of a watch folder with auto-organization
+- **Root-level folder handling** — detects and processes entire dropped folders
 
-### File Management
-- Format, rename, group, and batch-process video files
-- Rename-in-folder tool for files lacking series name
-- Undo formatting, smart destination matching
-- Delete series (individual + batch)
-- Download watcher with 5-minute polling
-
----
-
-## Build Outputs
-
-| Script | Output | Description |
-|--------|--------|-------------|
-| `BUILD.bat` | `dist\AnimeVault-x64.exe` | **Portable** — single self-contained `.exe`, no install needed |
-| `BUILD-INSTALLER.bat` | `dist\AnimeVault-Setup-x64.exe` | **Installer** — setup wizard that installs to Program Files, adds Start Menu shortcut and uninstaller |
-
-**Which should I use?**
-
-- **Personal use → Portable** (`BUILD.bat`). Drop the `.exe` anywhere, run it, done. No registry entries. Carry it on a USB drive if you want.
-- **Sharing → Installer** (`BUILD-INSTALLER.bat`). Gives the recipient a familiar setup wizard, places the app in Program Files, and creates an uninstaller in Add/Remove Programs.
-
-**Will a standalone `.exe` work on another computer?**
-
-Yes — the portable `.exe` is fully self-contained (Electron runtime + Chromium + Node.js + your bundled MPV/aria2c are all packed inside). The recipient needs no Node.js, no runtime, no dependencies. They just double-click and run. The only requirement is **Windows 10 x64 or newer** (if you built for x64).
+### UI & Customization
+- **Command Palette** (`Ctrl/Cmd+K`) — Spotlight-style search for views, actions, and library items
+- **Keyboard shortcuts** — full shortcut layer with discoverability (`Shift+?`)
+- **System tray** — minimize to tray instead of closing
+- **Notification preferences** — toggle categories: Watcher, Health Check, Rescan, Auto-Download, MAL Sync, Duplicates
+- **Liquid-glass styling** — backdrop-filter blur, accent glows, and shimmer effects
+- **Animated backgrounds** — particles, liquid orbs, or mesh gradient with intensity control
+- **Right-click context menus** on cards with status shortcuts, cover change, and file actions
 
 ---
 
-## Setup
+## Quick Start
 
 ### Prerequisites
 - [Node.js](https://nodejs.org/) v18+
+- Windows 10 x64 or newer
 
 ### Bundled Binaries
 Place the following in a `bin/` folder at the project root before building:
 - `mpv.exe` — from [mpv.io](https://mpv.io/installation/) (Windows x64 LGPL build)
-- `aria2c.exe` — from [aria2 releases](https://github.com/aria2/aria2/releases) (optional, only needed for Built-in download mode)
+- `aria2c.exe` — from [aria2 releases](https://github.com/aria2/aria2/releases) (optional, for Built-in download mode)
 - Any required `.dll` files alongside `mpv.exe`
 
 These are automatically bundled into the output via `extraResources`.
@@ -117,11 +101,21 @@ npm install
 npm start
 ```
 
-### Build Portable .exe
-Run `BUILD.bat` and select your architecture. Output: `dist\AnimeVault-x64.exe`
+---
 
-### Build Installer
-Run `BUILD-INSTALLER.bat`. Output: `dist\AnimeVault-Setup-x64.exe`
+## Build
+
+| Script | Output | Description |
+|--------|--------|-------------|
+| `BUILD.bat` | `dist\AnimeVault-x64.exe` | **Portable** — single self-contained `.exe`, no install needed |
+| `BUILD-INSTALLER.bat` | `dist\AnimeVault-Setup-x64.exe` | **Installer** — setup wizard with Start Menu shortcut and uninstaller |
+
+**Which should I use?**
+- **Personal use → Portable** (`BUILD.bat`). Drop anywhere and run. No registry entries. USB-friendly.
+- **Sharing → Installer** (`BUILD-INSTALLER.bat`). Familiar setup wizard, Program Files placement, Add/Remove Programs entry.
+
+**Will a standalone `.exe` work on another computer?**
+Yes — the portable `.exe` is fully self-contained (Electron runtime + Chromium + Node.js + bundled MPV/aria2c). The recipient needs no dependencies. Just double-click and run.
 
 ---
 
@@ -141,6 +135,9 @@ Settings → Nyaa Downloads → Download Mode:
 - **External Client** (default): finds best Nyaa match, downloads `.torrent`, opens with system torrent client
 - **Built-in (aria2c)**: uses bundled aria2c (requires `bin/aria2c.exe`)
 
+### Notification Preferences
+Settings → Notifications → toggle categories individually. All toasts respect these preferences without disabling the underlying feature.
+
 ---
 
 ## Tech Stack
@@ -148,7 +145,7 @@ Settings → Nyaa Downloads → Download Mode:
 - **Vanilla HTML/CSS/JS** — single-file UI, no frameworks
 - **MPV** — bundled video player (x64 LGPL build)
 - **aria2c** — optional bundled torrent client (JSON-RPC)
-- **MyAnimeList API v2** — anime data and list sync
+- **MyAnimeList API v2** — anime/manga data and list sync
 - **AniList GraphQL** — cover art and search
 
 ## License
