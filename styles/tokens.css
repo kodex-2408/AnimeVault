@@ -1,0 +1,162 @@
+/* ==========================================================================
+   AnimeVault 5 — Design tokens
+   One source of truth for color, glass, elevation, shape and motion.
+   Theme colors (bg/surfaces/text) are overwritten at runtime by applyTheme();
+   everything else derives from them, so every theme stays consistent.
+   ========================================================================== */
+:root {
+  color-scheme: dark;
+
+  /* Type */
+  --font: "Segoe UI Variable Text", "Segoe UI", "Inter Variable", Inter, system-ui, -apple-system, sans-serif;
+  --font-display: "Segoe UI Variable Display", "Segoe UI", "Inter Variable", Inter, system-ui, -apple-system, sans-serif;
+  --font-mono: "Cascadia Code", "Cascadia Mono", Consolas, "DejaVu Sans Mono", monospace;
+  --fs-xs: 11px; --fs-sm: 12px; --fs-md: 13px; --fs-lg: 15px; --fs-xl: 18px; --fs-2xl: 24px; --fs-3xl: 32px;
+
+  /* Accent (amber by default; applyTheme() swaps --accent and --accent-rgb) */
+  --accent: #ff9f0a;
+  --accent-rgb: 255, 159, 10;
+  --accent-strong: color-mix(in srgb, var(--accent) 86%, white);
+  --on-accent: #1d1303;
+  --accent-soft: rgba(var(--accent-rgb), .15);
+  --accent-softer: rgba(var(--accent-rgb), .08);
+  --accent-ring: rgba(var(--accent-rgb), .5);
+  --accent-glow: rgba(var(--accent-rgb), .32);
+  --accent-text: color-mix(in srgb, var(--accent) 88%, white);
+
+  /* Neutrals (dark) */
+  --bg: #0a0a0d;
+  --bg-2: #101015;
+  --surface-1: #16161c;
+  --surface-2: #1d1d25;
+  --surface-3: #272731;
+  --text-1: #f3f1ec;
+  --text-2: #aeaaa2;
+  --text-3: #7a766e;
+  --hairline: rgba(255, 255, 255, .075);
+  --hairline-strong: rgba(255, 255, 255, .13);
+  --fill-1: rgba(255, 255, 255, .045);
+  --fill-2: rgba(255, 255, 255, .075);
+  --fill-3: rgba(255, 255, 255, .11);
+  --scrim: rgba(4, 4, 8, .55);
+
+  /* Liquid glass */
+  --glass-tint: var(--surface-1);
+  --glass-bg: color-mix(in srgb, var(--glass-tint) 58%, transparent);
+  --glass-bg-strong: color-mix(in srgb, var(--glass-tint) 80%, transparent);
+  --glass-bg-solid: color-mix(in srgb, var(--glass-tint) 94%, transparent);
+  --glass-blur: 26px;
+  --glass-sat: 175%;
+  --glass-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+  --glass-edge: inset 0 1px 0 rgba(255, 255, 255, .085), inset 0 0 0 1px rgba(255, 255, 255, .055);
+  --glass-edge-strong: inset 0 1px 0 rgba(255, 255, 255, .14), inset 0 0 0 1px rgba(255, 255, 255, .085);
+  --glass-sheen: linear-gradient(180deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, 0) 42%);
+
+  /* Elevation — the only four shadows in the app */
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, .26), 0 3px 10px rgba(0, 0, 0, .16);
+  --shadow-2: 0 6px 16px rgba(0, 0, 0, .30), 0 18px 40px rgba(0, 0, 0, .26);
+  --shadow-3: 0 12px 34px rgba(0, 0, 0, .42), 0 3px 10px rgba(0, 0, 0, .24);
+  --shadow-4: 0 28px 90px rgba(0, 0, 0, .58), 0 10px 28px rgba(0, 0, 0, .34);
+
+  /* Semantic */
+  --green: #30d158; --green-rgb: 48, 209, 88;
+  --red: #ff453a; --red-rgb: 255, 69, 58;
+  --yellow: #ffd60a; --yellow-rgb: 255, 214, 10;
+  --blue: #0a84ff; --blue-rgb: 10, 132, 255;
+  --purple: #bf5af2; --purple-rgb: 191, 90, 242;
+  --teal: #64d2ff;
+  --star: #ffcc4d;
+
+  /* Status (MAL list states) */
+  --st-watching: #30d158;
+  --st-completed: #0a84ff;
+  --st-plan: #98989f;
+  --st-hold: #ffd60a;
+  --st-dropped: #ff453a;
+
+  /* Shape */
+  --r-xs: 6px; --r-sm: 9px; --r-md: 13px; --r-lg: 18px; --r-xl: 24px; --r-2xl: 30px; --r-pill: 999px;
+
+  /* Motion (scaled by the Animation setting through --m) */
+  --m: 1;
+  --ease-out: cubic-bezier(.22, 1, .36, 1);
+  --ease-spring: cubic-bezier(.34, 1.56, .64, 1);
+  --ease-bounce: cubic-bezier(.3, 1.8, .5, 1);
+  --ease-soft: cubic-bezier(.4, 0, .2, 1);
+  --dur-1: calc(130ms * var(--m));
+  --dur-2: calc(220ms * var(--m));
+  --dur-3: calc(380ms * var(--m));
+  --dur-4: calc(620ms * var(--m));
+
+  /* Layout */
+  --titlebar-h: 46px;
+  --sidebar-w: 236px;
+  --rail-w: 70px;
+  --pad-x: clamp(20px, 3vw, 40px);
+  --content-max: 1680px;
+
+  /* Legacy aliases — kept so any surviving inline styles keep a sane look. */
+  --bg-deep: var(--bg); --bg-base: var(--bg-2); --bg-raised: var(--surface-1); --bg-surface: var(--surface-2); --bg-hover: var(--fill-2);
+  --text-primary: var(--text-1); --text-secondary: var(--text-2); --text-tertiary: var(--text-3);
+  --border: var(--hairline); --border-light: var(--hairline-strong); --accent-light: var(--accent-strong); --accent-subtle: var(--accent-softer);
+  --radius-sm: var(--r-sm); --radius-md: var(--r-md); --radius-lg: var(--r-lg); --radius-xl: var(--r-xl);
+}
+
+:root.light {
+  color-scheme: light;
+  --on-accent: #1d1303;
+  --accent-strong: color-mix(in srgb, var(--accent) 88%, black);
+  --accent-text: color-mix(in srgb, var(--accent) 70%, black);
+  --accent-soft: rgba(var(--accent-rgb), .16);
+  --accent-softer: rgba(var(--accent-rgb), .09);
+  --bg: #f4f3f0;
+  --bg-2: #ecebe7;
+  --surface-1: #ffffff;
+  --surface-2: #f6f5f2;
+  --surface-3: #ebe9e4;
+  --text-1: #1b1a17;
+  --text-2: #57534b;
+  --text-3: #8a857b;
+  --hairline: rgba(20, 16, 8, .09);
+  --hairline-strong: rgba(20, 16, 8, .15);
+  --fill-1: rgba(20, 16, 8, .035);
+  --fill-2: rgba(20, 16, 8, .06);
+  --fill-3: rgba(20, 16, 8, .09);
+  --scrim: rgba(40, 34, 24, .28);
+  --glass-bg: color-mix(in srgb, var(--glass-tint) 62%, transparent);
+  --glass-bg-strong: color-mix(in srgb, var(--glass-tint) 84%, transparent);
+  --glass-edge: inset 0 1px 0 rgba(255, 255, 255, .8), inset 0 0 0 1px rgba(20, 16, 8, .07);
+  --glass-edge-strong: inset 0 1px 0 rgba(255, 255, 255, .95), inset 0 0 0 1px rgba(20, 16, 8, .1);
+  --glass-sheen: linear-gradient(180deg, rgba(255, 255, 255, .55), rgba(255, 255, 255, 0) 45%);
+  --shadow-1: 0 1px 2px rgba(40, 30, 10, .08), 0 3px 10px rgba(40, 30, 10, .06);
+  --shadow-2: 0 6px 16px rgba(40, 30, 10, .10), 0 18px 40px rgba(40, 30, 10, .10);
+  --shadow-3: 0 12px 34px rgba(40, 30, 10, .16), 0 3px 10px rgba(40, 30, 10, .08);
+  --shadow-4: 0 28px 90px rgba(40, 30, 10, .24), 0 10px 28px rgba(40, 30, 10, .12);
+  --green: #1f9d3e; --green-rgb: 31, 157, 62;
+  --red: #e0352b; --red-rgb: 224, 53, 43;
+  --yellow: #b7791f; --yellow-rgb: 183, 121, 31;
+  --blue: #0a6fe0; --blue-rgb: 10, 111, 224;
+  --purple: #9a3fd0; --purple-rgb: 154, 63, 208;
+  --star: #c98a00;
+  --st-watching: #1f9d3e; --st-completed: #0a6fe0; --st-plan: #7d7a74; --st-hold: #b7791f; --st-dropped: #e0352b;
+}
+
+/* Motion levels */
+:root[data-motion="slow"] { --m: 1.6; }
+:root[data-motion="fast"] { --m: .55; }
+:root[data-motion="none"] { --m: 0; }
+:root[data-motion="none"] *, :root[data-motion="none"] *::before, :root[data-motion="none"] *::after {
+  animation-duration: 1ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important;
+  transition-duration: 1ms !important; transition-delay: 0ms !important; scroll-behavior: auto !important;
+}
+
+/* Transparency levels (Appearance → Transparency) */
+:root[data-glass="frosted"] { --glass-bg: color-mix(in srgb, var(--glass-tint) 80%, transparent); --glass-blur: 18px; }
+:root[data-glass="solid"],
+:root.performance-mode {
+  --glass-bg: var(--surface-1);
+  --glass-bg-strong: var(--surface-1);
+  --glass-bg-solid: var(--surface-1);
+  --glass-filter: none;
+}
+:root.performance-mode { --m: .6; }
