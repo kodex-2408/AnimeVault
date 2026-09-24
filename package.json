@@ -8,7 +8,7 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "test": "node tests/contracts.test.js && node tests/search-matching.test.js && node tests/mal-data.test.js && node tests/mal-backfill.test.js && node tests/state-integrity.test.js && node tests/auto-download-state.test.js && node tests/security-and-parsers.test.js",
+    "test": "node tests/contracts.test.js && node tests/search-matching.test.js && node tests/mal-data.test.js && node tests/mal-backfill.test.js && node tests/state-integrity.test.js && node tests/auto-download-state.test.js && node tests/security-and-parsers.test.js && node tests/filesystem-safety.test.js",
     "build-x64": "electron-builder --win --x64",
     "build-arm64": "electron-builder --win --arm64",
     "build": "electron-builder --win",
@@ -21,16 +21,23 @@
     "build-apk": "node mobile/scripts/build-apk.js"
   },
   "devDependencies": {
-    "electron": "^33.0.0",
-    "electron-builder": "^25.1.8"
+    "electron": "^44.4.5",
+    "electron-builder": "^26.15.3"
   },
   "dependencies": {
-    "adm-zip": "^0.5.18"
+    "adm-zip": "^0.6.1"
   },
   "build": {
     "appId": "com.animevault.app",
     "productName": "AnimeVault",
     "compression": "normal",
+    "electronFuses": {
+      "runAsNode": false,
+      "enableCookieEncryption": true,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "onlyLoadAppFromAsar": true
+    },
     "directories": {
       "output": "dist"
     },

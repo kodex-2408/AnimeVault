@@ -31,6 +31,10 @@ const {
 // ================================================================
 // cover:// streams cached artwork straight from disk so the renderer never
 // holds megabytes of base64 copies. Must be registered before app ready.
+// Every renderer runs sandboxed, whatever a future BrowserWindow forgets to set.
+// (An explicit --no-sandbox, needed only for root/CI runs, still opts out.)
+if (!app.commandLine.hasSwitch('no-sandbox')) app.enableSandbox();
+
 protocol.registerSchemesAsPrivileged([
   { scheme: 'cover', privileges: { standard: false, secure: true, supportFetchAPI: false } }
 ]);
@@ -474,21 +478,88 @@ function isInsidePath(parent, child) {
   return rel === '' || (!!rel && !rel.startsWith('..') && !path.isAbsolute(rel));
 }
 
+// Resolves symlinks/junctions so containment checks compare where a path
+// really points. A path that does not exist yet resolves through its nearest
+// existing ancestor (e.g. the destination of a move).
+function realpathLoose(p) {
+  const abs = normalizeFsPath(p);
+  if (!abs) return null;
+  const tail = [];
+  let cur = abs;
+  for (let i = 0; i < 64; i++) {
+    try { return path.join(fs.realpathSync.native(cur), ...tail.reverse()); }
+    catch (e) {
+      const parent = path.dirname(cur);
+      if (parent === cur) return abs;
+      tail.push(path.basename(cur));
+      cur = parent;
+    }
+  }
+  return abs;
+}
+
+// Folders that must never become a library/watch root, because every file
+// action (delete, rename, move) is allowed anywhere beneath a root. A drive
+// root that is not the system drive (e.g. a dedicated D:\ anime disk) stays
+// allowed.
+function isForbiddenRoot(p) {
+  const target = normalizeFsPath(p);
+  if (!target) return true;
+  const sensitive = [
+    app.getPath('userData'),
+    path.dirname(process.execPath),
+    require('os').homedir(),
+    process.env.SystemRoot || process.env.windir,
+    process.env.ProgramFiles,
+    process.env['ProgramFiles(x86)'],
+    process.env.ProgramData,
+  ].filter(Boolean);
+  // A root equal to, or an ancestor of, a sensitive folder would expose it.
+  return sensitive.some(s => isInsidePath(target, s)) ||
+    // ...and a root inside the app's own install or data folders is never media.
+    [app.getPath('userData'), path.dirname(process.execPath)].some(s => isInsidePath(s, target));
+}
+
 function getAllowedFileRoots(includeUserData = false) {
   const roots = [];
-  const add = p => { if (p && typeof p === 'string') roots.push(p); };
+  const add = p => { if (p && typeof p === 'string' && path.isAbsolute(p) && !isForbiddenRoot(p)) roots.push(p); };
   (config.folders || []).forEach(f => add(f && f.path));
   (config.mangaFolders || []).forEach(f => add(f && f.path));
   add(config.watcherFolder);
   add(config.watcherDest);
-  if (includeUserData) add(app.getPath('userData'));
-  return roots.filter(Boolean);
+  if (includeUserData) roots.push(app.getPath('userData'));
+  return roots;
 }
 
+// Lexical AND resolved containment: a junction inside a library folder that
+// points at C:\Windows passes the first check but fails the second.
 function isAllowedFileActionPath(p, includeUserData = false) {
   const target = normalizeFsPath(p);
   if (!target) return false;
-  return getAllowedFileRoots(includeUserData).some(root => isInsidePath(root, target));
+  const realTarget = realpathLoose(target);
+  return getAllowedFileRoots(includeUserData).some(root =>
+    isInsidePath(root, target) && isInsidePath(realpathLoose(root), realTarget));
+}
+
+// One rule for every name the app creates on disk: a single path segment that
+// Windows accepts as a file or folder name.
+function isSafeFileName(name) {
+  if (typeof name !== 'string') return false;
+  if (!name || name.length > 240 || name === '.' || name === '..') return false;
+  if (path.basename(name) !== name) return false;
+  if (/[<>:"/\\|?*\x00-\x1f]/.test(name) || /[. ]$/.test(name)) return false;
+  return !/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\..*)?$/i.test(name);
+}
+
+// Moves a file or folder without ever overwriting something else (Windows
+// renameSync silently replaces files). A case-only rename is still allowed.
+function moveNoClobber(from, to) {
+  if (from === to) return false;
+  if (fs.existsSync(to) && from.toLowerCase() !== to.toLowerCase()) {
+    throw new Error('Refusing to overwrite existing ' + path.basename(to));
+  }
+  fs.renameSync(from, to);
+  return true;
 }
 
 function assertAllowedFileActionPath(p, includeUserData = false) {
@@ -499,11 +570,55 @@ function assertAllowedFileActionPath(p, includeUserData = false) {
 
 function assertAllowedChildFileActionPath(p) {
   const target = normalizeFsPath(p);
+  const realTarget = realpathLoose(target);
   const ok = getAllowedFileRoots(false).some(root => {
     const resolvedRoot = normalizeFsPath(root);
-    return resolvedRoot && target && target !== resolvedRoot && isInsidePath(resolvedRoot, target);
+    const realRoot = realpathLoose(resolvedRoot);
+    return resolvedRoot && target && target !== resolvedRoot && isInsidePath(resolvedRoot, target) &&
+      realTarget !== realRoot && isInsidePath(realRoot, realTarget);
   });
   if (!ok) throw new Error('Path is outside configured AnimeVault folders');
+}
+
+// Only cached artwork and thumbnails inside userData are servable as images;
+// config, tokens and indexes never are, even though they share the folder.
+function isServableUserDataImage(fp) {
+  const ud = normalizeFsPath(app.getPath('userData'));
+  if (!ud || !isInsidePath(ud, fp)) return false;
+  const first = path.relative(ud, fp).split(/[\\/]/)[0].toLowerCase();
+  return first === 'cover-cache' || first === 'thumbnails';
+}
+
+// Executables the app launches (player, reader). Empty means "use the default".
+function isValidExecutableSetting(v) {
+  if (v === '' || v == null) return true;
+  if (typeof v !== 'string' || v.length > 1024 || !path.isAbsolute(v)) return false;
+  return process.platform !== 'win32' || path.extname(v).toLowerCase() === '.exe';
+}
+
+// Renderer-supplied config values. Credentials may only be cleared from the
+// renderer (disconnect / reset) — tokens are written by the main process alone.
+const RENDERER_CLEAR_ONLY_KEYS = new Set(['malAccessToken', 'malRefreshToken', 'malCodeVerifier', 'malTokenExpiry']);
+function validateRendererConfigValue(key, value) {
+  if (RENDERER_CLEAR_ONLY_KEYS.has(key)) {
+    if (value !== '' && value !== 0 && value !== null && value !== undefined) throw new Error('Credentials cannot be set from the UI: ' + key);
+    return;
+  }
+  if (key === 'vlcPath' || key === 'mpvPath' || key === 'readerPath') {
+    if (!isValidExecutableSetting(value)) throw new Error('Invalid program path for ' + key);
+    return;
+  }
+  if (key === 'folders' || key === 'mangaFolders') {
+    if (!Array.isArray(value) || value.length > 200) throw new Error('Invalid folder list');
+    for (const f of value) {
+      if (!f || typeof f !== 'object' || typeof f.path !== 'string' || !path.isAbsolute(f.path)) throw new Error('Library folders need an absolute path');
+      if (isForbiddenRoot(f.path)) throw new Error('That folder can’t be a library folder: ' + f.path);
+    }
+    return;
+  }
+  if (key === 'watcherFolder' || key === 'watcherDest') {
+    if (value && (typeof value !== 'string' || !path.isAbsolute(value) || isForbiddenRoot(value))) throw new Error('That folder can’t be watched: ' + value);
+  }
 }
 
 function isSafeExternalUrl(rawUrl) {
@@ -534,10 +649,15 @@ ipcMain.handle('config:get', () => {
   return safe;
 });
 
+function configValueUnchanged(key, value) {
+  try { return JSON.stringify(config[key]) === JSON.stringify(value); } catch (e) { return false; }
+}
+
 ipcMain.handle('config:set', (_, key, value) => {
   if (!isSafeConfigKey(key) || key === 'openrouterApiKey' || key === 'hasOpenrouterApiKey' || key === '_userDataPath' || key === '__proto__' || key === 'constructor' || key === 'prototype') {
     throw new Error('Invalid config key');
   }
+  if (!configValueUnchanged(key, value)) validateRendererConfigValue(key, value);
   config[key] = value;
   saveConfig();
   return true;
@@ -557,6 +677,11 @@ ipcMain.handle('config:setAll', (_, c) => {
   delete incoming.__proto__;
   delete incoming.constructor;
   delete incoming.prototype;
+  // hasMalClientSecret is a read-only flag from config:get, never state.
+  delete incoming.hasMalClientSecret;
+  for (const key of Object.keys(incoming)) {
+    if (!configValueUnchanged(key, incoming[key])) validateRendererConfigValue(key, incoming[key]);
+  }
   Object.assign(config, incoming);
   saveConfig();
   return true;
@@ -1156,6 +1281,7 @@ ipcMain.handle('library:batchDeleteSeries', (_, paths) => {
 ipcMain.handle('library:deleteEpisodeFile', (_, filePath) => {
   try {
     assertAllowedFileActionPath(filePath);
+    assertPlayableMedia(filePath);
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
     return { success: true };
   } catch (e) {
@@ -1558,18 +1684,23 @@ app.on('before-quit', () => { stopAutoMarkPoller(); killExistingPlayer(); });
 
 // Thumbnail extraction (F10)
 ipcMain.handle('player:extractThumbnail', async (_, filePath, seriesName, episodeNum) => {
-  try { assertAllowedFileActionPath(filePath); }
+  try { assertAllowedFileActionPath(filePath); assertPlayableMedia(filePath, VIDEO_EXTS); }
   catch (e) { return { success: false, error: e.message }; }
   const ep = Number(episodeNum);
   if (!Number.isInteger(ep) || ep < 1 || ep > 99999) return { success: false, error: 'Invalid episode number' };
-  const thumbDir = path.join(app.getPath('userData'), 'thumbnails', String(seriesName || '').replace(/[\\/:*?"<>|]/g, '_'));
+  // The series name becomes a folder name; "..", "." or an empty name would
+  // otherwise land thumbnails outside thumbnails/.
+  const folderName = String(seriesName || '').replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').replace(/[. ]+$/, '').slice(0, 120);
+  if (!isSafeFileName(folderName)) return { success: false, error: 'Invalid series name' };
+  const thumbDir = path.join(app.getPath('userData'), 'thumbnails', folderName);
   fs.mkdirSync(thumbDir, { recursive: true });
   const outPath = path.join(thumbDir, `ep_${String(ep).padStart(3, '0')}.jpg`);
   if (fs.existsSync(outPath)) return { success: true, path: outPath };
   
   const mpv = resolveMpvPath();
   return new Promise((resolve) => {
-    execFile(mpv, [filePath, '--no-audio', '--no-sub', '--frames=1', '--start=20%', `--o=${outPath}`], { timeout: 30000 }, (err) => {
+    // Options first, then "--" so a file name can never be read as an mpv option.
+    execFile(mpv, ['--no-audio', '--no-sub', '--frames=1', '--start=20%', `--o=${outPath}`, '--', filePath], { timeout: 30000 }, (err) => {
       if (err) { console.error('[Thumb] Extraction failed:', err.message); resolve({ success: false, error: err.message }); }
       else { resolve({ success: true, path: outPath }); }
     });
@@ -1656,10 +1787,7 @@ ipcMain.handle('cover:getDataUrl', async (_, filePath) => {
     // Never serve app data files as images (config, tokens, index).
     const ud = normalizeFsPath(app.getPath('userData'));
     const fp = normalizeFsPath(filePath);
-    if (ud && fp && isInsidePath(ud, fp)) {
-      const rel = path.relative(ud, fp);
-      if (!rel.toLowerCase().startsWith('cover-cache') && !rel.toLowerCase().startsWith('thumbnails')) return null;
-    }
+    if (ud && fp && isInsidePath(ud, fp) && !isServableUserDataImage(fp)) return null;
     if (fs.existsSync(filePath)) {
       const buf = fs.readFileSync(filePath);
       return 'data:image/' + (ext === '.png' ? 'png' : ext === '.webp' ? 'webp' : 'jpeg') + ';base64,' + buf.toString('base64');
@@ -2704,7 +2832,7 @@ ipcMain.handle('ai:webSearch', async (_, query) => {
   return new Promise((resolve) => {
     const q = encodeURIComponent(query.trim().slice(0, 200));
     const req = https.get('https://api.duckduckgo.com/?q=' + q + '&format=json&no_html=1&skip_disambig=1', {
-      headers: { 'User-Agent': 'AnimeVault/4.11 (Desktop App)' }
+      headers: { 'User-Agent': 'AnimeVault/' + app.getVersion() + ' (Desktop App)' }
     }, (res) => {
       let data = '';
       res.on('data', c => { if (data.length < 50000) data += c; });
@@ -2984,163 +3112,224 @@ ipcMain.handle('manager:previewParse', (_, filename, folderName = '') => {
   };
 });
 
+// ---- Organizer undo log: every run that touches disk records its moves so
+// "Undo last operation" can reverse exactly that run (newest move first).
+const FORMAT_UNDO_PATH = () => path.join(app.getPath('userData'), 'format-undo.json');
+function saveOrganizerUndo(label, moves) {
+  if (!moves.length) return;
+  fs.writeFileSync(FORMAT_UNDO_PATH(), JSON.stringify({ version: 2, label, createdAt: new Date().toISOString(), moves }));
+}
+function organizerMediaScanner() {
+  return config.vaultMode === 'manga' ? getMangaFiles : getVideoFiles;
+}
+// "Series - 05 (1080p) (HEVC).mkv" / "Series - Ch 05.cbz" for a known series name.
+function buildMediaFileName(seriesName, fileName) {
+  const ext = path.extname(fileName);
+  if (config.vaultMode === 'manga') {
+    const ch = parseChapterNumber(fileName);
+    if (ch === null || !(ch > 0)) return null;
+    return `${seriesName} - Ch ${String(ch).padStart(2, '0')}${ext}`;
+  }
+  const ep = parseEpisodeNumber(fileName);
+  if (ep === null || !(ep > 0)) return null;
+  const codec = /\b(?:HEVC|x265|H\.265)\b/i.test(fileName) ? 'HEVC' : 'H.264';
+  return `${seriesName} - ${String(ep).padStart(2, '0')} (${detectResolution(fileName)}) (${codec})${ext}`;
+}
+function parseLooseMedia(fileName, folderName) {
+  return config.vaultMode === 'manga' ? parseMangaFilename(fileName, folderName) : parseVideoFilename(fileName, folderName);
+}
+// Renames every media file directly inside `folder` to "<seriesName> - NN…".
+function renameFilesForSeries(folder, seriesName, dryRun, moves, results) {
+  for (const file of organizerMediaScanner()(folder, false)) {
+    const target = buildMediaFileName(seriesName, file.name);
+    if (!target || !isSafeFileName(target)) { results.push({ type: 'File', file: file.name, old: file.name, status: 'no episode number' }); continue; }
+    if (target === file.name) { results.push({ type: 'File', file: file.name, old: file.name, status: 'skip' }); continue; }
+    const to = path.join(folder, target);
+    if (dryRun) { results.push({ type: 'File', file: file.name, old: file.name, new: target, newName: target, status: 'preview' }); continue; }
+    try {
+      moveNoClobber(file.path, to);
+      moves.push({ from: to, to: file.path });
+      results.push({ type: 'File', file: file.name, old: file.name, new: target, newName: target, status: 'renamed' });
+    } catch (e) { results.push({ type: 'File', file: file.name, old: file.name, status: 'error', error: e.message }); }
+  }
+}
+
+// Legacy: rename files inside each series subfolder of a root (not used by the 5.x UI).
 ipcMain.handle('manager:rename', async (_, rootFolder, dryRun = true) => {
   if (!isAllowedFileActionPath(rootFolder)) return { error: 'Folder is outside configured AnimeVault folders' };
   if (!fs.existsSync(rootFolder)) return { error: 'Folder not found' };
-  const results = [];
+  const results = [], moves = [];
   try {
     const dirs = fs.readdirSync(rootFolder, { withFileTypes: true }).filter(d => d.isDirectory());
     for (const dir of dirs) {
       const dirPath = path.join(rootFolder, dir.name);
-      const files = getVideoFiles(dirPath);
-      for (const file of files) {
+      for (const file of getVideoFiles(dirPath)) {
         const parsed = parseVideoFilename(file.name, dir.name);
-        if (parsed.matched) {
-          const newPath = path.join(dirPath, parsed.newName);
-          if (!dryRun) fs.renameSync(file.path, newPath);
-          results.push({ old: file.name, new: parsed.newName, series: parsed.series });
-        }
+        if (!parsed.matched || !isSafeFileName(parsed.newName) || parsed.newName === file.name) continue;
+        const newPath = path.join(dirPath, parsed.newName);
+        try {
+          if (!dryRun) { moveNoClobber(file.path, newPath); moves.push({ from: newPath, to: file.path }); }
+          results.push({ old: file.name, new: parsed.newName, series: parsed.series, status: dryRun ? 'preview' : 'renamed' });
+        } catch (e) { results.push({ old: file.name, status: 'error', error: e.message }); }
       }
     }
   } catch (e) { return { error: e.message }; }
+  if (!dryRun) saveOrganizerUndo('Rename', moves);
   return { results };
 });
 
+// Legacy: group loose files of a folder into per-series folders (not used by the 5.x UI).
 ipcMain.handle('manager:group', async (_, rootFolder, seasonalFolder, dryRun = true) => {
   if (!isAllowedFileActionPath(rootFolder) || (seasonalFolder && !isAllowedFileActionPath(seasonalFolder))) return { error: 'Folder is outside configured AnimeVault folders' };
   if (!fs.existsSync(rootFolder)) return { error: 'Folder not found' };
-  const results = [];
+  const results = [], moves = [];
   try {
-    const files = getVideoFiles(rootFolder);
-    for (const file of files) {
+    for (const file of getVideoFiles(rootFolder)) {
       const parsed = parseVideoFilename(file.name);
-      if (parsed.matched && parsed.series) {
-        const seriesDir = path.join(seasonalFolder || rootFolder, parsed.series);
-        if (!dryRun) fs.mkdirSync(seriesDir, { recursive: true });
-        const newPath = path.join(seriesDir, parsed.newName);
-        if (!dryRun) fs.renameSync(file.path, newPath);
-        results.push({ file: file.name, series: parsed.series, newName: parsed.newName });
-      }
+      if (!parsed.matched || !isSafeFileName(parsed.series) || !isSafeFileName(parsed.newName)) continue;
+      const seriesDir = path.join(seasonalFolder || rootFolder, parsed.series);
+      const newPath = path.join(seriesDir, parsed.newName);
+      try {
+        if (!dryRun) { fs.mkdirSync(seriesDir, { recursive: true }); moveNoClobber(file.path, newPath); moves.push({ from: newPath, to: file.path }); }
+        results.push({ file: file.name, series: parsed.series, newName: parsed.newName, status: dryRun ? 'preview' : 'moved' });
+      } catch (e) { results.push({ file: file.name, status: 'error', error: e.message }); }
     }
   } catch (e) { return { error: e.message }; }
+  if (!dryRun) saveOrganizerUndo('Group', moves);
   return { results };
 });
 
-ipcMain.handle('manager:ungroup', async (_, rootFolder, seasonalFolder, dryRun = true) => {
-  if (!isAllowedFileActionPath(rootFolder) || (seasonalFolder && !isAllowedFileActionPath(seasonalFolder))) return { error: 'Folder is outside configured AnimeVault folders' };
-  if (!fs.existsSync(rootFolder)) return { error: 'Folder not found' };
-  const results = [];
+// Ungroup: move the media files of `folder` up into its parent, then remove
+// the folder when nothing is left in it. Only ever touches that one folder.
+ipcMain.handle('manager:ungroup', async (_, parentFolder, folder, dryRun = true) => {
   try {
-    const dirs = fs.readdirSync(rootFolder, { withFileTypes: true }).filter(d => d.isDirectory());
-    for (const dir of dirs) {
-      const dirPath = path.join(rootFolder, dir.name);
-      const files = getVideoFiles(dirPath);
-      for (const file of files) {
-        const newPath = path.join(seasonalFolder || rootFolder, file.name);
-        if (!dryRun) fs.renameSync(file.path, newPath);
-        results.push({ file: file.name, from: dir.name });
-      }
+    assertAllowedChildFileActionPath(folder);
+    const parent = path.dirname(path.resolve(folder));
+    if (parentFolder && path.resolve(parentFolder) !== parent) return { error: 'Parent folder does not match' };
+    assertAllowedFileActionPath(parent);
+    if (!fs.existsSync(folder) || !fs.statSync(folder).isDirectory()) return { error: 'Folder not found' };
+    const results = [], moves = [];
+    for (const file of organizerMediaScanner()(folder, false)) {
+      const to = path.join(parent, file.name);
+      if (dryRun) { results.push({ file: file.name, status: 'preview' }); continue; }
+      try {
+        moveNoClobber(file.path, to);
+        moves.push({ from: to, to: file.path });
+        results.push({ file: file.name, status: 'moved' });
+      } catch (e) { results.push({ file: file.name, status: fs.existsSync(to) ? 'already exists in parent' : 'error', error: e.message }); }
     }
+    if (!dryRun) {
+      saveOrganizerUndo('Ungroup', moves);
+      try { if (!fs.readdirSync(folder).length) fs.rmdirSync(folder); } catch (e) { /* keep non-empty folder */ }
+    }
+    return { results };
   } catch (e) { return { error: e.message }; }
-  return { results };
 });
 
+// Batch: for every series subfolder of `batchFolder`, clean the folder name
+// and rename the media files inside to match it.
 ipcMain.handle('manager:batch', async (_, batchFolder, dryRun = true) => {
   if (!isAllowedFileActionPath(batchFolder)) return { error: 'Folder is outside configured AnimeVault folders' };
   if (!fs.existsSync(batchFolder)) return { error: 'Folder not found' };
-  const results = [];
+  const results = [], moves = [];
   try {
-    const files = getVideoFiles(batchFolder);
-    const groups = Object.create(null);
-    for (const file of files) {
-      const parsed = parseVideoFilename(file.name);
-      if (parsed.matched && parsed.series) {
-        if (!groups[parsed.series]) groups[parsed.series] = [];
-        groups[parsed.series].push(file);
-      }
-    }
-    for (const series of Object.keys(groups)) {
-      const seriesDir = path.join(batchFolder, series);
-      if (!dryRun) fs.mkdirSync(seriesDir, { recursive: true });
-      for (const file of groups[series]) {
-        const newPath = path.join(seriesDir, file.name);
-        if (!dryRun) fs.renameSync(file.path, newPath);
-        results.push({ file: file.name, series });
-      }
-    }
-  } catch (e) { return { error: e.message }; }
-  return { results };
-});
-
-ipcMain.handle('manager:format', async (_, sourceFolder, destFolder) => {
-  if (!isAllowedFileActionPath(sourceFolder) || (destFolder && !isAllowedFileActionPath(destFolder))) return { error: 'Folder is outside configured AnimeVault folders' };
-  if (!fs.existsSync(sourceFolder)) return { error: 'Source folder not found' };
-  const results = [];
-  const undo = [];
-  try {
-    const items = fs.readdirSync(sourceFolder, { withFileTypes: true });
-    for (const item of items) {
-      if (!item.isDirectory() || item.name.startsWith('.')) continue;
-      const seriesPath = path.join(sourceFolder, item.name);
-      const files = getVideoFiles(seriesPath);
-      for (const file of files) {
-        const parsed = parseVideoFilename(file.name, item.name);
-        if (parsed.matched) {
-          const newPath = path.join(seriesPath, parsed.newName);
-          fs.renameSync(file.path, newPath);
-          undo.push({ old: newPath, new: file.path });
-          results.push({ old: file.name, new: parsed.newName });
+    const dirs = fs.readdirSync(batchFolder, { withFileTypes: true }).filter(d => d.isDirectory() && !d.name.startsWith('.'));
+    for (const dir of dirs) {
+      let dirPath = path.join(batchFolder, dir.name);
+      if (!organizerMediaScanner()(dirPath, false).length) continue;
+      const info = extractSeriesName(dir.name);
+      const clean = String(info.title || cleanFolderName(dir.name)).trim();
+      if (clean && clean !== dir.name) {
+        if (!isSafeFileName(clean)) { results.push({ type: 'Folder', old: dir.name, status: 'error', error: 'Invalid folder name' }); continue; }
+        const to = path.join(batchFolder, clean);
+        if (dryRun) results.push({ type: 'Folder', old: dir.name, new: clean, status: 'preview' });
+        else {
+          try { moveNoClobber(dirPath, to); moves.push({ from: to, to: dirPath }); results.push({ type: 'Folder', old: dir.name, new: clean, status: 'renamed' }); dirPath = to; }
+          catch (e) { results.push({ type: 'Folder', old: dir.name, status: 'error', error: e.message }); continue; }
         }
       }
+      renameFilesForSeries(dirPath, clean || dir.name, dryRun, moves, results);
     }
-    fs.writeFileSync(path.join(app.getPath('userData'), 'format-undo.json'), JSON.stringify(undo));
   } catch (e) { return { error: e.message }; }
+  if (!dryRun) saveOrganizerUndo('Batch process', moves);
+  return { results: results.filter(r => r.status !== 'skip') };
+});
+
+// Format loose files: every media file directly inside `sourceFolder` moves to
+// <destFolder>/<Series>/<clean name>.
+ipcMain.handle('manager:format', async (_, sourceFolder, destFolder) => {
+  const dest = destFolder || sourceFolder;
+  if (!isAllowedFileActionPath(sourceFolder) || !isAllowedFileActionPath(dest)) return { error: 'Folder is outside configured AnimeVault folders' };
+  if (!fs.existsSync(sourceFolder)) return { error: 'Source folder not found' };
+  const results = [], moves = [];
+  try {
+    for (const file of organizerMediaScanner()(sourceFolder, false)) {
+      const parsed = parseLooseMedia(file.name);
+      if (!parsed.matched || !parsed.series) { results.push({ file: file.name, status: 'no match' }); continue; }
+      if (!isSafeFileName(parsed.series) || !isSafeFileName(parsed.newName)) { results.push({ file: file.name, status: 'unsafe name' }); continue; }
+      const seriesDir = path.join(dest, parsed.series);
+      const to = path.join(seriesDir, parsed.newName);
+      try {
+        fs.mkdirSync(seriesDir, { recursive: true });
+        moveNoClobber(file.path, to);
+        moves.push({ from: to, to: file.path });
+        results.push({ file: file.name, series: parsed.series, newName: parsed.newName, status: 'formatted' });
+      } catch (e) { results.push({ file: file.name, status: fs.existsSync(to) ? 'already exists' : 'error', error: e.message }); }
+    }
+  } catch (e) { return { error: e.message }; }
+  saveOrganizerUndo('Format loose files', moves);
   return { results };
 });
 
-ipcMain.handle('manager:formatFolder', async (_, folderPath, newFolderName) => {
+// Rename inside a folder: files take the (optionally new) folder name.
+async function formatSeriesFolder(folderPath, newFolderName) {
   try {
     assertAllowedChildFileActionPath(folderPath);
-    if (!newFolderName || path.basename(newFolderName) !== newFolderName || newFolderName === '.' || newFolderName === '..' || /[<>:"/\\|?*\x00-\x1f]/.test(newFolderName) || /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i.test(newFolderName)) throw new Error('Invalid folder name');
-    const newPath = path.join(path.dirname(folderPath), newFolderName);
-    if (newPath !== folderPath && fs.existsSync(newPath)) throw new Error('A folder with that name already exists');
-    fs.renameSync(folderPath, newPath);
-    return { success: true, newPath };
+    if (!fs.existsSync(folderPath) || !fs.statSync(folderPath).isDirectory()) throw new Error('Folder not found');
+    const name = String(newFolderName || path.basename(folderPath)).trim();
+    if (!isSafeFileName(name)) throw new Error('Invalid folder name');
+    const results = [], moves = [];
+    renameFilesForSeries(folderPath, name, false, moves, results);
+    let newPath = folderPath;
+    if (name !== path.basename(folderPath)) {
+      const to = path.join(path.dirname(folderPath), name);
+      try { moveNoClobber(folderPath, to); moves.push({ from: to, to: folderPath }); newPath = to; results.push({ type: 'Folder', file: path.basename(folderPath), old: path.basename(folderPath), new: name, newName: name, status: 'renamed' }); }
+      catch (e) { results.push({ type: 'Folder', file: path.basename(folderPath), status: 'error', error: e.message }); }
+    }
+    saveOrganizerUndo('Rename inside folder', moves);
+    return { success: true, newPath, results };
   } catch (e) { return { success: false, error: e.message }; }
-});
-
-ipcMain.handle('manager:formatManga', async (_, folderPath, newFolderName) => {
-  try {
-    assertAllowedChildFileActionPath(folderPath);
-    if (!newFolderName || path.basename(newFolderName) !== newFolderName || newFolderName === '.' || newFolderName === '..' || /[<>:"/\\|?*\x00-\x1f]/.test(newFolderName) || /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i.test(newFolderName)) throw new Error('Invalid folder name');
-    const newPath = path.join(path.dirname(folderPath), newFolderName);
-    if (newPath !== folderPath && fs.existsSync(newPath)) throw new Error('A folder with that name already exists');
-    fs.renameSync(folderPath, newPath);
-    return { success: true, newPath };
-  } catch (e) { return { success: false, error: e.message }; }
-});
+}
+ipcMain.handle('manager:formatFolder', (_, folderPath, newFolderName) => formatSeriesFolder(folderPath, newFolderName));
+ipcMain.handle('manager:formatManga', (_, folderPath, newFolderName) => formatSeriesFolder(folderPath, newFolderName));
 
 ipcMain.handle('manager:undoFormat', async () => {
   try {
-    const undoPath = path.join(app.getPath('userData'), 'format-undo.json');
-    if (!fs.existsSync(undoPath)) return { error: 'No undo available' };
-    const raw = fs.readFileSync(undoPath, 'utf-8');
-    const undo = JSON.parse(raw);
-    if (!Array.isArray(undo)) throw new Error('Invalid undo data format');
-    for (const op of undo) {
-      if (op && op.old && op.new && fs.existsSync(op.old)) {
-        assertAllowedFileActionPath(op.new);
-        fs.renameSync(op.old, op.new);
-      }
+    const undoPath = FORMAT_UNDO_PATH();
+    if (!fs.existsSync(undoPath)) return { error: 'Nothing to undo' };
+    const data = JSON.parse(fs.readFileSync(undoPath, 'utf-8'));
+    // v2: { moves: [{ from: current, to: original }] }; v1 (≤5.0): [{ old: current, new: original }]
+    const moves = Array.isArray(data) ? data.map(op => ({ from: op && op.old, to: op && op.new })) : (data && Array.isArray(data.moves) ? data.moves : null);
+    if (!moves) throw new Error('Invalid undo data format');
+    const results = [];
+    for (const op of moves.slice().reverse()) {
+      if (!op || typeof op.from !== 'string' || typeof op.to !== 'string') continue;
+      const label = path.basename(op.from);
+      try {
+        assertAllowedFileActionPath(op.from);
+        assertAllowedFileActionPath(op.to);
+        if (!fs.existsSync(op.from)) { results.push({ file: label, status: 'missing' }); continue; }
+        fs.mkdirSync(path.dirname(op.to), { recursive: true });
+        moveNoClobber(op.from, op.to);
+        results.push({ file: label, restored: path.basename(op.to), status: 'restored' });
+      } catch (e) { results.push({ file: label, status: 'error', error: e.message }); }
     }
     fs.unlinkSync(undoPath);
-    return { success: true };
+    return { success: true, results };
   } catch (e) { return { error: e.message }; }
 });
 
-ipcMain.handle('manager:hasUndo', () => {
-  return fs.existsSync(path.join(app.getPath('userData'), 'format-undo.json'));
-});
+ipcMain.handle('manager:hasUndo', () => fs.existsSync(FORMAT_UNDO_PATH()));
 
 // ================================================================
 //  MANGA
@@ -3221,18 +3410,25 @@ ipcMain.handle('library:importAniList', async (_, filePath) => {
   }
 });
 
+// Credentials never leave the machine in a backup: the zip often ends up in
+// cloud-synced folders. Restoring keeps whatever account is connected now.
+const BACKUP_SECRET_KEYS = ['malAccessToken', 'malRefreshToken', 'malTokenExpiry', 'malCodeVerifier', 'malAuthState', 'malClientSecret', 'openrouterApiKey', '_userDataPath'];
+
 ipcMain.handle('library:backup', async (_, destPath) => {
   try {
     const AdmZip = require('adm-zip');
     const zip = new AdmZip();
-    zip.addLocalFile(CONFIG_PATH, '', 'config.json');
-    zip.addLocalFolder(CACHE_DIR, 'cover-cache');
+    const safeConfig = { ...config };
+    BACKUP_SECRET_KEYS.forEach(key => delete safeConfig[key]);
+    zip.addFile('config.json', Buffer.from(JSON.stringify(safeConfig, null, 2), 'utf-8'));
+    if (fs.existsSync(CACHE_DIR)) zip.addLocalFolder(CACHE_DIR, 'cover-cache');
     let outPath;
     if (destPath && typeof destPath === 'string' && destPath.trim()) {
       outPath = path.resolve(destPath);
       const ud = normalizeFsPath(app.getPath('userData'));
       if (ud && isInsidePath(ud, outPath)) return { success: false, error: 'Backup destination cannot be inside app data' };
       if (path.extname(outPath).toLowerCase() !== '.zip') return { success: false, error: 'Backup must end in .zip' };
+      if (fs.existsSync(outPath)) return { success: false, error: 'A file with that name already exists' };
     } else {
       outPath = path.join(app.getPath('downloads'), `AnimeVault-Backup-${new Date().toISOString().slice(0,10)}.zip`);
     }
@@ -3244,19 +3440,56 @@ ipcMain.handle('library:backup', async (_, destPath) => {
   }
 });
 
+const RESTORE_MAX_ENTRIES = 50000;
+const RESTORE_MAX_BYTES = 2 * 1024 * 1024 * 1024;
+const RESTORE_MAX_CONFIG_BYTES = 64 * 1024 * 1024;
 ipcMain.handle('library:restore', async (_, zipPath) => {
   try {
-    if (!zipPath || path.extname(zipPath).toLowerCase() !== '.zip') return { success: false, error: 'Choose a .zip backup file' };
+    if (!zipPath || typeof zipPath !== 'string' || path.extname(zipPath).toLowerCase() !== '.zip') return { success: false, error: 'Choose a .zip backup file' };
     const AdmZip = require('adm-zip');
     const zip = new AdmZip(zipPath);
-    const unsafe = zip.getEntries().find(entry => {
+    const entries = zip.getEntries();
+    if (entries.length > RESTORE_MAX_ENTRIES) return { success: false, error: 'Backup has too many files' };
+    let total = 0;
+    for (const entry of entries) {
       const name = entry.entryName.replace(/\\/g, '/');
-      return path.isAbsolute(name) || name.split('/').includes('..') || (name !== 'config.json' && !name.startsWith('cover-cache/'));
-    });
-    if (unsafe) return { success: false, error: 'Backup contains unsafe or unexpected files' };
-    zip.extractEntryTo('config.json', path.dirname(CONFIG_PATH), false, true);
-    zip.extractEntryTo('cover-cache/', app.getPath('userData'), false, true);
+      const parts = name.split('/');
+      const okShape = name === 'config.json' || (parts[0] === 'cover-cache' && (entry.isDirectory ? parts.length <= 2 : parts.length === 2 && isSafeFileName(parts[1])));
+      if (path.isAbsolute(name) || parts.includes('..') || !okShape) return { success: false, error: 'Backup contains unsafe or unexpected files' };
+      total += Number(entry.header && entry.header.size) || 0;
+      if (total > RESTORE_MAX_BYTES) return { success: false, error: 'Backup is too large' };
+    }
+    const cfgEntry = zip.getEntry('config.json');
+    if (!cfgEntry || Number(cfgEntry.header.size) > RESTORE_MAX_CONFIG_BYTES) return { success: false, error: 'Backup has no usable config.json' };
+    let restored;
+    try { restored = JSON.parse(cfgEntry.getData().toString('utf-8')); } catch (e) { return { success: false, error: 'Backup config.json is not valid JSON' }; }
+    if (!restored || typeof restored !== 'object' || Array.isArray(restored)) return { success: false, error: 'Backup config.json is not a settings file' };
+    // Unknown keys are dropped; credentials always come from the current session.
+    const next = {};
+    for (const key of Object.keys(restored)) {
+      if (isSafeConfigKey(key) && !BACKUP_SECRET_KEYS.includes(key) && key !== 'hasMalClientSecret' && key !== 'hasOpenrouterApiKey') next[key] = restored[key];
+    }
+    for (const key of BACKUP_SECRET_KEYS) if (key !== '_userDataPath' && key !== 'openrouterApiKey' && config[key] !== undefined) next[key] = config[key];
+    // Covers: files only, written straight into cover-cache (never elsewhere).
+    fs.mkdirSync(CACHE_DIR, { recursive: true });
+    for (const entry of entries) {
+      if (entry.isDirectory || !entry.entryName.replace(/\\/g, '/').startsWith('cover-cache/')) continue;
+      const base = entry.entryName.replace(/\\/g, '/').split('/')[1];
+      const ext = path.extname(base).toLowerCase();
+      if (!['.jpg', '.jpeg', '.png', '.webp'].includes(ext)) continue;
+      fs.writeFileSync(path.join(CACHE_DIR, base), entry.getData());
+    }
+    // Swap settings in place (other modules hold this object), write through
+    // the normal safety chain (.bak rotation, shrink guard), then reload so
+    // defaults fill anything an older backup lacks.
+    flushSaveConfig();
+    const openrouterKey = config.openrouterApiKey;
+    for (const key of Object.keys(config)) delete config[key];
+    Object.assign(config, next);
+    writeConfigSafely();
     loadConfig();
+    config.openrouterApiKey = openrouterKey;
+    clearLibraryIndex();
     return { success: true };
   } catch (e) {
     return { success: false, error: e.message };
@@ -3574,6 +3807,7 @@ ipcMain.handle('watcher:start', (_, watchFolder, destFolder) => {
   const wf = typeof watchFolder === 'string' ? watchFolder.trim() : '';
   const df = typeof destFolder === 'string' ? destFolder.trim() : wf;
   if (!wf || !path.isAbsolute(wf) || !fs.existsSync(wf)) return { error: 'Watch folder does not exist' };
+  if (isForbiddenRoot(wf) || (df && isForbiddenRoot(df))) return { error: 'That folder can’t be watched — pick a downloads or library folder' };
   if (df !== wf && !isAllowedFileActionPath(df)) return { error: 'Destination folder is outside configured AnimeVault folders' };
   config.watcherFolder = wf;
   config.watcherDest = df;
@@ -3602,7 +3836,8 @@ ipcMain.handle('watcher:placeNewSeries', (_, item, destFolder) => {
     const baseDest = destFolder || config.watcherDest || config.folders[0]?.path || '';
     if (!baseDest || !isAllowedFileActionPath(baseDest)) throw new Error('Destination is outside configured AnimeVault folders');
     if (!isAllowedFileActionPath(item.originalPath)) throw new Error('Source is outside configured AnimeVault folders');
-    if (path.basename(item.series) !== item.series || item.series === '.' || item.series === '..') throw new Error('Invalid series name');
+    if (!isSafeFileName(item.series)) throw new Error('Invalid series name');
+    if (!item.isFolder && !isSafeFileName(item.newName)) throw new Error('Invalid file name');
     const targetDir = path.join(baseDest, item.series);
     fs.mkdirSync(targetDir, { recursive: true });
 
@@ -3618,7 +3853,7 @@ ipcMain.handle('watcher:placeNewSeries', (_, item, destFolder) => {
         for (const f of files) {
           const destFile = path.join(targetPath, path.basename(f.path));
           if (!fs.existsSync(destFile)) {
-            fs.renameSync(f.path, destFile);
+            moveNoClobber(f.path, destFile);
             moved++;
           }
         }
@@ -3630,7 +3865,7 @@ ipcMain.handle('watcher:placeNewSeries', (_, item, destFolder) => {
         return { success: true, moved, path: targetPath, merged: true };
       }
       if (fs.existsSync(item.originalPath)) {
-        fs.renameSync(item.originalPath, targetPath);
+        moveNoClobber(item.originalPath, targetPath);
         return { success: true, path: targetPath };
       }
       return { success: false, error: 'Source folder not found' };
@@ -3639,7 +3874,8 @@ ipcMain.handle('watcher:placeNewSeries', (_, item, destFolder) => {
     // Placing a single file
     const targetPath = path.join(targetDir, item.newName);
     if (fs.existsSync(item.originalPath)) {
-      fs.renameSync(item.originalPath, targetPath);
+      assertPlayableMedia(item.originalPath);
+      moveNoClobber(item.originalPath, targetPath);
       return { success: true, path: targetPath };
     }
     return { success: false, error: 'Source file not found' };
@@ -3714,6 +3950,7 @@ ipcMain.handle('duplicate:resolve', (_, data) => {
     for (const p of deletePaths) {
       if (!p || typeof p !== 'string' || p === keep) continue;
       assertAllowedFileActionPath(p);
+      assertPlayableMedia(p, VIDEO_EXTS.concat(MANGA_EXTS));
       if (fs.existsSync(p)) {
         fs.unlinkSync(p);
         deleted++;
@@ -3897,6 +4134,7 @@ ipcMain.handle('window:close', () => {
   }
 });
 ipcMain.handle('window:setMinimizeToTray', (_, enabled) => {
+  enabled = enabled === true;
   config.minimizeToTray = enabled;
   saveConfig();
   applyMinimizeToTray(enabled);
@@ -3916,8 +4154,7 @@ function handleCoverRequest(request) {
     if (!['.jpg', '.jpeg', '.png', '.webp'].includes(ext)) return new Response(null, { status: 404 });
     const ud = normalizeFsPath(app.getPath('userData'));
     if (ud && isInsidePath(ud, fp)) {
-      const rel = path.relative(ud, fp).toLowerCase();
-      if (!rel.startsWith('cover-cache') && !rel.startsWith('thumbnails')) return new Response(null, { status: 404 });
+      if (!isServableUserDataImage(fp)) return new Response(null, { status: 404 });
     } else if (!isAllowedFileActionPath(fp)) {
       return new Response(null, { status: 404 });
     }
@@ -3927,6 +4164,19 @@ function handleCoverRequest(request) {
     return new Response(null, { status: 404 });
   }
 }
+
+// Defense in depth for every web contents the app ever creates (not only the
+// main window): no <webview>, no pop-up windows, no navigation away.
+app.on('web-contents-created', (_, contents) => {
+  contents.on('will-attach-webview', (event) => event.preventDefault());
+  contents.setWindowOpenHandler(({ url }) => {
+    if (isSafeExternalUrl(url)) shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  contents.on('will-navigate', (event, url) => {
+    if (url !== contents.getURL()) event.preventDefault();
+  });
+});
 
 app.whenReady().then(() => {
   protocol.handle('cover', handleCoverRequest);
