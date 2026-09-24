@@ -391,34 +391,32 @@ function formatLumaMarkdown(raw){
   if(!raw)return '';
   var s=E(raw);
   // Code blocks: ```lang ... ```
-  s=s.replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g,function(_,lang,code){
-    return '<pre style="background:var(--bg-surface);padding:8px 10px;border-radius:6px;border:1px solid var(--border);font-family:monospace;font-size:11.5px;overflow-x:auto;margin:6px 0"><code>'+code.trim()+'</code></pre>';
-  });
+  s=s.replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g,function(_,lang,code){return '<pre class="md-pre"><code>'+code.trim()+'</code></pre>';});
   // Inline code: `code`
-  s=s.replace(/`([^`\n]+)`/g,'<code style="background:rgba(255,200,60,.12);padding:1px 5px;border-radius:4px;font-family:monospace;font-size:11.5px;color:var(--accent-light)">$1</code>');
+  s=s.replace(/`([^`\n]+)`/g,'<code class="md-code">$1</code>');
   // Headers
-  s=s.replace(/^###\s+(.+)$/gm,'<div style="font-size:13px;font-weight:800;color:var(--text-primary);margin:6px 0 2px">$1</div>');
-  s=s.replace(/^##\s+(.+)$/gm,'<div style="font-size:13.5px;font-weight:800;color:var(--text-primary);margin:8px 0 3px">$1</div>');
-  s=s.replace(/^#\s+(.+)$/gm,'<div style="font-size:14px;font-weight:800;color:var(--text-primary);margin:10px 0 4px">$1</div>');
+  s=s.replace(/^###\s+(.+)$/gm,'<div class="md-h md-h3">$1</div>');
+  s=s.replace(/^##\s+(.+)$/gm,'<div class="md-h md-h2">$1</div>');
+  s=s.replace(/^#\s+(.+)$/gm,'<div class="md-h md-h1">$1</div>');
   // Horizontal rules
-  s=s.replace(/^(?:---|\*\*\*|___)\s*$/gm,'<hr style="border:none;border-top:1px solid var(--border);margin:8px 0">');
+  s=s.replace(/^(?:---|\*\*\*|___)\s*$/gm,'<hr class="md-hr">');
   // Bold & Italic
   s=s.replace(/\*\*\*([^\*\n]+)\*\*\*/g,'<strong><em>$1</em></strong>');
   s=s.replace(/___([^_\n]+)___/g,'<strong><em>$1</em></strong>');
   // Bold
-  s=s.replace(/\*\*([^\*\n]+)\*\*/g,'<strong style="font-weight:700;color:var(--text-primary)">$1</strong>');
-  s=s.replace(/__([^_\n]+)__/g,'<strong style="font-weight:700;color:var(--text-primary)">$1</strong>');
+  s=s.replace(/\*\*([^\*\n]+)\*\*/g,'<strong>$1</strong>');
+  s=s.replace(/__([^_\n]+)__/g,'<strong>$1</strong>');
   // Italic
   s=s.replace(/\*([^\*\n]+)\*/g,'<em>$1</em>');
   s=s.replace(/(?:^|\s)_([^_\n]+)_(?=\s|$)/g,' <em>$1</em>');
   // Strikethrough
   s=s.replace(/~~([^~\n]+)~~/g,'<del>$1</del>');
   // Bullet lists
-  s=s.replace(/^[ \t]*[-*•][ \t]+(.+)$/gm,'<div style="display:flex;gap:6px;margin:2px 0;align-items:flex-start"><span style="color:#fbbf24;font-size:11px;line-height:1.6;flex-shrink:0">•</span><span style="flex:1">$1</span></div>');
+  s=s.replace(/^[ \t]*[-*•][ \t]+(.+)$/gm,'<div class="md-li"><span class="md-mark">•</span><span>$1</span></div>');
   // Numbered lists
-  s=s.replace(/^[ \t]*(\d+)\.[ \t]+(.+)$/gm,'<div style="display:flex;gap:6px;margin:2px 0;align-items:flex-start"><span style="color:#fbbf24;font-size:11px;font-weight:700;line-height:1.6;flex-shrink:0">$1.</span><span style="flex:1">$2</span></div>');
+  s=s.replace(/^[ \t]*(\d+)\.[ \t]+(.+)$/gm,'<div class="md-li"><span class="md-mark num">$1.</span><span>$2</span></div>');
   // Paragraphs & newlines
-  s=s.replace(/\n\n+/g,'<div style="height:6px"></div>');
+  s=s.replace(/\n\n+/g,'<div class="md-gap"></div>');
   s=s.replace(/\n/g,'<br>');
   return s;
 }

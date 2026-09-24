@@ -374,7 +374,9 @@ function updateSegThumbs(root){
       thumb.style.transition='none';thumb.style.transform='translateX('+prev.x+'px)';thumb.style.width=prev.w+'px';
       void thumb.offsetWidth;thumb.style.transition='';
     }
+    var from=prev?prev.x:x;
     seg._segInit=true;
+    if(Math.abs(from-x)>4){thumb.classList.add('moving');clearTimeout(thumb._mv);thumb._mv=setTimeout(function(){thumb.classList.remove('moving');},150);}
     thumb.style.transform='translateX('+x+'px)';thumb.style.width=w+'px';
     if(id)_segPos[id]={x:x,w:w};
   });
@@ -388,7 +390,31 @@ document.addEventListener('click',function(e){
   updateSegThumbs(seg.parentElement);
 },true);
 
+// ------------------------------------------------------ specular pointer --
+// Glass catches light where the pointer is: interactive surfaces receive the
+// pointer position as --gx/--gy, which the rim and glare gradients use. One
+// passive listener, at most one style write per frame.
+var SPECULAR_SEL='.pc-art,.rc,.hub-tab,.kpi.clickable,.tool,.panel.interactive,.upnext-card,.btn-primary,.tb-search,.stat-tile.editable';
+(function(){
+  var raf=0,ev=null;
+  document.addEventListener('pointermove',function(e){
+    ev=e;if(raf)return;
+    raf=requestAnimationFrame(function(){
+      raf=0;if(document.documentElement.classList.contains('performance-mode'))return;
+      var t=ev.target&&ev.target.closest?ev.target.closest(SPECULAR_SEL):null;if(!t)return;
+      var r=t.getBoundingClientRect();
+      t.style.setProperty('--gx',Math.round(ev.clientX-r.left)+'px');t.style.setProperty('--gy',Math.round(ev.clientY-r.top)+'px');
+    });
+  },{passive:true});
+})();
+// The title bar's blurred scroll edge only appears once content is under it.
+document.addEventListener('scroll',function(e){
+  if(e.target&&e.target.id==='mc')document.body.classList.toggle('mc-scrolled',e.target.scrollTop>4);
+},true);
+
 // ------------------------------------------------------------- misc utils --
+// Height of the floating title bar that content scrolls beneath.
+function chromeTop(){var t=document.querySelector('.titlebar');return t?t.offsetHeight:0;}
 function debounce(fn,ms){var t=null;return function(){var a=arguments,self=this;clearTimeout(t);t=setTimeout(function(){fn.apply(self,a);},ms);};}
 function fmtBytes(b){if(!b)return '0 B';var k=1024,s=['B','KB','MB','GB','TB'];var i=Math.min(s.length-1,Math.floor(Math.log(b)/Math.log(k)));return (b/Math.pow(k,i)).toFixed(i>0?1:0)+' '+s[i];}
 function timeAgo(ts){

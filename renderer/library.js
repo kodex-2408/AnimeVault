@@ -9,6 +9,8 @@ function seriesProgress(s){
   var pct=total>0?Math.min(100,high/total*100):0;
   return {high:high,total:total,pct:pct,mls:mls};
 }
+// Poster badges are narrow: "Tomorrow 3:30 PM" → "Tmrw 3:30p".
+function compactBroadcast(label){return String(label||'').replace(/^Tomorrow\b/,'Tmrw').replace(/^Aired Today$/,'Aired').replace(/\s?([AP])M$/i,function(m,a){return a.toLowerCase();});}
 function seriesBroadcast(s){var md=s.watchData&&s.watchData.malData;return md&&md.broadcast&&md.broadcast.day_of_the_week&&md.status==='currently_airing'?calcNextBroadcast(md.broadcast):'';}
 function isInProgress(s){
   var ms=getMalStatus(s);
@@ -39,7 +41,7 @@ function sCard(s,i,ctx){
   h+='<div class="pc-badges">';
   if(S.selectMode)h+='<span class="pc-check">'+ic('check')+'</span>';
   else if(!hasSync)h+='<span class="media-badge warn"'+A('malRelink',s.name)+Tip('Not linked to MyAnimeList — click to link')+'>'+ic('link')+'Link</span>';
-  else if(bc)h+='<span class="media-badge">'+ic('tv')+E(bc)+'</span>';
+  else if(bc)h+='<span class="media-badge"'+Tip('Next episode '+bc)+'>'+E(compactBroadcast(bc))+'</span>';
   h+='<span class="right">'+(p.high>0?'<span class="media-badge'+(p.pct>=100?' accent':'')+'">'+p.high+'/'+(p.total||'?')+'</span>':'')+'</span></div>';
   if(!S.selectMode)h+='<button class="pc-play"'+A('pNxt',s.name)+' aria-label="Play next">'+ic('play')+'</button>';
   if(p.pct>0)h+='<div class="pc-bottom"><div class="pc-prog" style="--p:'+p.pct.toFixed(1)+'%"><i></i></div></div>';
@@ -107,6 +109,7 @@ function heroGoTo(idx){
   slides.forEach(function(el,i){el.classList.toggle('active',i===S.heroIdx);});
   dots.forEach(function(el,i){el.classList.toggle('active',i===S.heroIdx);if(i===S.heroIdx){el.style.animation='none';void el.offsetWidth;el.style.animation='';}});
   if(!hero.classList.contains('paused'))heroStartRotation(8000);
+  heroSyncAmbient();
 }
 function heroAdvance(dir){heroGoTo((S.heroIdx||0)+dir);}
 
@@ -177,8 +180,10 @@ function vLib(){
   h+=selectionBar();
   return h;
 }
+function heroSyncAmbient(){var bg=document.querySelector('#heroCarousel .hero-slide.active .hero-bg');if(bg)setAmbientArt(bg.getAttribute('src'));}
 function afterLibraryRender(){
   var hero=document.getElementById('heroCarousel');
+  heroSyncAmbient();
   if(hero){
     hero.addEventListener('mouseenter',heroPause);hero.addEventListener('mouseleave',heroResume);
     if(hero.querySelectorAll('.hero-slide').length>1)heroStartRotation(8000);
@@ -195,7 +200,7 @@ function updateShelfNav(id){
 function shelfScroll(id,dir){var sh=document.getElementById(id);if(!sh)return;var t=sh.querySelector('.shelf-track');t.scrollBy({left:dir*Math.max(300,t.clientWidth*.8),behavior:'smooth'});}
 function observeStickyToolbar(){
   var tb=document.getElementById('libToolbar');var mc=document.getElementById('mc');if(!tb||!mc)return;
-  var onScroll=function(){tb.classList.toggle('stuck',tb.getBoundingClientRect().top<=mc.getBoundingClientRect().top+1);};
+  var onScroll=function(){tb.classList.toggle('stuck',tb.getBoundingClientRect().top<=mc.getBoundingClientRect().top+chromeTop()+1);};
   if(mc._stickyHandler)mc.removeEventListener('scroll',mc._stickyHandler);
   mc._stickyHandler=onScroll;mc.addEventListener('scroll',onScroll,{passive:true});onScroll();
 }

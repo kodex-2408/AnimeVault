@@ -40,17 +40,32 @@
   --fill-3: rgba(255, 255, 255, .11);
   --scrim: rgba(4, 4, 8, .55);
 
-  /* Liquid glass */
+  /* Liquid glass
+     Three layers make the material: a tinted, blurred backdrop (--glass-bg +
+     --glass-filter), a specular rim that catches light on the top-left edge
+     and fades around the shape (--rim-*, drawn by the "Glass rim" rules in
+     components.css), and a soft inner sheen (--glass-sheen). */
   --glass-tint: var(--surface-1);
-  --glass-bg: color-mix(in srgb, var(--glass-tint) 58%, transparent);
-  --glass-bg-strong: color-mix(in srgb, var(--glass-tint) 80%, transparent);
-  --glass-bg-solid: color-mix(in srgb, var(--glass-tint) 94%, transparent);
-  --glass-blur: 26px;
-  --glass-sat: 175%;
-  --glass-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
-  --glass-edge: inset 0 1px 0 rgba(255, 255, 255, .085), inset 0 0 0 1px rgba(255, 255, 255, .055);
-  --glass-edge-strong: inset 0 1px 0 rgba(255, 255, 255, .14), inset 0 0 0 1px rgba(255, 255, 255, .085);
-  --glass-sheen: linear-gradient(180deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, 0) 42%);
+  --glass-bg: color-mix(in srgb, var(--glass-tint) 52%, transparent);
+  --glass-bg-strong: color-mix(in srgb, var(--glass-tint) 76%, transparent);
+  --glass-bg-solid: color-mix(in srgb, var(--glass-tint) 92%, transparent);
+  --glass-blur: 28px;
+  --glass-sat: 185%;
+  --glass-filter: blur(var(--glass-blur)) saturate(var(--glass-sat)) brightness(1.04);
+  --glass-edge: inset 0 1px 0 rgba(255, 255, 255, .07), inset 0 0 0 1px rgba(255, 255, 255, .045);
+  --glass-edge-strong: inset 0 1px 0 rgba(255, 255, 255, .1), inset 0 0 0 1px rgba(255, 255, 255, .065);
+  --glass-sheen: linear-gradient(180deg, rgba(255, 255, 255, .065), rgba(255, 255, 255, 0) 46%);
+  /* Content surfaces over the (already blurred) ambient backdrop: plain
+     translucency reads as frosted glass without paying for backdrop-filter. */
+  --surface-glass: color-mix(in srgb, var(--surface-1) 72%, transparent);
+  --surface-glass-2: color-mix(in srgb, var(--surface-2) 64%, transparent);
+  --rim-hi: rgba(255, 255, 255, .42);
+  --rim-mid: rgba(255, 255, 255, .12);
+  --rim-lo: rgba(255, 255, 255, .035);
+  --rim-end: rgba(255, 255, 255, .2);
+  /* The rim gradient itself is written in components.css (not as a token) so
+     surfaces can retune --rim-hi/--rim-mid/--rim-lo locally. */
+  --lens-glow: inset 0 1px 1px rgba(255, 255, 255, .22), inset 0 -8px 18px -10px rgba(255, 255, 255, .14);
 
   /* Elevation — the only four shadows in the app */
   --shadow-1: 0 1px 2px rgba(0, 0, 0, .26), 0 3px 10px rgba(0, 0, 0, .16);
@@ -89,9 +104,11 @@
   --dur-4: calc(620ms * var(--m));
 
   /* Layout */
-  --titlebar-h: 46px;
+  --titlebar-h: 48px;
   --sidebar-w: 236px;
   --rail-w: 70px;
+  --chrome-gap: 10px;
+  --sidebar-r: 22px;
   --pad-x: clamp(20px, 3vw, 40px);
   --content-max: 1680px;
 
@@ -125,9 +142,18 @@
   --scrim: rgba(40, 34, 24, .28);
   --glass-bg: color-mix(in srgb, var(--glass-tint) 62%, transparent);
   --glass-bg-strong: color-mix(in srgb, var(--glass-tint) 84%, transparent);
+  --glass-bg-solid: color-mix(in srgb, var(--glass-tint) 90%, transparent);
+  --glass-filter: blur(var(--glass-blur)) saturate(var(--glass-sat)) brightness(1.02);
   --glass-edge: inset 0 1px 0 rgba(255, 255, 255, .8), inset 0 0 0 1px rgba(20, 16, 8, .07);
   --glass-edge-strong: inset 0 1px 0 rgba(255, 255, 255, .95), inset 0 0 0 1px rgba(20, 16, 8, .1);
   --glass-sheen: linear-gradient(180deg, rgba(255, 255, 255, .55), rgba(255, 255, 255, 0) 45%);
+  --surface-glass: color-mix(in srgb, var(--surface-1) 70%, transparent);
+  --surface-glass-2: color-mix(in srgb, var(--surface-2) 62%, transparent);
+  --rim-hi: rgba(255, 255, 255, 1);
+  --rim-mid: rgba(255, 255, 255, .55);
+  --rim-lo: rgba(20, 16, 8, .06);
+  --rim-end: rgba(20, 16, 8, .1);
+  --lens-glow: inset 0 1px 1px rgba(255, 255, 255, .9), inset 0 -8px 18px -10px rgba(255, 255, 255, .6);
   --shadow-1: 0 1px 2px rgba(40, 30, 10, .08), 0 3px 10px rgba(40, 30, 10, .06);
   --shadow-2: 0 6px 16px rgba(40, 30, 10, .10), 0 18px 40px rgba(40, 30, 10, .10);
   --shadow-3: 0 12px 34px rgba(40, 30, 10, .16), 0 3px 10px rgba(40, 30, 10, .08);
@@ -151,9 +177,11 @@
 }
 
 /* Transparency levels (Appearance → Transparency) */
-:root[data-glass="frosted"] { --glass-bg: color-mix(in srgb, var(--glass-tint) 80%, transparent); --glass-blur: 18px; }
+:root[data-glass="frosted"] { --glass-bg: color-mix(in srgb, var(--glass-tint) 80%, transparent); --glass-bg-strong: color-mix(in srgb, var(--glass-tint) 88%, transparent); --glass-blur: 18px; }
 :root[data-glass="solid"],
 :root.performance-mode {
+  --surface-glass: var(--surface-1);
+  --surface-glass-2: var(--surface-2);
   --glass-bg: var(--surface-1);
   --glass-bg-strong: var(--surface-1);
   --glass-bg-solid: var(--surface-1);

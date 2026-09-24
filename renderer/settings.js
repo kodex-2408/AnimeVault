@@ -134,7 +134,7 @@ function afterSettingsRender(){
   var mc=document.getElementById('mc');
   if(mc._setSpy)mc.removeEventListener('scroll',mc._setSpy);
   mc._setSpy=debounce(function(){
-    if(S.view!=='settings')return;var top=mc.getBoundingClientRect().top+120;var cur=null;
+    if(S.view!=='settings')return;var top=mc.getBoundingClientRect().top+chromeTop()+120;var cur=null;
     document.querySelectorAll('.set-sec').forEach(function(s){if(s.style.display!=='none'&&s.getBoundingClientRect().top<=top)cur=s.id.slice(4);});
     if(cur&&cur!==S.setSection){S.setSection=cur;document.querySelectorAll('.set-nav[data-sec]').forEach(function(b){b.classList.toggle('active',b.getAttribute('data-sec')===cur);});}
   },60);

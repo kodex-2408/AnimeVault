@@ -47,6 +47,9 @@ function positionNavIndicator(instant){
   if(!active){ind.style.opacity='0';return;}
   ind.style.opacity='1';
   if(instant){ind.style.transition='none';}
+  // The lens stretches while it travels, then springs back into shape.
+  var prevY=parseFloat(ind.style.getPropertyValue('--y'))||0;
+  if(!instant&&Math.abs(prevY-active.offsetTop)>4){ind.classList.add('moving');clearTimeout(ind._mv);ind._mv=setTimeout(function(){ind.classList.remove('moving');},170);}
   ind.style.setProperty('--y',active.offsetTop+'px');
   ind.style.height=active.offsetHeight+'px';
   if(instant){void ind.offsetWidth;ind.style.transition='';}
@@ -161,9 +164,9 @@ async function switchMode(mode){
 function uMal(){
   var chip=document.getElementById('syncToggle'),t=document.getElementById('malTxt');if(!chip||!t)return;
   if(S.mal){
-    if(S.cfg.syncPaused){chip.dataset.state='paused';t.textContent='MAL sync paused';chip.setAttribute('data-tip','Sync paused — click to resume');}
-    else{chip.dataset.state='on';t.textContent='MAL syncing';chip.setAttribute('data-tip','Real-time sync on — click to pause');}
-  }else{chip.dataset.state='off';t.textContent='MAL not connected';chip.setAttribute('data-tip','Connect MyAnimeList');}
+    if(S.cfg.syncPaused){chip.dataset.state='paused';t.textContent='Sync paused';chip.setAttribute('data-tip','MyAnimeList sync paused — click to resume');}
+    else{chip.dataset.state='on';t.textContent='MAL synced';chip.setAttribute('data-tip','Real-time MyAnimeList sync on — click to pause');}
+  }else{chip.dataset.state='off';t.textContent='Connect MAL';chip.setAttribute('data-tip','MyAnimeList isn’t connected — click to set it up');}
 }
 function uSyncBadge(){uMal();}
 function toggleSync(){

@@ -105,6 +105,23 @@ function setPerformanceMode(enabled){
   toast(enabled?'Performance mode on — glass and motion reduced':'Performance mode off','s');
 }
 
+// ------------------------------------------------------------ ambient art --
+// The backdrop takes its color from the featured series' artwork: a heavily
+// blurred copy crossfades in behind every glass surface (base.css .amb-art).
+var _ambSrc='';
+function setAmbientArt(src){
+  var amb=document.getElementById('ambient');if(!amb)return;
+  if(!src||S.cfg.performanceMode||S.cfg.backgroundEffects===false){src='';}
+  if(src===_ambSrc)return;_ambSrc=src;
+  if(!amb.querySelector('.amb-veil')){var v=document.createElement('i');v.className='amb-veil';amb.appendChild(v);}
+  var old=amb.querySelectorAll('.amb-art');
+  old.forEach(function(el){el.classList.remove('on');setTimeout(function(){el.remove();},1800);});
+  if(!src)return;
+  var img=document.createElement('img');img.className='amb-art';img.alt='';img.decoding='async';
+  img.onload=function(){requestAnimationFrame(function(){img.classList.add('on');});};
+  img.src=src;amb.insertBefore(img,amb.firstChild);
+}
+
 // ------------------------------------------------------ background effects --
 function clearBgEffects(){var c=document.getElementById('bgAnimationContainer');if(c)c.innerHTML='';}
 function initBackgroundEffects(){
