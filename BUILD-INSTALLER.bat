@@ -43,25 +43,18 @@ if not defined ARCH_LABEL set ARCH_LABEL=x64
 echo  [ >> ]   Building installer for: %ARCH_LABEL%
 echo.
 
-:: Install
-if not exist node_modules (
-    echo  [ 1/2 ]  Installing dependencies...
-    if exist package-lock.json (
-        call npm ci --no-audit --no-fund
-    ) else (
-        call npm install --no-audit --no-fund
-    )
-    if %errorlevel% neq 0 (
-        echo.
-        echo  [ERROR]  npm install failed.
-        echo           Review the npm error above, then re-run this script.
-        echo.
-        pause & exit /b 1
-    )
-    echo  [ OK ]   Dependencies ready
-) else (
-    echo  [ 1/2 ]  Dependencies ready ^(node_modules found^)
+:: Install - always sync dependencies. An updated app folder keeps its old
+:: node_modules otherwise, and would build the new code on an old Electron.
+echo  [ 1/2 ]  Installing dependencies...
+call npm install --no-audit --no-fund
+if errorlevel 1 (
+    echo.
+    echo  [ERROR]  npm install failed.
+    echo           Review the npm error above, then re-run this script.
+    echo.
+    pause & exit /b 1
 )
+echo  [ OK ]   Dependencies ready
 echo.
 
 :: Build

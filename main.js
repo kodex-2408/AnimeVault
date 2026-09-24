@@ -4219,11 +4219,14 @@ if (process.platform === 'win32') {
   if (!gotTheLock) {
     app.quit();
   } else {
-    app.on('second-instance', (event, commandLine) => {
-      if (mainWindow) {
-        if (mainWindow.isMinimized()) mainWindow.restore();
-        mainWindow.focus();
-      }
+    // A second launch hands over to the running instance. That instance may be
+    // hidden in the tray (minimize/close-to-tray), so show it — focusing a
+    // hidden window does nothing and the launch looks like it failed.
+    app.on('second-instance', () => {
+      if (!mainWindow || mainWindow.isDestroyed()) { if (app.isReady()) createWindow(); return; }
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      if (!mainWindow.isVisible()) mainWindow.show();
+      mainWindow.focus();
     });
   }
 }
