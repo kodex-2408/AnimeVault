@@ -3,6 +3,55 @@
 All notable changes, newest first. Engineering context — test guide, security
 posture, design decisions, open roadmap — lives in [DEVELOPMENT.md](DEVELOPMENT.md).
 
+## 5.1.0 — Refined glass, hardened core
+
+### Design
+- Floating chrome: the title bar is no longer a bar — search, Anime/Manga and
+  Luma float as glass capsules while content scrolls underneath, fading out
+  under a soft blurred edge. The sidebar is an inset glass panel with rounded
+  corners.
+- The backdrop takes its color from the featured series' artwork, so every
+  glass surface picks up the mood of what you're watching (off in
+  performance mode or with background effects disabled).
+- New glass material: a specular rim catches light on the top-left edge of
+  every glass surface and follows your pointer across cards, buttons and
+  tiles. Panels are frosted instead of opaque.
+- The sidebar selection and segmented controls move like liquid lenses: they
+  stretch while travelling and spring back into shape.
+- When the Collection toolbar docks, it and the title bar become one glass
+  surface instead of letting posters peek between them.
+- Glossier primary buttons, play buttons, progress and chart bars; empty
+  states get a floating glass orb.
+- Fixes: the MyAnimeList chip no longer truncates ("Connect MAL"), airing
+  badges on posters use a compact time ("Tmrw 3:30p") with the full time on
+  hover, the synopsis "Show more" no longer paints a mismatched box, and
+  Luma's chat formatting follows the theme instead of fixed colors.
+
+### Fixed
+- File Management tools were wired to a pre-5.0 contract. "Ungroup a folder"
+  moved the files of every sibling series folder into the one you picked;
+  "Rename inside a folder" and "Undo last operation" failed outright; every
+  result showed as skipped. All tools now work as described, never overwrite
+  an existing file, and every run can be undone.
+- Restoring a backup put covers in the wrong folder, so they never showed.
+
+### Security
+- Electron 33 → 44 (a year of Chromium security fixes), electron-builder 26,
+  adm-zip 0.6.1; `npm audit` reports 0 vulnerabilities (was 25).
+- Packaged builds lock Electron fuses: no run-as-Node mode, no NODE_OPTIONS
+  or --inspect hooks, and app code loads only from the packaged app archive.
+- File actions check where a path really points, so a shortcut, symlink or
+  junction inside a library folder can't reach files outside it.
+- Your home folder, system folders, Program Files and the app's own folders
+  can no longer be used as library or download-watch folders.
+- MyAnimeList tokens can only be written by the main process; player and
+  reader paths must be real .exe paths.
+- Deleting single files or duplicates only accepts media files.
+- Backups no longer contain MyAnimeList tokens or the client secret. Restore
+  validates the zip, keeps your current login, and writes through the normal
+  config safety chain (backup rotation and shrink guard).
+- Every renderer is sandboxed and can't open pop-up windows or webviews.
+
 ## 5.0.0 — Liquid Glass redesign
 
 ### Design

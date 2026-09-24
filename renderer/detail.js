@@ -45,8 +45,11 @@ function linkChips(title,malId){
   if(malId)h+='<button class="chip"'+A('openUrl','https://myanimelist.net/'+VM('anime','manga')+'/'+malId)+'>'+ic('layers')+'MyAnimeList</button>';
   return h+'</div>';
 }
-function synopsisBlock(text){if(!text)return '';return '<p class="synopsis"'+A('toggleSynopsis')+'>'+E(text)+'</p>';}
+// Long synopses fade out under a mask with a "Show more" link; short ones
+// (roughly three lines at sheet width) render in full.
+function synopsisBlock(text){if(!text)return '';var short=String(text).length<=230;return '<p class="synopsis'+(short?' short':'')+'"'+(short?'':A('toggleSynopsis'))+'>'+E(text)+'</p>'+(short?'':'<button class="synopsis-more"'+A('toggleSynopsisMore')+'>Show more'+ic('chevronDown')+'</button>');}
 act('toggleSynopsis',function(el){el.classList.toggle('open');});
+act('toggleSynopsisMore',function(el){var p=el.previousElementSibling;if(p)p.classList.add('open');});
 act('openUrl',function(el,ev,url){api.openExternal(url);});
 act('openNyaa',function(el,ev,title,ep){api.openExternal(buildNyaaUrl(title,ep));});
 

@@ -2,7 +2,7 @@
 
 A personal desktop anime & manga library manager built with Electron. Organize your local collection, track watch/read progress, explore new titles, download via Nyaa.si, and sync with MyAnimeList — all in one app.
 
-**Current version: 5.0.0 — Liquid Glass redesign.** See [docs/CHANGELOG.md](docs/CHANGELOG.md) for release history and [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for engineering notes.
+**Current version: 5.1.0 — refined glass, hardened core.** See [docs/CHANGELOG.md](docs/CHANGELOG.md) for release history and [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for engineering notes.
 
 ---
 
@@ -162,7 +162,7 @@ Settings → Notifications → toggle categories individually. All toasts respec
 ---
 
 ## Tech Stack
-- **Electron** ^33 — desktop runtime
+- **Electron** ^44 — desktop runtime
 - **Vanilla HTML/CSS/JS** — single-file UI, no frameworks
 - **MPV** — bundled video player (x64 LGPL build)
 - **MyAnimeList API v2** — anime/manga data and list sync

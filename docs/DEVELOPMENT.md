@@ -22,7 +22,7 @@ User-facing release history lives in [CHANGELOG.md](CHANGELOG.md).
 | `renderer/data.js` | Library/MAL/download data layer and sync queues |
 | `renderer/app.js` | Navigation, sidebar, routing, shortcuts, command palette |
 | `renderer/<view>.js` | One file per area: `library`, `detail`, `explore`, `schedule`, `stats`, `hub`, `filemgmt`, `mal`, `settings`, `appearance`, `luma`, `setup`; `bootstrap.js` runs last |
-| `tests/` | Six-plus-one Node suites, no Electron or network needed (`npm test`) |
+| `tests/` | Eight Node suites, no Electron or network needed (`npm test`); `source-extract.js` is the shared function extractor |
 
 Runtime split matters for testing: anything pure lives in `autoDownload.js` and is
 requireable; everything touching Electron/IPC/DOM is tested by *extracting real
@@ -58,6 +58,7 @@ Run everything with `npm test`; each file is standalone `node tests/<file>`.
 | `state-integrity.test.js` | Source-text invariants | Vault-mode store routing, sandbox stays on, CSP present, secrets stripped from metadata export, dormant code stays removed |
 | `auto-download-state.test.js` | Requires `../autoDownload` | Handoff trust windows, cursor reconciliation/fallback, legacy baseline migration |
 | `security-and-parsers.test.js` | Generalized source-extraction + invariants | See next section |
+| `filesystem-safety.test.js` | Real path helpers and File Management handlers from `main.js`, run in `vm` against a temp folder tree | Symlink/junction containment, forbidden roots, safe names, no-clobber moves, Ungroup scope, organizer result contract and undo, renderer config-write validation |
 
 ### How source extraction works
 
@@ -172,11 +173,54 @@ recorded loss event (2026-08-22) had an off-screen cause that was never identifi
 
 ---
 
+## Filesystem & process security model (5.1)
+
+- **Allowed roots** are the library, manga and watch folders. `getAllowedFileRoots`
+  drops any root that is, or contains, the home folder, Windows, Program Files,
+  ProgramData, the install folder or userData (`isForbiddenRoot`) — even if it is
+  already stored in config. A non-system drive root (D:\) stays allowed.
+- **Containment is checked twice**: lexically and on `realpathLoose()` results,
+  so a junction inside a library that points elsewhere fails the check.
+- **Every name the app creates** (series folders, renamed files, thumbnail
+  folders) passes `isSafeFileName`; every move goes through `moveNoClobber`
+  (Windows `renameSync` would silently overwrite).
+- **Renderer config writes** are validated only for values that changed
+  (`validateRendererConfigValue`): MAL tokens are clear-only, program paths
+  must be absolute `.exe`, folder lists must be absolute and non-forbidden.
+- **Organizer runs** write a v2 undo log (`{ moves: [{ from, to }] }`);
+  `manager:undoFormat` also reads the ≤5.0 array format.
+- **Backups** exclude `BACKUP_SECRET_KEYS`; restore validates entry shapes,
+  counts and sizes, keeps the current credentials, and saves via
+  `writeConfigSafely` + `loadConfig`.
+- **Electron**: `app.enableSandbox()` (skipped only with an explicit
+  `--no-sandbox`, which root/CI runs need), a `web-contents-created` guard
+  (no webviews, no pop-ups, no navigation), and build-time fuses in
+  `package.json` (`runAsNode`, `enableNodeOptionsEnvironmentVariable`,
+  `enableNodeCliInspectArguments` off; `onlyLoadAppFromAsar` on).
+  Embedded asar integrity validation is not enabled yet — turn it on only
+  after verifying a packaged Windows build starts with it.
+
+## Glass material system (5.1)
+
+- `tokens.css` holds the glass recipe: `--glass-bg*` + `--glass-filter` for
+  floating chrome, `--surface-glass*` for content panels (translucency only —
+  the ambient backdrop is already blurred, so no per-panel backdrop-filter),
+  and `--rim-hi/mid/lo/end` for the specular rim.
+- The rim is one rule in `components.css` ("Glass rim"): a 1px masked
+  gradient ring on `::after` (or `::before` for buttons and poster art). The
+  gradient is written in that rule, not as a token, so a surface can retune
+  `--rim-*` locally — a custom property that references other variables is
+  resolved once where it's defined.
+- `core.js` feeds `--gx/--gy` to surfaces in `SPECULAR_SEL` for the
+  pointer-following highlight; `theme.js` `setAmbientArt()` crossfades the
+  blurred backdrop art; `body.mc-scrolled` shows the title bar's scroll edge.
+- Content scrolls under the title bar: `.mc` has `padding-top: var(--titlebar-h)`,
+  and sticky children use `top: 0` (Chromium measures sticky offsets from the
+  scroller's padding edge). Use `chromeTop()` when comparing positions.
+
 ## Open work (priority order)
 
 1. qBittorrent WebUI integration (true download-progress loop).
 2. Signed NSIS + `electron-updater` release channel.
-3. Symlink/junction guards in recursive scans and realpath checks before
-   destructive operations.
-4. Mobile build (`mobile/scripts/build-www.js`) still expects the 4.x single-file
+3. Mobile build (`mobile/scripts/build-www.js`) still expects the 4.x single-file
    renderer; port it to copy `renderer/`, `styles/` and `theme-boot.js`.

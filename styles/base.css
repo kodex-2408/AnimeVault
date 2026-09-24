@@ -47,12 +47,24 @@ kbd { font-family: var(--font-mono); font-size: 10.5px; padding: 1px 6px; border
 .spacer { flex: 1; }
 
 /* --------------------------------------------------------------------------
-   Ambient background — two soft accent-tinted light fields behind the glass.
-   Transform-only animation (cheap); disabled in performance mode.
+   Ambient background — the featured series' artwork, blurred into a color
+   field (.amb-art, set by setAmbientArt), under two soft accent light fields.
+   This is what the glass layers refract. Transform-only animation (cheap);
+   disabled in performance mode.
    -------------------------------------------------------------------------- */
 .ambient { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+.amb-art {
+  position: absolute; inset: -12%; width: 124%; height: 124%; object-fit: cover; opacity: 0;
+  filter: blur(96px) saturate(1.8); transform: scale(1.05);
+  transition: opacity calc(1600ms * var(--m)) var(--ease-soft);
+}
+.amb-art.on { opacity: .5; }
+:root.light .amb-art.on { opacity: .42; }
+/* keeps text contrast: the art tints the backdrop, it never competes with it */
+.amb-veil { position: absolute; inset: 0; background: radial-gradient(120% 90% at 70% 10%, transparent 0%, color-mix(in srgb, var(--bg) 55%, transparent) 70%), linear-gradient(180deg, color-mix(in srgb, var(--bg) 25%, transparent), color-mix(in srgb, var(--bg) 70%, transparent)); }
+:root.light .amb-veil { background: radial-gradient(120% 90% at 70% 10%, transparent 0%, color-mix(in srgb, var(--bg) 40%, transparent) 70%), linear-gradient(180deg, color-mix(in srgb, var(--bg) 20%, transparent), color-mix(in srgb, var(--bg) 62%, transparent)); }
 .ambient::before, .ambient::after {
-  content: ''; position: absolute; width: 70vmax; height: 70vmax; border-radius: 50%;
+  content: ''; position: absolute; z-index: 1; width: 70vmax; height: 70vmax; border-radius: 50%;
   background: radial-gradient(circle, rgba(var(--accent-rgb), .13) 0%, rgba(var(--accent-rgb), 0) 62%);
   top: -32vmax; left: -18vmax; animation: ambientDrift 38s var(--ease-soft) infinite alternate;
 }
@@ -67,15 +79,25 @@ kbd { font-family: var(--font-mono); font-size: 10.5px; padding: 1px 6px; border
 .bg-animation-container { position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden; }
 
 /* --------------------------------------------------------------------------
-   Title bar
+   Title bar — no bar at all: floating glass capsules over the content, which
+   scrolls underneath. A progressive blur ("scroll edge") fades content out
+   under the controls instead of a hard line.
    -------------------------------------------------------------------------- */
 .titlebar {
   position: fixed; top: 0; left: 0; right: 0; height: var(--titlebar-h); z-index: 900;
-  display: flex; align-items: center; gap: 12px; padding: 0 0 0 10px;
+  display: flex; align-items: center; gap: 12px; padding: 0 0 0 12px;
   -webkit-app-region: drag;
-  background: var(--glass-bg); backdrop-filter: var(--glass-filter);
-  box-shadow: inset 0 -1px 0 var(--hairline);
 }
+.titlebar::before {
+  content: ''; position: absolute; z-index: -1; inset: 0 0 -22px calc(var(--sidebar-w) + var(--chrome-gap));
+  backdrop-filter: blur(14px) saturate(160%);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--bg) 62%, transparent), color-mix(in srgb, var(--bg) 0%, transparent));
+  -webkit-mask-image: linear-gradient(180deg, #000 45%, transparent);
+  opacity: 0; transition: opacity var(--dur-3) var(--ease-soft), left var(--dur-3) var(--ease-out);
+  pointer-events: none;
+}
+body.mc-scrolled .titlebar::before { opacity: 1; }
+body:has(.app.sidebar-collapsed) .titlebar::before { left: calc(var(--rail-w) + var(--chrome-gap)); }
 .titlebar button, .titlebar .seg, .titlebar input { -webkit-app-region: no-drag; }
 .tb-left, .tb-right { display: flex; align-items: center; gap: 8px; }
 .tb-left { min-width: 0; }
@@ -88,20 +110,21 @@ kbd { font-family: var(--font-mono); font-size: 10.5px; padding: 1px 6px; border
 .brand-sub { color: var(--text-3); font-weight: 500; font-size: 12.5px; }
 
 .tb-search {
-  display: flex; align-items: center; gap: 10px; height: 30px; width: min(440px, 100%); padding: 0 8px 0 12px;
+  position: relative; display: flex; align-items: center; gap: 10px; height: 32px; width: min(460px, 100%); padding: 0 8px 0 13px;
   border-radius: var(--r-pill); color: var(--text-3); font-size: 12.5px; text-align: left;
-  background: var(--fill-1); box-shadow: inset 0 0 0 1px var(--hairline);
-  transition: background var(--dur-2) var(--ease-soft), box-shadow var(--dur-2) var(--ease-soft), color var(--dur-2);
+  background: var(--glass-bg); backdrop-filter: var(--glass-filter); box-shadow: var(--shadow-1);
+  transition: background var(--dur-2) var(--ease-soft), box-shadow var(--dur-2) var(--ease-soft), color var(--dur-2), transform var(--dur-3) var(--ease-spring);
 }
-.tb-search:hover { background: var(--fill-2); color: var(--text-2); box-shadow: inset 0 0 0 1px var(--hairline-strong); }
+.tb-search:hover { background: var(--glass-bg-strong); color: var(--text-2); box-shadow: var(--shadow-2); }
+.tb-search:active { transform: scale(.985); }
 .tb-search span { flex: 1; }
 .tb-search svg { width: 15px; height: 15px; }
 
 .tb-icon {
   width: 32px; height: 32px; border-radius: var(--r-pill); display: grid; place-items: center; color: var(--text-2); position: relative;
-  transition: background var(--dur-1) var(--ease-soft), color var(--dur-1), transform var(--dur-2) var(--ease-spring);
+  transition: background var(--dur-1) var(--ease-soft), color var(--dur-1), transform var(--dur-2) var(--ease-spring), box-shadow var(--dur-2);
 }
-.tb-icon:hover { background: var(--fill-2); color: var(--text-1); }
+.tb-icon:hover { background: var(--glass-bg-strong); color: var(--text-1); box-shadow: var(--glass-edge), var(--shadow-1); }
 .tb-icon:active { transform: scale(.92); }
 .tb-icon svg { width: 17px; height: 17px; }
 .tb-dot { position: absolute; top: 6px; right: 6px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--bg-2); display: none; }
@@ -112,20 +135,25 @@ kbd { font-family: var(--font-mono); font-size: 10.5px; padding: 1px 6px; border
 .win-btn { width: 46px; height: 100%; display: grid; place-items: center; color: var(--text-2); transition: background var(--dur-1), color var(--dur-1); }
 .win-btn svg { width: 13px; height: 13px; }
 .win-btn:hover { background: var(--fill-2); color: var(--text-1); }
+.win-btn:last-child:hover { border-radius: 0; }
 .win-btn.close:hover { background: #e81123; color: #fff; }
 
 /* --------------------------------------------------------------------------
-   App shell
+   App shell — the sidebar is an inset glass slab floating over the ambient
+   backdrop; the content column runs full height and scrolls under the title bar.
    -------------------------------------------------------------------------- */
-.app { position: relative; z-index: 1; display: flex; height: 100vh; padding-top: var(--titlebar-h); }
+.app { position: relative; z-index: 1; display: flex; height: 100vh; }
 
 .sidebar {
   width: var(--sidebar-w); flex-shrink: 0; display: flex; flex-direction: column; position: relative; z-index: 5;
+  margin: var(--titlebar-h) 0 var(--chrome-gap) var(--chrome-gap); border-radius: var(--sidebar-r);
   background: var(--glass-bg); backdrop-filter: var(--glass-filter);
-  box-shadow: inset -1px 0 0 var(--hairline);
+  box-shadow: var(--glass-edge), var(--shadow-2);
   transition: width var(--dur-3) var(--ease-out);
 }
-.nav { position: relative; flex: 1; overflow-y: auto; overflow-x: hidden; padding: 12px 12px 12px; }
+.sidebar::before { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; background: var(--glass-sheen); opacity: .7; }
+.nav { position: relative; flex: 1; overflow-y: auto; overflow-x: hidden; padding: 10px 10px 12px; scrollbar-width: none; }
+.nav::-webkit-scrollbar { display: none; }
 .nav-sec { padding: 16px 12px 6px; font-size: 10.5px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; color: var(--text-3); white-space: nowrap; transition: opacity var(--dur-2); }
 .nav-sec:first-of-type { padding-top: 4px; }
 .ni {
@@ -136,21 +164,28 @@ kbd { font-family: var(--font-mono); font-size: 10.5px; padding: 1px 6px; border
 .ni:hover { color: var(--text-1); background: var(--fill-1); }
 .ni svg { width: 18px; height: 18px; opacity: .85; transition: transform var(--dur-3) var(--ease-spring); }
 .ni:active svg { transform: scale(.88); }
-.ni.active { color: var(--text-1); background: transparent; }
-.ni.active svg { color: var(--accent); opacity: 1; }
+.ni.active { color: var(--text-1); background: transparent; font-weight: 620; }
+.ni.active:hover { background: transparent; }
+.ni.active svg { color: var(--accent); opacity: 1; filter: drop-shadow(0 0 6px var(--accent-glow)); }
 .ni .ni-label { flex: 1; overflow: hidden; text-overflow: ellipsis; transition: opacity var(--dur-2); }
 .ni-badge { min-width: 20px; height: 18px; padding: 0 6px; border-radius: var(--r-pill); background: var(--accent); color: var(--on-accent); font-size: 10.5px; font-weight: 700; display: inline-grid; place-items: center; }
-/* The liquid selection lens that slides between items */
+/* The liquid selection lens that slides between items. While it travels it
+   stretches along the direction of motion and settles with a spring
+   (.moving is toggled by positionNavIndicator). */
 .nav-indicator {
-  position: absolute; left: 12px; right: 12px; height: 36px; top: 0; z-index: 0; border-radius: var(--r-md); pointer-events: none;
-  background: var(--accent-soft); box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), .22), inset 0 1px 0 rgba(255,255,255,.08);
-  transform: translateY(var(--y, 0)); transition: transform var(--dur-3) var(--ease-spring), opacity var(--dur-2);
+  position: absolute; left: 10px; right: 10px; height: 36px; top: 0; z-index: 0; border-radius: 12px; pointer-events: none;
+  background: linear-gradient(180deg, rgba(var(--accent-rgb), .2), rgba(var(--accent-rgb), .12));
+  box-shadow: var(--lens-glow), inset 0 0 0 1px rgba(var(--accent-rgb), .2), 0 4px 14px -6px rgba(var(--accent-rgb), .45);
+  transform: translateY(var(--y, 0)); scale: 1 1;
+  transition: transform calc(520ms * var(--m)) var(--ease-spring), scale calc(300ms * var(--m)) var(--ease-out), opacity var(--dur-2);
 }
-.nav-indicator::before { content: ''; position: absolute; left: 0; top: 9px; bottom: 9px; width: 3px; border-radius: 3px; background: var(--accent); box-shadow: 0 0 10px var(--accent-glow); }
+.nav-indicator.moving { scale: .96 1.22; transition: transform calc(520ms * var(--m)) var(--ease-spring), scale calc(160ms * var(--m)) var(--ease-soft), opacity var(--dur-2); }
+.nav-indicator::before { content: ''; position: absolute; left: -1px; top: 11px; bottom: 11px; width: 3px; border-radius: 3px; background: var(--accent); box-shadow: 0 0 10px var(--accent-glow); }
+:root.light .nav-indicator { background: linear-gradient(180deg, rgba(255,255,255,.85), rgba(255,255,255,.55)); box-shadow: var(--lens-glow), inset 0 0 0 1px rgba(var(--accent-rgb), .22), 0 6px 18px -8px rgba(var(--accent-rgb), .5), 0 1px 3px rgba(40,30,10,.08); }
 
-.sidebar-foot { padding: 10px 12px 12px; display: flex; align-items: center; gap: 8px; box-shadow: inset 0 1px 0 var(--hairline); }
+.sidebar-foot { position: relative; padding: 10px 10px 10px; display: flex; align-items: center; gap: 6px; box-shadow: inset 0 1px 0 var(--hairline); }
 .sync-chip {
-  flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px; border-radius: var(--r-pill);
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px 0 13px; border-radius: var(--r-pill);
   background: var(--fill-1); box-shadow: inset 0 0 0 1px var(--hairline); color: var(--text-2); font-size: 12px; font-weight: 600; white-space: nowrap;
   transition: background var(--dur-2), box-shadow var(--dur-2), color var(--dur-2);
 }
@@ -165,7 +200,7 @@ kbd { font-family: var(--font-mono); font-size: 10.5px; padding: 1px 6px; border
 
 /* Collapsed sidebar = icon rail */
 .app.sidebar-collapsed .sidebar { width: var(--rail-w); }
-.app.sidebar-collapsed .ni { padding: 0; justify-content: center; }
+.app.sidebar-collapsed .ni { padding: 0; gap: 0; justify-content: center; }
 .app.sidebar-collapsed .ni .ni-label, .app.sidebar-collapsed .nav-sec { opacity: 0; width: 0; overflow: hidden; padding-left: 0; padding-right: 0; }
 .app.sidebar-collapsed .nav-sec { height: 14px; padding: 0; }
 .app.sidebar-collapsed .ni-badge { position: absolute; top: 2px; right: 4px; min-width: 16px; height: 16px; font-size: 9.5px; padding: 0 4px; }
@@ -176,8 +211,10 @@ kbd { font-family: var(--font-mono); font-size: 10.5px; padding: 1px 6px; border
 
 .foot-btns { display: flex; gap: 6px; }
 
-/* Main content scroller */
-.mc { position: relative; flex: 1; min-width: 0; overflow-y: auto; overflow-x: hidden; scroll-behavior: smooth; }
+/* Main content scroller: starts under the title bar so content can glide
+   beneath the floating controls. */
+.mc { position: relative; flex: 1; min-width: 0; overflow-y: auto; overflow-x: hidden; scroll-behavior: smooth; padding-top: var(--titlebar-h); }
+.mc::-webkit-scrollbar-track { margin-top: calc(var(--titlebar-h) + 4px); margin-bottom: 6px; }
 .view { padding: 28px var(--pad-x) 56px; max-width: var(--content-max); margin: 0 auto; }
 .view.flush { padding-top: 0; }
 .mc.is-entering > * { animation: viewIn var(--dur-4) var(--ease-out) both; }
