@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 // ── Invoke helpers ──
 const invoke = (channel, ...args) => ipcRenderer.invoke(channel, ...args);
@@ -27,12 +27,13 @@ contextBridge.exposeInMainWorld('api', {
   setVaultMode: (mode) => invoke('config:setVaultMode', mode),
 
   // Dialogs
-  openFolder: () => invoke('dialog:openFolder'),
   openFile: (filters) => invoke('dialog:openFile', filters),
   browseFolder: () => invoke('dialog:openFolder'),
 
   // Library
-  scanLibrary: () => invoke('library:scan'),
+  scanLibrary: (force) => invoke('library:scan', !!force),
+  getLibraryScanStats: () => invoke('library:getScanStats'),
+  clearLibraryScanCache: () => invoke('library:clearScanCache'),
   getEpisodes: (seriesPath) => invoke('library:getEpisodes', seriesPath),
   deleteSeries: (seriesPath) => invoke('library:deleteSeries', seriesPath),
   batchDeleteSeries: (paths) => invoke('library:batchDeleteSeries', paths),
@@ -46,6 +47,8 @@ contextBridge.exposeInMainWorld('api', {
   setEpisodesWatched: (seriesName, epList) => invoke('watch:setEpisodesWatched', seriesName, epList),
   setMalId: (seriesName, malId) => invoke('watch:setMalId', seriesName, malId),
   setMalData: (seriesName, malData) => invoke('watch:setMalData', seriesName, malData),
+  setTags: (seriesName, tags) => invoke('watch:setTags', seriesName, tags),
+  setCategory: (seriesName, category) => invoke('watch:setCategory', seriesName, category),
 
   // Player
   play: (filePath, seriesName, episodeNum) => invoke('player:play', filePath, seriesName, episodeNum),
@@ -54,16 +57,16 @@ contextBridge.exposeInMainWorld('api', {
   // Shell
   openExternal: (url) => invoke('shell:openExternal', url),
   openFolder: (p) => invoke('shell:openFolder', p),
-  nyaaOpenExternal: (title, quality, uploader, epNum) => invoke('nyaa:autoDownload', title, quality, uploader, epNum, 'ep'),
 
   // Cover cache
   getCoverDataUrl: (filePath) => invoke('cover:getDataUrl', filePath),
 
   // AniList
   anilistSearch: (title, count) => invoke('anilist:search', title, count),
-  anilistFetchCover: (seriesName, url) => invoke('anilist:fetchCover', seriesName, url),
+  anilistFetchCover: (seriesName, url, force) => invoke('anilist:fetchCover', seriesName, url, force),
   anilistGetCachedCover: (name) => invoke('anilist:getCachedCover', name),
   anilistFetchAllCovers: (seriesList) => invoke('anilist:fetchAllCovers', seriesList),
+  anilistUserMalIds: (userName) => invoke('anilist:userMalIds', userName),
 
   // MAL
   malIsAuthenticated: () => invoke('mal:isAuthenticated'),
@@ -72,6 +75,7 @@ contextBridge.exposeInMainWorld('api', {
   malExchangeToken: (code) => invoke('mal:exchangeToken', code),
   malSearch: (query) => invoke('mal:search', query),
   malGetAnimeDetails: (malId) => invoke('mal:getAnimeDetails', malId),
+  malBackfillMissing: (seriesList) => invoke('mal:backfillMissing', seriesList),
   malUpdateStatus: (malId, numWatched, status) => invoke('mal:updateStatus', malId, numWatched, status),
   malAddOrUpdateListItem: (malId, fields) => invoke('mal:addOrUpdateListItem', malId, fields),
   malEditStatus: (malId, fields, seriesName) => invoke('mal:editStatus', malId, fields, seriesName),
@@ -82,6 +86,7 @@ contextBridge.exposeInMainWorld('api', {
   malGetTopAnime: (limit, offset) => invoke('mal:getTopAnime', limit, offset),
   malGetSeasonal: (year, season) => invoke('mal:getSeasonal', year, season),
   malGetUserList: (status, limit, offset) => invoke('mal:getUserList', status, limit, offset),
+  malGetStatusCounts: () => invoke('mal:getStatusCounts'),
   malGetSyncLog: () => invoke('mal:getSyncLog'),
   malClearSyncLog: () => invoke('mal:clearSyncLog'),
 
@@ -100,7 +105,10 @@ contextBridge.exposeInMainWorld('api', {
   autoDownloadGetStatus: () => invoke('autoDownload:getStatus'),
   autoDownloadSetPollMinutes: (mins) => invoke('autoDownload:setPollMinutes', mins),
   autoDownloadSetCriteria: (enabled) => invoke('autoDownload:setCriteria', enabled),
+  autoDownloadSetBatchLimit: (limit) => invoke('autoDownload:setBatchLimit', limit),
   autoDownloadPollNow: (force) => invoke('autoDownload:pollNow', force),
+  autoDownloadVerifyLatest: (seriesName, malId, offset) => invoke('autoDownload:verifyLatest', seriesName, malId, offset),
+  autoDownloadCatchupSeries: (seriesName, malId) => invoke('autoDownload:catchupSeries', seriesName, malId),
 
   // Downloads history
   downloadsGetHistory: () => invoke('downloads:getHistory'),
@@ -109,6 +117,7 @@ contextBridge.exposeInMainWorld('api', {
 
   // Manager / file management
   managerRename: (rootFolder, dryRun) => invoke('manager:rename', rootFolder, dryRun),
+  managerPreviewParse: (filename, folderName) => invoke('manager:previewParse', filename, folderName),
   managerGroup: (rootFolder, seasonalFolder, dryRun) => invoke('manager:group', rootFolder, seasonalFolder, dryRun),
   managerUngroup: (rootFolder, seasonalFolder, dryRun) => invoke('manager:ungroup', rootFolder, seasonalFolder, dryRun),
   managerBatch: (batchFolder, dryRun) => invoke('manager:batch', batchFolder, dryRun),
@@ -117,6 +126,7 @@ contextBridge.exposeInMainWorld('api', {
   managerFormatManga: (folderPath, newFolderName) => invoke('manager:formatManga', folderPath, newFolderName),
   managerUndoFormat: () => invoke('manager:undoFormat'),
   managerHasUndo: () => invoke('manager:hasUndo'),
+  managerRenameSeries: (seriesPath, oldName, newName) => invoke('manager:renameSeries', seriesPath, oldName, newName),
 
   // Manga
   openMangaFile: (filePath) => invoke('manga:openFile', filePath),
@@ -131,7 +141,6 @@ contextBridge.exposeInMainWorld('api', {
 
   // Duplicates
   duplicateResolve: (data) => invoke('duplicate:resolve', data),
-  duplicateModalClosed: () => ipcRenderer.send('duplicate:modalClosed'),
 
   // ── Event listeners (one-way from main → renderer) ──
   onNewFiles: (cb) => on('watcher:newFiles', cb),
@@ -141,12 +150,20 @@ contextBridge.exposeInMainWorld('api', {
   onDuplicateShowModal: (cb) => on('duplicate:showModal', cb),
   onDuplicateResolved: (cb) => on('duplicate:resolved', cb),
 
-  // Batch A F1: Desktop notifications
-  onAutoDownloadNotify: (cb) => on('autoDownload:notify', cb),
+  // AI assistant (OpenRouter)
+  aiGetStatus: () => invoke('ai:getStatus'),
+  aiSetKey: (key) => invoke('ai:setKey', key),
+  aiClearKey: () => invoke('ai:clearKey'),
+  aiSetModel: (model) => invoke('ai:setModel', model),
+  aiSend: (messages, model, options) => invoke('ai:send', messages, model, options),
+  aiWebSearch: (query) => invoke('ai:webSearch', query),
+  aiStop: () => invoke('ai:stop'),
+  onAiChunk: (cb) => on('ai:chunk', cb),
+  onAiDone: (cb) => on('ai:done', cb),
+  onAiError: (cb) => on('ai:error', cb),
 
   // Batch C F10: Thumbnails
   extractThumbnail: (filePath, seriesName, episodeNum) => invoke('player:extractThumbnail', filePath, seriesName, episodeNum),
-  onThumbnailReady: (cb) => on('thumb:ready', cb),
 
   // Batch C F9: Import/Export
   exportLibraryMetadata: () => invoke('library:exportMetadata'),
@@ -154,6 +171,9 @@ contextBridge.exposeInMainWorld('api', {
   importAniList: (filePath) => invoke('library:importAniList', filePath),
   backupAppData: (destPath) => invoke('library:backup', destPath),
   restoreAppData: (zipPath) => invoke('library:restore', zipPath),
+  getPathForFile: (file) => {
+    try { return webUtils.getPathForFile(file); } catch (e) { return null; }
+  },
 });
 } catch (e) {
   console.error('[Preload] CRITICAL: Failed to expose api bridge:', e.message);

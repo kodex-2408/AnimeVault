@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, Tray, Menu, nativeImage, Notification } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Tray, Menu, nativeImage, protocol, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
@@ -7,30 +7,43 @@ const net = require('net');
 const { execFile } = require('child_process');
 const crypto = require('crypto');
 const autoDownload = require('./autoDownload');
+const openrouter = require('./openrouter');
 const {
   runAutoDownloadPoller,
   startAutoDownloadPoller,
   stopAutoDownloadPoller,
-  syncAutoDownloadCriteria,
-  extractSeasonInfo,
-  getNextEpisodeNumber,
   parseNyaaEpisodeNumber,
   parseReleaseSize,
   scoreRelease,
   computeH264Ceiling,
-  downloadNyaaTorrentFile
+  downloadNyaaTorrentFile,
+  releaseMatchesUploader,
+  preferUploaderMatches,
+  releaseMatchesSeriesTitle,
+  releaseMatchesTrackedSeason,
+  releaseMatchesQuality,
+  buildEpisodeSearchQueries,
+  getSearchVariants
 } = autoDownload;
 
 // ================================================================
 //  GLOBALS & CONFIG
 // ================================================================
+// cover:// streams cached artwork straight from disk so the renderer never
+// holds megabytes of base64 copies. Must be registered before app ready.
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'cover', privileges: { standard: false, secure: true, supportFetchAPI: false } }
+]);
+
 const CONFIG_PATH = path.join(app.getPath('userData'), 'config.json');
+const CONFIG_BACKUP_PATH = CONFIG_PATH + '.bak';
+const OPENROUTER_KEY_PATH = path.join(app.getPath('userData'), 'openrouter-key.enc');
 const CACHE_DIR = path.join(app.getPath('userData'), 'cover-cache');
+const LIBRARY_INDEX_PATH = path.join(app.getPath('userData'), 'library-index.json');
 
 let mainWindow;
 let tray = null;
 let isQuitting = false;
-let hasInitialCriteriaSyncRun = false;  // Phase 1.7: criteria sync deferred until first library scan
 let config = {
   // Folders: array of { path, label, type:'seasonal'|'movies'|'series'|'custom' }
   folders: [],
@@ -44,7 +57,10 @@ let config = {
   watchHistory: {},
   // Theme
   theme: 'dark',
-  accentColor: '#e8530e',
+  fullTheme: 'pearl',
+  accentColor: '#c0792a',
+  themeAccents: {},
+  customThemeColors: {},
   fontFamily: 'Segoe UI',
   themePreset: 'default',
   // Auto-mark
@@ -62,29 +78,166 @@ let config = {
   forceHevc: true, // Strongly prefer HEVC/x265 over H.264/x264
   // Auto-download watchlist for airing series
   autoDownloadWatchlist: [],
-  autoDownloadCriteria: false, // auto-populate from MAL Watching list
+  autoDownloadCriteria: false, // deprecated compatibility key; explicit tracking only
   autoDownloadPollMinutes: 60,
   autoDownloadEnabled: false,
   minimizeToTray: false,
   desktopNotifications: true,
   watcherIgnorePatterns: [],
-  seriesTags: {},
-  smartCollections: [],
   searchPresets: [],
+  performanceMode: false,
+  incrementalScan: true,
+  titleAliases: { anime: {}, manga: {} },
+  gapRules: { anime: {}, manga: {} },
+  animeImportInbox: [],
+  mangaImportInbox: [],
+  activityLog: [],
+  openrouterApiKey: '',
+  openrouterModel: 'google/gemini-3.5-flash-lite',
+  autoDownloadBatchLimit: 0,
 };
 
 // Shared library cache for cross-module access
 let lastLibraryScan = [];
+let libraryScanReady = false; // true once the first scan has populated the cache
+let _saveTimer = null;
+let _libraryIndex = null;
+let _libraryIndexSaveTimer = null;
+
+function getWatchHistoryStore() {
+  const key = config.vaultMode === 'manga' ? 'mangaWatchHistory' : 'watchHistory';
+  if (!config[key] || typeof config[key] !== 'object' || Array.isArray(config[key])) config[key] = {};
+  return config[key];
+}
+
+// Prevent prototype-pollution keys from ever being used as watch-history keys.
+function safeHistoryKey(seriesName) {
+  const key = String(seriesName || '').trim().slice(0, 300);
+  if (!key || key === '__proto__' || key === 'constructor' || key === 'prototype') return '_' + key;
+  return key;
+}
+
+function safeMalId(malId) {
+  const n = Number(malId);
+  return Number.isInteger(n) && n > 0 && n < 100000000 ? n : null;
+}
+
+// Watch-progress values come from the renderer; never persist raw payloads.
+function safeEpisodeNumber(n) {
+  const num = Number(n);
+  return Number.isInteger(num) && num > 0 && num <= 9999 ? num : null;
+}
+
+const STATIC_CONFIG_KEYS = new Set([
+  'folders', 'mangaFolders', 'vlcPath', 'mpvPath', 'readerPath', 'playerType',
+  'subLangPrimary', 'subLangFallback', 'malClientId', 'malClientSecret', 'hasMalClientSecret',
+  'malAccessToken', 'malRefreshToken', 'malTokenExpiry', 'malCodeVerifier', 'malSyncLog',
+  'watchHistory', 'mangaWatchHistory', 'theme', 'accentColor', 'fontFamily', 'themePreset', 'fullTheme',
+  'themeAccents', 'customThemeColors',
+  'autoMarkEnabled', 'autoMarkPercent', 'vaultMode', 'mangaUploaders', 'forceHevc', 'avoidOversizedHevc',
+  'nyaaUploader', 'nyaaQuality', 'autoDownloadWatchlist', 'autoDownloadCriteria', 'autoDownloadPollMinutes',
+  'autoDownloadEnabled', 'autoDownloadNotify', 'autoDownloadBatchLimit', 'minimizeToTray', 'desktopNotifications', 'watchAndDelete',
+  'watcherFolder', 'watcherDest', 'watcherIgnorePatterns', 'searchPresets', 'performanceMode', 'incrementalScan',
+  'titleAliases', 'gapRules', 'animeImportInbox', 'mangaImportInbox', 'activityLog', 'downloadHistory',
+  'animeKnownSeries', 'mangaKnownSeries', 'animeImportReviewDismissed', 'mangaImportReviewDismissed',
+  'notificationPrefs', 'syncPaused', 'hideDonghua', 'audioDelay', 'animSpeed', 'backgroundEffects',
+  'backgroundType', 'backgroundIntensity', 'maximized', 'setupDone', 'importAutoMatch', 'lumaMascot', 'lumaSparkles', 'lumaSize', 'lumaSpeed',
+  'untrackOnDelete', 'mutedDupSeries', 'openrouterApiKey', 'openrouterModel', 'hasOpenrouterApiKey',
+  // 5.0 UI preferences
+  'glassLevel', 'lastDarkTheme', 'lastLightTheme', 'sidebarCollapsed', 'schedView', 'heroTone'
+]);
+function isSafeConfigKey(key) {
+  if (!key || typeof key !== 'string') return false;
+  return STATIC_CONFIG_KEYS.has(key) || /^(anime|manga)(ImportInbox|KnownSeries|ImportReviewDismissed)$/.test(key);
+}
+
+function mergeMalData(existingMalData, incomingMalData) {
+  const existing = existingMalData && typeof existingMalData === 'object' && !Array.isArray(existingMalData) ? existingMalData : {};
+  const incoming = incomingMalData && typeof incomingMalData === 'object' && !Array.isArray(incomingMalData) ? incomingMalData : {};
+  const previousListStatus = existing.my_list_status;
+  const merged = { ...existing, ...incoming };
+
+  // A PATCH response is authoritative once a local status already exists. For a
+  // newly linked series, however, the GET response is the first source of the
+  // user's MAL status and must be retained.
+  const hasUsablePrevious = previousListStatus && typeof previousListStatus === 'object' &&
+    (previousListStatus.status || previousListStatus.score != null ||
+     previousListStatus.num_episodes_watched != null || previousListStatus.num_watched_episodes != null ||
+     previousListStatus.num_chapters_read != null);
+  if (hasUsablePrevious) {
+    merged.my_list_status = previousListStatus;
+  } else if (!incoming.my_list_status || typeof incoming.my_list_status !== 'object') {
+    delete merged.my_list_status;
+  }
+  return merged;
+}
+
+function getModeConfigMap(key) {
+  if (!config[key] || typeof config[key] !== 'object' || Array.isArray(config[key])) config[key] = {};
+  const mode = config.vaultMode === 'manga' ? 'manga' : 'anime';
+  if (!config[key][mode] || typeof config[key][mode] !== 'object' || Array.isArray(config[key][mode])) config[key][mode] = {};
+  return config[key][mode];
+}
+
+function getTitleAlias(seriesName, provider) {
+  const row = getModeConfigMap('titleAliases')[seriesName];
+  if (!row || typeof row !== 'object') return seriesName;
+  return String(row[provider] || row.canonical || seriesName).trim() || seriesName;
+}
+
+function getCoverCachePath(seriesName, mode = config.vaultMode) {
+  const prefix = mode === 'manga' ? 'manga--' : 'anime--';
+  return path.join(CACHE_DIR, prefix + encodeURIComponent(seriesName) + '.jpg');
+}
+
+function getExistingCoverCachePath(seriesName) {
+  const scoped = getCoverCachePath(seriesName);
+  if (fs.existsSync(scoped)) return scoped;
+  const legacy = path.join(CACHE_DIR, encodeURIComponent(seriesName) + '.jpg');
+  return fs.existsSync(legacy) ? legacy : null;
+}
+
+function readLibraryIndex() {
+  if (_libraryIndex) return _libraryIndex;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(LIBRARY_INDEX_PATH, 'utf-8'));
+    if (parsed && parsed.version === 1) _libraryIndex = parsed;
+  } catch (e) {}
+  if (!_libraryIndex) _libraryIndex = { version: 1, anime: {}, manga: {} };
+  return _libraryIndex;
+}
+
+function scheduleLibraryIndexSave() {
+  if (_libraryIndexSaveTimer) clearTimeout(_libraryIndexSaveTimer);
+  _libraryIndexSaveTimer = setTimeout(() => {
+    _libraryIndexSaveTimer = null;
+    try {
+      const tmp = LIBRARY_INDEX_PATH + '.tmp';
+      fs.mkdirSync(path.dirname(LIBRARY_INDEX_PATH), { recursive: true });
+      fs.writeFileSync(tmp, JSON.stringify(readLibraryIndex()));
+      try { fs.renameSync(tmp, LIBRARY_INDEX_PATH); }
+      catch (e) { fs.copyFileSync(tmp, LIBRARY_INDEX_PATH); fs.unlinkSync(tmp); }
+    } catch (e) { console.error('[LibraryIndex] Save failed:', e.message); }
+  }, 300);
+}
+
+function clearLibraryIndex() {
+  _libraryIndex = { version: 1, anime: {}, manga: {} };
+  if (fs.existsSync(LIBRARY_INDEX_PATH)) {
+    try { fs.unlinkSync(LIBRARY_INDEX_PATH); } catch (e) {}
+  }
+}
 
 function loadConfig() {
   try {
     let loaded = false;
-    // Try primary config file first
     if (fs.existsSync(CONFIG_PATH)) {
       try {
         const data = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
         if (data && typeof data === 'object') {
-          config = { ...config, ...data };
+          // Keep the object identity stable: autoDownload receives this object by
+          // reference during module initialization.
+          Object.assign(config, data);
           loaded = true;
           console.log('[Config] Loaded from', CONFIG_PATH);
         }
@@ -92,24 +245,50 @@ function loadConfig() {
         console.error('[Config] Primary file corrupted:', parseErr.message);
       }
     }
-    // Try Electron Store fallback if primary failed
+    if (!loaded && fs.existsSync(CONFIG_BACKUP_PATH)) {
+      try {
+        const data = JSON.parse(fs.readFileSync(CONFIG_BACKUP_PATH, 'utf-8'));
+        if (data && typeof data === 'object') {
+          Object.assign(config, data);
+          loaded = true;
+          console.log('[Config] Restored from backup', CONFIG_BACKUP_PATH);
+        }
+      } catch (backupErr) {
+        console.error('[Config] Backup file corrupted:', backupErr.message);
+      }
+    }
+    if (!loaded && fs.existsSync(CONFIG_BACKUP_PATH + '.old')) {
+      try {
+        const data = JSON.parse(fs.readFileSync(CONFIG_BACKUP_PATH + '.old', 'utf-8'));
+        if (data && typeof data === 'object') {
+          Object.assign(config, data);
+          loaded = true;
+          console.log('[Config] Restored from second-generation backup', CONFIG_BACKUP_PATH + '.old');
+        }
+      } catch (backupOldErr) {
+        console.error('[Config] Second-generation backup corrupted:', backupOldErr.message);
+      }
+    }
     if (!loaded) {
       try {
         const Store = require('electron-store');
         const store = new Store({ name: 'config' });
         const data = store.store;
         if (data && typeof data === 'object') {
-          config = { ...config, ...data };
+          Object.assign(config, data);
           loaded = true;
           console.log('[Config] Loaded from electron-store');
         }
       } catch (storeErr) {
-        console.error('[Config] electron-store fallback failed:', storeErr.message);
+        if (storeErr.code !== 'MODULE_NOT_FOUND') console.error('[Config] electron-store fallback failed:', storeErr.message);
       }
     }
-    // Set defaults for any missing keys
     if (config.watchHistory === undefined) config.watchHistory = {};
+    if (config.mangaWatchHistory === undefined) config.mangaWatchHistory = {};
     if (config.theme === undefined) config.theme = 'dark';
+    if (config.fullTheme === undefined) config.fullTheme = 'pearl';
+    if (!config.themeAccents || typeof config.themeAccents !== 'object') config.themeAccents = {};
+    if (!config.customThemeColors || typeof config.customThemeColors !== 'object') config.customThemeColors = {};
     if (config.folders === undefined) config.folders = [];
     if (config.mangaFolders === undefined) config.mangaFolders = [];
     if (config.vaultMode === undefined) config.vaultMode = 'anime';
@@ -121,21 +300,158 @@ function loadConfig() {
     if (config.autoDownloadEnabled === undefined) config.autoDownloadEnabled = false;
     if (config.desktopNotifications === undefined) config.desktopNotifications = true;
     if (config.watcherIgnorePatterns === undefined) config.watcherIgnorePatterns = [];
-    if (config.seriesTags === undefined) config.seriesTags = {};
-    if (config.smartCollections === undefined) config.smartCollections = [];
     if (config.searchPresets === undefined) config.searchPresets = [];
+    if (config.performanceMode === undefined) config.performanceMode = false;
+    if (config.incrementalScan === undefined) config.incrementalScan = true;
+    if (!config.titleAliases || typeof config.titleAliases !== 'object') config.titleAliases = { anime: {}, manga: {} };
+    if (!config.titleAliases.anime) config.titleAliases.anime = {};
+    if (!config.titleAliases.manga) config.titleAliases.manga = {};
+    if (!config.gapRules || typeof config.gapRules !== 'object') config.gapRules = { anime: {}, manga: {} };
+    if (!config.gapRules.anime) config.gapRules.anime = {};
+    if (!config.gapRules.manga) config.gapRules.manga = {};
+    if (!Array.isArray(config.animeImportInbox)) config.animeImportInbox = [];
+    if (!Array.isArray(config.mangaImportInbox)) config.mangaImportInbox = [];
+    if (!Array.isArray(config.activityLog)) config.activityLog = [];
   } catch (err) {
     console.error('[Config] Fatal error during load, using defaults:', err.message);
   }
 }
 
-function saveConfig() {
+function loadOpenrouterKey() {
+  const plaintextKey = typeof config.openrouterApiKey === 'string' ? config.openrouterApiKey.trim() : '';
+  delete config.openrouterApiKey;
   try {
-    // Strip runtime-only keys before writing
-    const { _userDataPath, ...safeConfig } = config;
-    fs.writeFileSync(CONFIG_PATH, JSON.stringify(safeConfig, null, 2));
+    if (plaintextKey) saveOpenrouterKey(plaintextKey);
+    if (fs.existsSync(OPENROUTER_KEY_PATH)) {
+      if (!safeStorage.isEncryptionAvailable()) throw new Error('OS credential encryption is unavailable');
+      config.openrouterApiKey = safeStorage.decryptString(fs.readFileSync(OPENROUTER_KEY_PATH));
+    } else {
+      config.openrouterApiKey = '';
+    }
+    if (plaintextKey) scrubOpenrouterKeyFromConfigFiles();
   } catch (err) {
-    console.error('[Config] Save failed:', err.message);
+    config.openrouterApiKey = '';
+    console.error('[OpenRouter] Could not load encrypted API key:', err.message);
+  }
+}
+
+function saveOpenrouterKey(key) {
+  if (!safeStorage.isEncryptionAvailable()) throw new Error('Secure OS key storage is unavailable');
+  fs.mkdirSync(path.dirname(OPENROUTER_KEY_PATH), { recursive: true });
+  fs.writeFileSync(OPENROUTER_KEY_PATH, safeStorage.encryptString(key), { mode: 0o600 });
+}
+
+function scrubOpenrouterKeyFromConfigFiles() {
+  const files = [CONFIG_PATH, CONFIG_BACKUP_PATH, CONFIG_BACKUP_PATH + '.old'];
+  const backupDir = path.join(path.dirname(CONFIG_PATH), 'backups');
+  if (fs.existsSync(backupDir)) {
+    for (const name of fs.readdirSync(backupDir)) {
+      if (/^config-\d{4}-\d{2}-\d{2}\.json$/.test(name)) files.push(path.join(backupDir, name));
+    }
+  }
+  for (const file of files) {
+    try {
+      if (!fs.existsSync(file)) continue;
+      const data = JSON.parse(fs.readFileSync(file, 'utf-8'));
+      if (!Object.prototype.hasOwnProperty.call(data, 'openrouterApiKey')) continue;
+      delete data.openrouterApiKey;
+      fs.writeFileSync(file, JSON.stringify(data, null, 2));
+    } catch (err) {
+      console.error('[OpenRouter] Could not scrub API key from', file, err.message);
+    }
+  }
+}
+
+function saveConfig() {
+  if (_saveTimer) clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(function() {
+    _saveTimer = null;
+    try {
+      writeConfigSafely();
+    } catch (err) {
+      console.error('[Config] Save failed:', err.message);
+    }
+  }, 500);
+}
+
+function flushSaveConfig() {
+  if (_saveTimer) {
+    clearTimeout(_saveTimer);
+    _saveTimer = null;
+    try {
+      writeConfigSafely();
+    } catch (err) {
+      console.error('[Config] Save failed:', err.message);
+    }
+  }
+}
+
+let _lastConfigSnapshotDate = null;
+// Disaster-recovery archive, independent of the runtime fallback chain:
+// one snapshot per calendar day, last 7 kept. loadConfig never reads these.
+function snapshotConfigDaily() {
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    if (_lastConfigSnapshotDate === today) return;
+    const dir = path.join(path.dirname(CONFIG_PATH), 'backups');
+    fs.mkdirSync(dir, { recursive: true });
+    const dest = path.join(dir, 'config-' + today + '.json');
+    if (!fs.existsSync(dest)) fs.copyFileSync(CONFIG_PATH, dest);
+    const snaps = fs.readdirSync(dir)
+      .filter(f => /^config-\d{4}-\d{2}-\d{2}\.json$/.test(f))
+      .sort();
+    while (snaps.length > 7) {
+      try { fs.unlinkSync(path.join(dir, snaps.shift())); } catch (e) { break; }
+    }
+    _lastConfigSnapshotDate = today;
+  } catch (e) { console.error('[Config] Daily snapshot failed:', e.message); }
+}
+
+function writeConfigSafely() {
+  const { _userDataPath, ...safeConfig } = config;
+  delete safeConfig.openrouterApiKey;
+  const payload = JSON.stringify(safeConfig, null, 2);
+  const tempPath = CONFIG_PATH + '.tmp';
+  fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
+  fs.writeFileSync(tempPath, payload);
+  // Catastrophic-shrink guard: when a large valid config is about to be
+  // replaced by a near-default one, something upstream went wrong (state
+  // wiped, corruption recovery). Archive the old file first so the loss is
+  // always reversible instead of being rotated away with the backup.
+  try {
+    if (fs.existsSync(CONFIG_PATH)) {
+      const curRaw = fs.readFileSync(CONFIG_PATH, 'utf-8');
+      let curValid = false;
+      try { JSON.parse(curRaw); curValid = true; } catch (e) {}
+      if (curValid && curRaw.length > 8192 && payload.length < curRaw.length * 0.25) {
+        const archive = CONFIG_PATH + '.lost-' + new Date().toISOString().replace(/[:.]/g, '-');
+        fs.copyFileSync(CONFIG_PATH, archive);
+        console.error('[Config] Catastrophic shrink (' + curRaw.length + ' -> ' + payload.length +
+          ' bytes). Previous config archived to ' + archive);
+      }
+    }
+  } catch (guardErr) { console.error('[Config] Shrink guard failed:', guardErr.message); }
+  if (fs.existsSync(CONFIG_PATH)) {
+    try {
+      // Never replace a known-good backup with a corrupted primary file, and
+      // keep two generations so one bad cycle cannot destroy every copy.
+      JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
+      if (fs.existsSync(CONFIG_BACKUP_PATH)) {
+        try { fs.copyFileSync(CONFIG_BACKUP_PATH, CONFIG_BACKUP_PATH + '.old'); } catch (e) {}
+      }
+      fs.copyFileSync(CONFIG_PATH, CONFIG_BACKUP_PATH);
+    }
+    catch (backupErr) { console.error('[Config] Backup failed:', backupErr.message); }
+  }
+  try {
+    fs.renameSync(tempPath, CONFIG_PATH);
+    snapshotConfigDaily();
+  } catch (renameErr) {
+    // Windows can reject replacement renames when another process briefly has
+    // the destination open. Fall back to copying the complete temp file.
+    fs.copyFileSync(tempPath, CONFIG_PATH);
+    fs.unlinkSync(tempPath);
+    snapshotConfigDaily();
   }
 }
 
@@ -145,26 +461,109 @@ function getLocalStorageObj() {
   } catch (e) { return {}; }
 }
 
-function setLocalStorageObj(obj) {
-  fs.writeFileSync(path.join(app.getPath('userData'), 'localStorage.json'), JSON.stringify(obj));
+function normalizeFsPath(p) {
+  if (!p || typeof p !== 'string') return null;
+  try { return path.resolve(p); } catch (e) { return null; }
+}
+
+function isInsidePath(parent, child) {
+  const root = normalizeFsPath(parent);
+  const target = normalizeFsPath(child);
+  if (!root || !target) return false;
+  const rel = path.relative(root, target);
+  return rel === '' || (!!rel && !rel.startsWith('..') && !path.isAbsolute(rel));
+}
+
+function getAllowedFileRoots(includeUserData = false) {
+  const roots = [];
+  const add = p => { if (p && typeof p === 'string') roots.push(p); };
+  (config.folders || []).forEach(f => add(f && f.path));
+  (config.mangaFolders || []).forEach(f => add(f && f.path));
+  add(config.watcherFolder);
+  add(config.watcherDest);
+  if (includeUserData) add(app.getPath('userData'));
+  return roots.filter(Boolean);
+}
+
+function isAllowedFileActionPath(p, includeUserData = false) {
+  const target = normalizeFsPath(p);
+  if (!target) return false;
+  return getAllowedFileRoots(includeUserData).some(root => isInsidePath(root, target));
+}
+
+function assertAllowedFileActionPath(p, includeUserData = false) {
+  if (!isAllowedFileActionPath(p, includeUserData)) {
+    throw new Error('Path is outside configured AnimeVault folders');
+  }
+}
+
+function assertAllowedChildFileActionPath(p) {
+  const target = normalizeFsPath(p);
+  const ok = getAllowedFileRoots(false).some(root => {
+    const resolvedRoot = normalizeFsPath(root);
+    return resolvedRoot && target && target !== resolvedRoot && isInsidePath(resolvedRoot, target);
+  });
+  if (!ok) throw new Error('Path is outside configured AnimeVault folders');
+}
+
+function isSafeExternalUrl(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== 'string') return false;
+  try {
+    const u = new URL(rawUrl);
+    return u.protocol === 'https:' || u.protocol === 'http:' || u.protocol === 'magnet:';
+  } catch (e) {
+    return false;
+  }
 }
 
 // ================================================================
 //  IPC: CONFIG
 // ================================================================
 ipcMain.handle('config:get', () => {
-  return { ...config, _userDataPath: app.getPath('userData') };
+  const safe = { ...config, _userDataPath: app.getPath('userData') };
+  // Non-sensitive existence flag so the renderer can say "saved - leave blank
+  // to keep" without ever receiving the secret itself. Whitelisted in
+  // STATIC_CONFIG_KEYS so cfg round-trips through setAllConfig stay legal.
+  safe.hasMalClientSecret = !!safe.malClientSecret;
+  safe.hasOpenrouterApiKey = !!safe.openrouterApiKey;
+  // Credentials and internal flow state never cross to the renderer.
+  // malAuthState must be stripped here specifically: setAllConfig hard-throws
+  // on unknown keys, so a leaked key would break every cfg round-trip
+  // (theme toggles, disconnect, reset).
+  ['malClientSecret', 'malCodeVerifier', 'malAccessToken', 'malRefreshToken', 'malAuthState', 'openrouterApiKey'].forEach(key => { delete safe[key]; });
+  return safe;
 });
 
 ipcMain.handle('config:set', (_, key, value) => {
+  if (!isSafeConfigKey(key) || key === 'openrouterApiKey' || key === 'hasOpenrouterApiKey' || key === '_userDataPath' || key === '__proto__' || key === 'constructor' || key === 'prototype') {
+    throw new Error('Invalid config key');
+  }
   config[key] = value;
   saveConfig();
   return true;
 });
 
-ipcMain.handle('config:setAll', (_, c) => { delete c._userDataPath; config = { ...config, ...c }; saveConfig(); });
+ipcMain.handle('config:setAll', (_, c) => {
+  if (!c || typeof c !== 'object' || Array.isArray(c)) throw new Error('Invalid config payload');
+  for (const key of Object.keys(c)) {
+    if (!isSafeConfigKey(key) && key !== 'malClientSecret') {
+      throw new Error('Invalid config key: ' + key);
+    }
+  }
+  const incoming = { ...c };
+  delete incoming._userDataPath;
+  delete incoming.openrouterApiKey;
+  delete incoming.hasOpenrouterApiKey;
+  delete incoming.__proto__;
+  delete incoming.constructor;
+  delete incoming.prototype;
+  Object.assign(config, incoming);
+  saveConfig();
+  return true;
+});
 ipcMain.handle('config:getUserDataPath', () => app.getPath('userData'));
 ipcMain.handle('config:setVaultMode', (_, mode) => {
+  if (mode !== 'anime' && mode !== 'manga') throw new Error('Invalid vault mode');
   config.vaultMode = mode;
   saveConfig();
   return true;
@@ -193,6 +592,12 @@ ipcMain.handle('dialog:openFile', async (_, filters) => {
 // ================================================================
 const VIDEO_EXTS = ['.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v', '.ts'];
 const MANGA_EXTS = ['.cbz', '.cbr', '.zip', '.pdf', '.epub'];
+// Files handed to a player, reader or the OS default handler must be media —
+// never scripts or executables that happen to live in a library folder.
+function assertPlayableMedia(filePath, exts) {
+  const ext = path.extname(String(filePath || '')).toLowerCase();
+  if (!(exts || VIDEO_EXTS.concat(MANGA_EXTS)).includes(ext)) throw new Error('Refusing to open ' + (ext || 'this file') + ' — not a video or manga file');
+}
 
 function getVideoFiles(folder, recurse = false) {
   if (!fs.existsSync(folder)) return [];
@@ -257,70 +662,6 @@ function detectResolution(filename) {
 
 // Common release-metadata tokens that should be stripped before parsing
 const RELEASE_META_STRIP = /\b(?:\d{3,4}p|BluRay|BDRip|WEB[-.]?DL|WEBRip|HDRip|DVDRip|XviD|x26[45]|HEVC|H\.265|H\.264|AVC|AAC|FLAC|DTS|AC3|DDP|TrueHD|Atmos|Dual|DUB|SUB|Multi|SoftSub|HardSub|REPACK|PROPER|EXTENDED|UNCUT|UNRATED|Director'?s\s*Cut|Kitsune|SubsPlease|Erai-raws|Judas|VARYG|HorribleSubs|Commie|GJM|UTW|Coalgirls|\dx\d{3,4}|10-bit|8-bit|Hi10P|YUV420P10|CRF\s*\d+)\b/gi;
-function parseEpisodeNumber(filename) {
-  const base = path.parse(filename).name;
-  // Strip bracket/parenthesis contents first (release metadata)
-  let cleaned = base.replace(/\[.*?\]/g, ' ').replace(/\(.*?\)/g, ' ');
-  // Strip common release-metadata tokens to avoid false positives
-  cleaned = cleaned.replace(RELEASE_META_STRIP, ' ');
-  // Now strip season references
-  cleaned = cleaned.replace(/\b(?:Season\s*\d{1,2}|S\d{1,2})\b/gi, ' ');
-  cleaned = cleaned.replace(/\s+/g, ' ').trim();
-
-  // Pattern 1: S01E05
-  let m = cleaned.match(/S\d{1,2}E(\d{1,3})/i);
-  if (m) return parseInt(m[1]);
-  // Pattern 2: Episode 05, EP 05
-  m = cleaned.match(/Episode\s+(\d{1,3})/i);
-  if (m) return parseInt(m[1]);
-  m = cleaned.match(/\bEP?\s*(\d{1,3})\b/i);
-  if (m) return parseInt(m[1]);
-  // Pattern 3: " - 05" (dash-separated episode, optional space)
-  // This specifically catches the "Series Name - 26 (1080p)" pattern
-  m = cleaned.match(/-\s*(\d{1,3})(?:v\d)?(?:\s*(?:\[|\(|\.|$))/);
-  if (m) return parseInt(m[1]);
-  // Pattern 3b: " - NN" at end of string (e.g. "Monster - 26")
-  m = cleaned.match(/-\s+(\d{1,3})\s*$/);
-  if (m) return parseInt(m[1]);
-  // Pattern 4: rightmost standalone number not preceded by year and not followed by dash
-  // Filter out 4-digit years (19xx, 20xx)
-  const candidates = [];
-  const p4regex = /\s+(\d{1,4})(?:v\d)?(?=\s|$|\[|\(|\.)/g;
-  let p4m;
-  while ((p4m = p4regex.exec(cleaned)) !== null) {
-    const num = parseInt(p4m[1]);
-    // Skip 4-digit years
-    if (num >= 1900 && num <= 2099) continue;
-    // Skip if it's part of a "xNNN" pattern (e.g. "2 0" from "FLAC 2 0")
-    const before = cleaned.slice(Math.max(0, p4m.index - 3), p4m.index);
-    if (/\b\d\s+x?\s*$/i.test(before) && num >= 100 && num <= 9999) continue;
-    const rest = cleaned.slice(p4regex.lastIndex);
-    if (!/^\s*[-\u2013\u2014]/.test(rest)) candidates.push(num);
-  }
-  if (candidates.length) return candidates[candidates.length - 1];
-  // Fallback: number at end (last resort)
-  m = cleaned.match(/\b(\d{1,3})\s*$/);
-  if (m) {
-    const num = parseInt(m[1]);
-    // Sanity: don't return year-like numbers
-    if (num < 1900 || num > 2099) return num;
-  }
-  return null;
-}
-
-function parseChapterNumber(filename) {
-  const base = path.parse(filename).name;
-  let m = base.match(/(?:Ch(?:apter)?[.\s]*(\d{1,4})|Ch\s*(\d{1,4})|C\s*(\d{1,4})|#(\d{1,4})|-\s*(\d{1,4})(?:v\d)?\s*[\[\(\.\s]|\s+(\d{1,4})(?:v\d)?\s*[\[\(\.\s])/i);
-  if (m) return parseInt(m[1] || m[2] || m[3] || m[4] || m[5] || m[6]);
-  m = base.match(/\b(\d{1,4})\s*$/);
-  if (m) return parseInt(m[1]);
-  return null;
-}
-
-function parseMediaNumber(filename) {
-  return config.vaultMode === 'manga' ? parseChapterNumber(filename) : parseEpisodeNumber(filename);
-}
-
 function stripReleaseMetadata(name) {
   // Remove bracket/parenthesis groups
   let cleaned = name.replace(/\[.*?\]/g, ' ').replace(/\(.*?\)/g, ' ');
@@ -495,20 +836,19 @@ function parseMangaFilename(filename, folderName) {
   return { newName: cleanTitle(base) + ext, series: null, matched: false };
 }
 
-// Parse video filename using folder name as series name fallback
-function parseVideoWithFolder(filename, folderName) {
-  // Delegate to the enhanced parseVideoFilename which now has better metadata stripping
-  return parseVideoFilename(filename, folderName);
-}
-
 function parseEpisodeNumber(filename) {
   const base = path.parse(filename).name;
   // Strip bracket/parenthesis contents first (release metadata)
   let cleaned = base.replace(/\[.*?\]/g, ' ').replace(/\(.*?\)/g, ' ');
+  // Strip season references first so "Season 2 - 1080p" cannot be mistaken
+  // for an episode-dash-resolution pattern.
+  cleaned = cleaned.replace(/\b(?:Season\s*\d{1,2}|S\d{1,2})\b/gi, ' ');
+  // "Series 05 - 1080p": resolve the episode from the dash-resolution shape
+  // BEFORE release-metadata stripping deletes the resolution anchor.
+  const resDash = cleaned.match(/(?:^|[\s._-])(\d{1,3})(?:v\d)?\s*[-–—]\s*\d{3,4}[pk]\b/i);
+  if (resDash) return parseInt(resDash[1]);
   // Strip common release-metadata tokens to avoid false positives
   cleaned = cleaned.replace(RELEASE_META_STRIP, ' ');
-  // Now strip season references
-  cleaned = cleaned.replace(/\b(?:Season\s*\d{1,2}|S\d{1,2})\b/gi, ' ');
   cleaned = cleaned.replace(/\s+/g, ' ').trim();
 
   // Pattern 1: S01E05
@@ -565,10 +905,32 @@ function parseMediaNumber(filename) {
   return config.vaultMode === 'manga' ? parseChapterNumber(filename) : parseEpisodeNumber(filename);
 }
 
-function getLocalHighestEpisode(seriesName, malId) {
-  // Find highest episode we have locally
-  const nums = lastLibraryScan
-    .filter(s => s.name === seriesName)
+function resolveTrackedLocalSeries(seriesName, malId, seriesPath) {
+  const pathKey = seriesPath ? path.resolve(seriesPath).toLowerCase() : '';
+  if (pathKey) {
+    const byPath = lastLibraryScan.find(s => s.path && path.resolve(s.path).toLowerCase() === pathKey);
+    if (byPath) return byPath;
+  }
+  const byExactName = lastLibraryScan.find(s => s.name === seriesName);
+  if (byExactName) return byExactName;
+  const byCaseInsensitiveName = lastLibraryScan.filter(s =>
+    String(s.name || '').toLocaleLowerCase() === String(seriesName || '').toLocaleLowerCase()
+  );
+  if (byCaseInsensitiveName.length === 1) return byCaseInsensitiveName[0];
+  if (malId) {
+    const byMalId = lastLibraryScan.filter(s =>
+      s.watchData && Number(s.watchData.malId) === Number(malId)
+    );
+    // A MAL fallback is safe only when it resolves exactly one local folder.
+    // Multiple folders generally mean distinct seasons or a stale duplicate.
+    if (byMalId.length === 1) return byMalId[0];
+  }
+  return null;
+}
+
+function getLocalHighestEpisode(seriesName, malId, seriesPath) {
+  const localSeries = resolveTrackedLocalSeries(seriesName, malId, seriesPath);
+  const nums = (localSeries ? [localSeries] : [])
     .flatMap(s => s.episodes || [])
     .map(f => parseMediaNumber(f.name))
     .filter(n => n !== null && !isNaN(n));
@@ -576,20 +938,64 @@ function getLocalHighestEpisode(seriesName, malId) {
   return Math.max(...nums);
 }
 
-function getLocalEpisodes(seriesName, malId) {
-  // Return all local episode numbers
-  const nums = lastLibraryScan
-    .filter(s => s.name === seriesName)
+function getLocalEpisodes(seriesName, malId, seriesPath) {
+  const localSeries = resolveTrackedLocalSeries(seriesName, malId, seriesPath);
+  const nums = (localSeries ? [localSeries] : [])
     .flatMap(s => s.episodes || [])
     .map(f => parseMediaNumber(f.name))
     .filter(n => n !== null && !isNaN(n));
   return nums;
 }
 
-function _doScanLibrary() {
+let lastScanStats = { cacheHits: 0, cacheMisses: 0, durationMs: 0, series: 0 };
+
+function getIndexedMediaFiles(seriesPath, scanner, mode, force) {
+  const index = readLibraryIndex();
+  const bucket = index[mode] || (index[mode] = {});
+  const key = path.resolve(seriesPath).toLowerCase();
+  let mtimeMs = 0;
+  try { mtimeMs = fs.statSync(seriesPath).mtimeMs; } catch (e) {}
+  const cached = bucket[key];
+  if (!force && config.incrementalScan !== false && cached && cached.mtimeMs === mtimeMs && Array.isArray(cached.files)) {
+    lastScanStats.cacheHits++;
+    return cached.files.map(file => ({ ...file }));
+  }
+  lastScanStats.cacheMisses++;
+  const files = scanner(seriesPath);
+  bucket[key] = { path: seriesPath, mtimeMs, files };
+  return files;
+}
+
+function isLikelyMangaHistory(watchData) {
+  const data = watchData && watchData.malData || {};
+  const type = String(data.media_type || '').toLowerCase();
+  const list = data.my_list_status || {};
+  return /manga|novel|manhwa|manhua|one_shot|doujin/.test(type) ||
+    data.num_chapters != null || list.num_chapters_read != null || list.status === 'reading' || list.status === 'plan_to_read';
+}
+
+function getConfiguredAnimeSeriesNames() {
+  const names = new Set();
+  for (const folder of config.folders || []) {
+    if (!folder || !folder.path || !fs.existsSync(folder.path)) continue;
+    try {
+      fs.readdirSync(folder.path, { withFileTypes: true }).forEach(entry => { if (entry.isDirectory()) names.add(entry.name); });
+    } catch (e) {}
+  }
+  return names;
+}
+
+function _doScanLibrary(force = false) {
+  const startedAt = Date.now();
   const isManga = config.vaultMode === 'manga';
+  const mode = isManga ? 'manga' : 'anime';
   const activeFolders = isManga ? config.mangaFolders : config.folders;
   const scanner = isManga ? getMangaFiles : getVideoFiles;
+  const history = getWatchHistoryStore();
+  const animeNames = isManga ? getConfiguredAnimeSeriesNames() : new Set();
+  let migratedHistory = false;
+  const liveIndexKeys = new Set();
+  lastScanStats = { cacheHits: 0, cacheMisses: 0, durationMs: 0, series: 0 };
 
   const library = [];
   for (const folder of (activeFolders || [])) {
@@ -598,7 +1004,8 @@ function _doScanLibrary() {
       const dirs = fs.readdirSync(folder.path, { withFileTypes: true }).filter(d => d.isDirectory());
       for (const dir of dirs) {
         const seriesPath = path.join(folder.path, dir.name);
-        const files = scanner(seriesPath).map(f => ({...f, episodeNum: parseMediaNumber(f.name)}));
+        liveIndexKeys.add(path.resolve(seriesPath).toLowerCase());
+        const files = getIndexedMediaFiles(seriesPath, scanner, mode, !!force).map(f => ({...f, episodeNum: parseMediaNumber(f.name)}));
         if (files.length === 0) continue;
 
         // Parse all episode numbers
@@ -610,12 +1017,19 @@ function _doScanLibrary() {
         const maxEpisode = episodeNumbers.length ? Math.max(...episodeNumbers) : 0;
 
         // Read watch data
-        const watchData = config.watchHistory[dir.name] || {};
+        if (isManga && !history[dir.name] && config.watchHistory[dir.name] &&
+            (isLikelyMangaHistory(config.watchHistory[dir.name]) || !animeNames.has(dir.name))) {
+          history[dir.name] = JSON.parse(JSON.stringify(config.watchHistory[dir.name]));
+          migratedHistory = true;
+        }
+        const watchData = history[dir.name] || {};
         const episodesWatched = Array.isArray(watchData.episodesWatched) ? watchData.episodesWatched : [];
         const lastWatched = watchData.lastWatched || '';
         const malId = watchData.malId || null;
         const malData = watchData.malData || null;
-        const category = folder.type || 'custom';
+        const tags = Array.isArray(watchData.tags) ? watchData.tags : [];
+        const category = watchData.category || folder.type || 'custom';
+        const coverCached = getExistingCoverCachePath(dir.name);
 
         library.push({
           name: dir.name,
@@ -624,8 +1038,9 @@ function _doScanLibrary() {
           episodeCount,
           maxEpisode,
           folder: folder.path,
-          watchData: { episodesWatched, lastWatched, malId, malData },
-          category
+          watchData: { episodesWatched, lastWatched, malId, malData, tags },
+          category,
+          coverCached
         });
       }
     } catch (e) {
@@ -639,23 +1054,30 @@ function _doScanLibrary() {
     return a.name.localeCompare(b.name);
   });
 
+  const bucket = readLibraryIndex()[mode] || {};
+  Object.keys(bucket).forEach(key => { if (!liveIndexKeys.has(key)) delete bucket[key]; });
+  scheduleLibraryIndexSave();
+  if (migratedHistory) saveConfig();
   lastLibraryScan = library;
+  libraryScanReady = true;
+  lastScanStats.durationMs = Date.now() - startedAt;
+  lastScanStats.series = library.length;
   return library;
 }
 
-ipcMain.handle('library:scan', async () => {
-  const library = _doScanLibrary();
-  // Check for duplicate files after scan completes
-  await checkDuplicatesAfterScan(library);
-  // Phase 1.7: run criteria sync once after first successful cold-start scan
-  if (!hasInitialCriteriaSyncRun && config.autoDownloadCriteria) {
-    hasInitialCriteriaSyncRun = true;
-    setTimeout(() => syncAutoDownloadCriteria(), 3000);
-  }
+ipcMain.handle('library:scan', async (_, force = false) => {
+  const library = _doScanLibrary(!!force);
+  // Duplicate analysis is useful but should not hold the initial library IPC.
+  scheduleDuplicateCheck(library);
+  // The scheduled auto-download poller starts after the startup window has
+  // settled; avoid launching a second network-heavy series pass here.
   return library;
 });
+ipcMain.handle('library:getScanStats', () => ({ ...lastScanStats }));
+ipcMain.handle('library:clearScanCache', () => { clearLibraryIndex(); return true; });
 
 ipcMain.handle('library:getEpisodes', (_, seriesPath) => {
+  if (!isAllowedFileActionPath(seriesPath)) return [];
   if (!fs.existsSync(seriesPath)) return [];
   const isManga = config.vaultMode === 'manga';
   const fileScanner = isManga ? getMangaFiles : getVideoFiles;
@@ -671,37 +1093,57 @@ ipcMain.handle('library:getEpisodes', (_, seriesPath) => {
 
 ipcMain.handle('library:deleteSeries', (_, seriesPath) => {
   try {
-    // Delete all files inside the series folder
+    assertAllowedChildFileActionPath(seriesPath);
+    // Remove the series folder recursively; flat unlink+rmdir failed on any
+    // series containing subfolders (extras/, subs/, season packs).
     if (fs.existsSync(seriesPath)) {
-      const files = fs.readdirSync(seriesPath);
-      for (const f of files) {
-        fs.unlinkSync(path.join(seriesPath, f));
-      }
-      fs.rmdirSync(seriesPath);
+      fs.rmSync(seriesPath, { recursive: true, force: true });
     }
     // Remove from watch history
     const dirName = path.basename(seriesPath);
-    if (config.watchHistory[dirName]) {
-      delete config.watchHistory[dirName];
+    const history = getWatchHistoryStore();
+    if (history[dirName]) {
+      delete history[dirName];
       saveConfig();
     }
+    untrackDeletedSeries(dirName, seriesPath);
     return { success: true };
   } catch (e) {
     return { success: false, error: e.message };
   }
 });
 
+// When a series folder is deleted, drop it from the auto-download watchlist so
+// the Nyaa poller never produces new-episode notifications for a removed series.
+// Controlled by the "untrackOnDelete" setting (default on).
+function untrackDeletedSeries(dirName, seriesPath) {
+  if (config.untrackOnDelete === false) return;
+  const watchlist = config.autoDownloadWatchlist;
+  if (!Array.isArray(watchlist) || !watchlist.length) return;
+  const before = watchlist.length;
+  config.autoDownloadWatchlist = watchlist.filter(w => {
+    if (w && w.seriesName && w.seriesName === dirName) return false;
+    if (w && w.seriesPath && seriesPath) {
+      try {
+        if (path.resolve(w.seriesPath).toLowerCase() === path.resolve(seriesPath).toLowerCase()) return false;
+      } catch (e) { /* ignore malformed paths */ }
+    }
+    return true;
+  });
+  if (config.autoDownloadWatchlist.length !== before) saveConfig();
+}
+
 ipcMain.handle('library:batchDeleteSeries', (_, paths) => {
+  if (!Array.isArray(paths) || paths.length > 500) return [];
   const results = [];
   for (const p of paths) {
     try {
-      if (fs.existsSync(p)) {
-        const files = fs.readdirSync(p);
-        for (const f of files) fs.unlinkSync(path.join(p, f));
-        fs.rmdirSync(p);
-      }
+      assertAllowedChildFileActionPath(p);
+      if (fs.existsSync(p)) fs.rmSync(p, { recursive: true, force: true });
       const dirName = path.basename(p);
-      if (config.watchHistory[dirName]) delete config.watchHistory[dirName];
+      const history = getWatchHistoryStore();
+      if (history[dirName]) delete history[dirName];
+      untrackDeletedSeries(dirName, p);
       results.push({ path: p, success: true });
     } catch (e) {
       results.push({ path: p, success: false, error: e.message });
@@ -713,6 +1155,7 @@ ipcMain.handle('library:batchDeleteSeries', (_, paths) => {
 
 ipcMain.handle('library:deleteEpisodeFile', (_, filePath) => {
   try {
+    assertAllowedFileActionPath(filePath);
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
     return { success: true };
   } catch (e) {
@@ -724,17 +1167,21 @@ ipcMain.handle('library:deleteEpisodeFile', (_, filePath) => {
 //  WATCH HISTORY
 // ================================================================
 ipcMain.handle('watch:getHistory', (_, seriesName) => {
-  return config.watchHistory[seriesName] || { episodesWatched: [], lastWatched: null, malId: null };
+  return getWatchHistoryStore()[safeHistoryKey(seriesName)] || { episodesWatched: [], lastWatched: null, malId: null };
 });
 
 ipcMain.handle('watch:markEpisode', (_, seriesName, episodeNum) => {
-  if (!config.watchHistory[seriesName]) {
-    config.watchHistory[seriesName] = { episodesWatched: [], lastWatched: null, malId: null };
+  const ep = safeEpisodeNumber(episodeNum);
+  if (ep === null) throw new Error('Invalid episode number');
+  const key = safeHistoryKey(seriesName);
+  const history = getWatchHistoryStore();
+  if (!history[key]) {
+    history[key] = { episodesWatched: [], lastWatched: null, malId: null };
   }
-  const h = config.watchHistory[seriesName];
+  const h = history[key];
   if (!Array.isArray(h.episodesWatched)) h.episodesWatched = [];
-  if (!h.episodesWatched.includes(episodeNum)) {
-    h.episodesWatched.push(episodeNum);
+  if (!h.episodesWatched.includes(ep)) {
+    h.episodesWatched.push(ep);
   }
   h.lastWatched = new Date().toISOString();
   saveConfig();
@@ -745,10 +1192,10 @@ ipcMain.handle('watch:markEpisode', (_, seriesName, episodeNum) => {
     setTimeout(() => {
       const seriesEntry = lastLibraryScan.find(s => s.name === seriesName);
       if (seriesEntry && seriesEntry.episodes) {
-        const ep = seriesEntry.episodes.find(e => parseMediaNumber(e.name) === episodeNum);
-        if (ep && fs.existsSync(ep.path)) {
-          try { fs.unlinkSync(ep.path); console.log('[Watch&Delete] Deleted', ep.name); }
-          catch (e) { console.error('[Watch&Delete] Failed to delete', ep.path, e.message); }
+        const epFile = seriesEntry.episodes.find(e => parseMediaNumber(e.name) === ep);
+        if (epFile && fs.existsSync(epFile.path) && isAllowedFileActionPath(epFile.path)) {
+          try { fs.unlinkSync(epFile.path); console.log('[Watch&Delete] Deleted', epFile.name); }
+          catch (e) { console.error('[Watch&Delete] Failed to delete', epFile.path, e.message); }
         }
       }
     }, 5000);
@@ -758,44 +1205,78 @@ ipcMain.handle('watch:markEpisode', (_, seriesName, episodeNum) => {
 });
 
 ipcMain.handle('watch:markUpTo', (_, seriesName, epNum, allEpNums) => {
-  if (!config.watchHistory[seriesName]) config.watchHistory[seriesName] = { episodesWatched: [], lastWatched: null, malId: null };
-  const h = config.watchHistory[seriesName];
+  const key = safeHistoryKey(seriesName);
+  if (!Array.isArray(allEpNums) || allEpNums.length > 10000) throw new Error('Invalid episode list');
+  const target = safeEpisodeNumber(epNum);
+  if (target === null) throw new Error('Invalid episode number');
+  const history = getWatchHistoryStore();
+  if (!history[key]) history[key] = { episodesWatched: [], lastWatched: null, malId: null };
+  const h = history[key];
   if (!Array.isArray(h.episodesWatched)) h.episodesWatched = [];
   for (const n of allEpNums) {
-    if (n <= epNum && !h.episodesWatched.includes(n)) h.episodesWatched.push(n);
+    const num = safeEpisodeNumber(n);
+    if (num !== null && num <= target && !h.episodesWatched.includes(num)) h.episodesWatched.push(num);
   }
   h.lastWatched = new Date().toISOString();
   saveConfig();
-  return true;
+  return { ...h };
 });
 
 ipcMain.handle('watch:unmarkFrom', (_, seriesName, epNum) => {
-  if (!config.watchHistory[seriesName]) return true;
-  const h = config.watchHistory[seriesName];
-  if (!Array.isArray(h.episodesWatched)) return true;
-  h.episodesWatched = h.episodesWatched.filter(n => n < epNum);
+  const key = safeHistoryKey(seriesName);
+  const history = getWatchHistoryStore();
+  if (!history[key]) return null;
+  const h = history[key];
+  if (!Array.isArray(h.episodesWatched)) return null;
+  h.episodesWatched = h.episodesWatched.filter(n => Number(n) < Number(epNum));
   saveConfig();
-  return true;
+  return { ...h };
 });
 
 ipcMain.handle('watch:setEpisodesWatched', (_, seriesName, epList) => {
-  if (!config.watchHistory[seriesName]) config.watchHistory[seriesName] = { episodesWatched: [], lastWatched: null, malId: null };
-  config.watchHistory[seriesName].episodesWatched = [...epList];
+  const key = safeHistoryKey(seriesName);
+  if (!Array.isArray(epList) || epList.length > 10000) throw new Error('Invalid episode list');
+  const history = getWatchHistoryStore();
+  if (!history[key]) history[key] = { episodesWatched: [], lastWatched: null, malId: null };
+  history[key].episodesWatched = [...new Set(epList.map(safeEpisodeNumber).filter(n => n !== null))];
   saveConfig();
-  return true;
+  return { ...history[key] };
 });
 
 ipcMain.handle('watch:setMalId', (_, seriesName, malId) => {
-  if (!config.watchHistory[seriesName]) config.watchHistory[seriesName] = { episodesWatched: [], lastWatched: null, malId: null };
-  config.watchHistory[seriesName].malId = malId;
+  const key = safeHistoryKey(seriesName);
+  const history = getWatchHistoryStore();
+  if (!history[key]) history[key] = { episodesWatched: [], lastWatched: null, malId: null };
+  history[key].malId = safeMalId(malId);
   saveConfig();
   return true;
 });
 
 ipcMain.handle('watch:setMalData', (_, seriesName, malData) => {
-  if (!config.watchHistory[seriesName]) config.watchHistory[seriesName] = { episodesWatched: [], lastWatched: null, malId: null };
-  // Merge instead of replace to preserve my_list_status if the API response omits it
-  config.watchHistory[seriesName].malData = { ...config.watchHistory[seriesName].malData, ...malData };
+  const key = safeHistoryKey(seriesName);
+  const history = getWatchHistoryStore();
+  if (!history[key]) history[key] = { episodesWatched: [], lastWatched: null, malId: null };
+  history[key].malData = mergeMalData(history[key].malData, malData);
+  saveConfig();
+  // Return the merged result so callers can patch their local library state
+  // without triggering a full rescan.
+  return JSON.parse(JSON.stringify(history[key].malData));
+});
+
+ipcMain.handle('watch:setTags', (_, seriesName, tags) => {
+  const key = safeHistoryKey(seriesName);
+  const history = getWatchHistoryStore();
+  if (!history[key]) history[key] = { episodesWatched: [], lastWatched: null, malId: null };
+  history[key].tags = Array.isArray(tags) ? tags.slice(0, 200) : [];
+  saveConfig();
+  return true;
+});
+
+ipcMain.handle('watch:setCategory', (_, seriesName, category) => {
+  const key = safeHistoryKey(seriesName);
+  const history = getWatchHistoryStore();
+  if (!history[key]) history[key] = { episodesWatched: [], lastWatched: null, malId: null };
+  history[key].category = String(category || '').trim().slice(0, 200);
   saveConfig();
   return true;
 });
@@ -805,11 +1286,28 @@ ipcMain.handle('watch:setMalData', (_, seriesName, malData) => {
 // ================================================================
 const { spawn } = require('child_process');
 
+// Detached spawns without an 'error' listener take down the entire main
+// process when the executable is missing (ENOENT arrives asynchronously).
+// Returns the child so callers can keep their poller/kill lifecycle.
+function spawnDetached(exe, args) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (ok, child, message) => { if (!settled) { settled = true; resolve({ ok, child: child || null, message: message || null }); } };
+    try {
+      const child = spawn(exe, args, { detached: true });
+      child.on('error', (e) => done(false, null, e.message));
+      child.once('spawn', () => done(true, child));
+      setTimeout(() => done(true, child), 3000);
+      try { child.unref(); } catch (e) {}
+    } catch (e) { done(false, null, e.message); }
+  });
+}
+
 function resolveMpvPath() {
   if (config.playerType === 'bundled-mpv') {
-    const bundled = path.join(process.resourcesPath, 'mpv', 'mpv.exe');
+    const bundled = path.join(process.resourcesPath, 'bin', 'mpv.exe');
     if (fs.existsSync(bundled)) return bundled;
-    const dev = path.join(__dirname, 'mpv', 'mpv.exe');
+    const dev = path.join(__dirname, 'bin', 'mpv.exe');
     if (fs.existsSync(dev)) return dev;
   }
   return config.mpvPath || 'mpv';
@@ -817,13 +1315,16 @@ function resolveMpvPath() {
 
 ipcMain.handle('player:play', async (_, filePath, seriesName, episodeNum) => {
   try {
+    assertAllowedFileActionPath(filePath);
+    assertPlayableMedia(filePath);
     const isManga = config.vaultMode === 'manga';
     const ext = path.extname(filePath).toLowerCase();
     if (isManga || MANGA_EXTS.includes(ext)) {
       // Open with manga reader
       const reader = config.readerPath;
       if (reader && fs.existsSync(reader)) {
-        spawn(reader, [filePath], { detached: true });
+        const res = await spawnDetached(reader, [filePath]);
+        if (!res.ok) return { error: 'Failed to launch the manga reader: ' + res.message };
       } else {
         await shell.openPath(filePath);
       }
@@ -836,10 +1337,10 @@ ipcMain.handle('player:play', async (_, filePath, seriesName, episodeNum) => {
     const audioDelay = config.audioDelay ? '-300' : '0';
 
     if (playerType === 'vlc') {
-      const vlcPath = config.vlcPath || 'C:\\Program Files\\VideoLAN\\VLC\\vlc.exe';
-      const args = [filePath];
-      // Resolve episodeNum from filename if the renderer passed null
       const resolvedEpNum = episodeNum ?? parseEpisodeNumber(path.basename(filePath));
+      // Kill any previously spawned player to free port 18292
+      killExistingPlayer();
+      const args = [filePath];
       // Enable HTTP interface for auto-mark polling
       if (config.autoMarkEnabled !== false && resolvedEpNum !== null) {
         args.push(`--extraintf=http`);
@@ -849,16 +1350,32 @@ ipcMain.handle('player:play', async (_, filePath, seriesName, episodeNum) => {
       if (subPrimary) args.push(`--sub-language=${subPrimary}`);
       if (subFallback) args.push(`--sub-language=${subFallback}`);
       if (audioDelay !== '0') args.push(`--audio-desync=${audioDelay}`);
-      spawn(vlcPath, args, { detached: true });
+      args.push('--fullscreen');
+      // Resolve VLC: configured path first, then common install locations. A
+      // missing executable must degrade to the OS default player, never crash
+      // the main process.
+      const candidates = [config.vlcPath, 'C:\\Program Files\\VideoLAN\\VLC\\vlc.exe', 'C:\\Program Files (x86)\\VideoLAN\\VLC\\vlc.exe'].filter(Boolean);
+      const exePath = candidates.find(p => { try { return fs.existsSync(p); } catch (e) { return false; } }) || null;
+      if (!exePath) {
+        console.warn('[Player] VLC not found in configured or default locations; opening with the OS default player');
+        const openErr = await shell.openPath(filePath);
+        if (openErr) return { error: 'VLC was not found and the system default player failed: ' + openErr };
+        return { error: null, warning: 'VLC not found - opened with your default video app. Set your player path in Settings to restore auto-mark.' };
+      }
+      const res = await spawnDetached(exePath, args);
+      if (!res.ok || !res.child) return { error: 'Failed to launch VLC: ' + (res.message || 'unknown error') + '. Check the VLC path in Settings.' };
+      _amPlayerProcess = res.child;
       if (config.autoMarkEnabled !== false && resolvedEpNum !== null) {
         // Give VLC a moment to start the HTTP server
         setTimeout(() => startAutoMarkPoller('vlc', seriesName, resolvedEpNum), 2000);
       }
     } else if (playerType === 'mpv' || playerType === 'bundled-mpv') {
       const mpvPath = resolveMpvPath();
-      const args = [filePath];
+      const args = [];
       // Resolve episodeNum from filename if the renderer passed null
       const resolvedEpNum = episodeNum ?? parseEpisodeNumber(path.basename(filePath));
+      // Kill any previously spawned player to free the IPC pipe
+      killExistingPlayer();
       // Enable IPC for auto-mark polling
       if (config.autoMarkEnabled !== false && resolvedEpNum !== null) {
         args.push(`--input-ipc-server=${MPV_IPC_PIPE}`);
@@ -866,11 +1383,15 @@ ipcMain.handle('player:play', async (_, filePath, seriesName, episodeNum) => {
       if (subPrimary) args.push(`--slang=${subPrimary}`);
       if (subFallback) args.push(`--slang=${subFallback}`);
       if (audioDelay !== '0') args.push(`--audio-delay=${audioDelay}`);
+      args.push('--fullscreen');
+      args.push('--', filePath);
       // Clean up old socket if it exists (non-Windows)
       if (config.autoMarkEnabled !== false && process.platform !== 'win32' && fs.existsSync(MPV_IPC_PIPE)) {
         try { fs.unlinkSync(MPV_IPC_PIPE); } catch (e) {}
       }
-      spawn(mpvPath, args, { detached: true });
+      const res = await spawnDetached(mpvPath, args);
+      if (!res.ok || !res.child) return { error: 'Failed to launch MPV: ' + (res.message || 'unknown error') + '. Check the MPV path in Settings.' };
+      _amPlayerProcess = res.child;
       if (config.autoMarkEnabled !== false && resolvedEpNum !== null) {
         setTimeout(() => startAutoMarkPoller('mpv', seriesName, resolvedEpNum), 2000);
       }
@@ -890,7 +1411,8 @@ ipcMain.handle('player:getBundledInfo', () => ({ bundledMpvPath: resolveMpvPath(
 //  AUTO-MARK PLAYBACK POLLING (VLC HTTP + MPV IPC)
 // ================================================================
 const VLC_HTTP_PORT = 18292; // unlikely to conflict
-const VLC_HTTP_PASSWORD = 'animevault';
+// Random per launch so other local processes can't drive the player's web interface.
+const VLC_HTTP_PASSWORD = crypto.randomBytes(12).toString('hex');
 const MPV_IPC_PIPE = process.platform === 'win32' ? '\\\\.\\pipe\\mpv-animevault' : path.join(app.getPath('temp'), 'mpv-animevault.sock');
 
 let _amPollInterval = null;      // active setInterval handle
@@ -898,6 +1420,8 @@ let _amCurrentPlayer = null;     // 'vlc' | 'mpv'
 let _amSeriesName = null;
 let _amEpisodeNum = null;
 let _amAlreadyMarked = false;    // guard against duplicate emissions
+let _amPlayerProcess = null;      // child process handle of spawned player
+let _amConsecutiveFailures = 0;   // consecutive polling failures before giving up
 
 // --- VLC HTTP polling ---
 function vlcGetStatus() {
@@ -959,6 +1483,17 @@ function mpvGetPercentPos() {
   });
 }
 
+// Kill a previously spawned player and its polling — called before launching a new one
+function killExistingPlayer() {
+  if (_amPollInterval) { clearInterval(_amPollInterval); _amPollInterval = null; }
+  if (_amPlayerProcess) {
+    try { _amPlayerProcess.kill(); } catch (e) {}
+    _amPlayerProcess = null;
+  }
+  _amCurrentPlayer = null;
+  _amConsecutiveFailures = 0;
+}
+
 // --- Shared polling loop ---
 function startAutoMarkPoller(playerType, seriesName, episodeNum) {
   stopAutoMarkPoller();
@@ -983,9 +1518,15 @@ function startAutoMarkPoller(playerType, seriesName, episodeNum) {
     }
 
     if (!result.playing && result.pct === 0) {
-      // Process likely exited or nothing playing — keep polling a few more times
+      _amConsecutiveFailures++;
+      if (_amConsecutiveFailures >= 6) {
+        console.warn('[AutoMark] Player unresponsive for ~30s — stopping poller');
+        stopAutoMarkPoller();
+      }
       return;
     }
+
+    _amConsecutiveFailures = 0;
 
     if (result.pct >= threshold) {
       _amAlreadyMarked = true;
@@ -1009,16 +1550,21 @@ function startAutoMarkPoller(playerType, seriesName, episodeNum) {
 function stopAutoMarkPoller() {
   if (_amPollInterval) { clearInterval(_amPollInterval); _amPollInterval = null; }
   _amCurrentPlayer = null;
+  _amConsecutiveFailures = 0;
 }
 
 // Clean up on quit
-app.on('before-quit', stopAutoMarkPoller);
+app.on('before-quit', () => { stopAutoMarkPoller(); killExistingPlayer(); });
 
 // Thumbnail extraction (F10)
 ipcMain.handle('player:extractThumbnail', async (_, filePath, seriesName, episodeNum) => {
-  const thumbDir = path.join(app.getPath('userData'), 'thumbnails', seriesName.replace(/[\\/:*?"<>|]/g, '_'));
+  try { assertAllowedFileActionPath(filePath); }
+  catch (e) { return { success: false, error: e.message }; }
+  const ep = Number(episodeNum);
+  if (!Number.isInteger(ep) || ep < 1 || ep > 99999) return { success: false, error: 'Invalid episode number' };
+  const thumbDir = path.join(app.getPath('userData'), 'thumbnails', String(seriesName || '').replace(/[\\/:*?"<>|]/g, '_'));
   fs.mkdirSync(thumbDir, { recursive: true });
-  const outPath = path.join(thumbDir, `ep_${String(episodeNum).padStart(3, '0')}.jpg`);
+  const outPath = path.join(thumbDir, `ep_${String(ep).padStart(3, '0')}.jpg`);
   if (fs.existsSync(outPath)) return { success: true, path: outPath };
   
   const mpv = resolveMpvPath();
@@ -1033,8 +1579,19 @@ ipcMain.handle('player:extractThumbnail', async (_, filePath, seriesName, episod
 // ================================================================
 //  SHELL
 // ================================================================
-ipcMain.handle('shell:openExternal', (_, url) => shell.openExternal(url));
-ipcMain.handle('shell:openFolder', (_, p) => shell.openPath(p));
+ipcMain.handle('shell:openExternal', (_, url) => {
+  if (!isSafeExternalUrl(url)) return { success: false, error: 'Blocked unsafe URL' };
+  return shell.openExternal(url);
+});
+ipcMain.handle('shell:openFolder', (_, p) => {
+  if (!isAllowedFileActionPath(p, true)) return { success: false, error: 'Path is outside configured AnimeVault folders' };
+  // Only ever *reveal* things: a file path is shown in its folder instead of
+  // being opened, so this channel can't be used to launch executables.
+  try {
+    if (fs.existsSync(p) && !fs.statSync(p).isDirectory()) { shell.showItemInFolder(p); return ''; }
+  } catch (e) { return { success: false, error: e.message }; }
+  return shell.openPath(p);
+});
 
 // ================================================================
 //  COVER CACHE
@@ -1046,17 +1603,44 @@ function getCachePath(url) {
   return path.join(CACHE_DIR, `${hash}.jpg`);
 }
 
-async function fetchImage(url) {
+function isPrivateHost(hostname) {
+  const h = String(hostname || '').toLowerCase().replace(/^\[|\]$/g, '');
+  if (!h || h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local') || h.endsWith('.internal')) return true;
+  if (h === '::1' || h === '::' || /^f[cd][0-9a-f]{2}:/.test(h) || /^fe80:/.test(h) || /^::ffff:/.test(h)) return true;
+  const m = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (m) {
+    const a = +m[1], b = +m[2];
+    if (a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || a >= 224) return true;
+  }
+  if (/^\d+$/.test(h) || /^0x[0-9a-f]+$/.test(h)) return true; // integer / hex IP forms
+  return false;
+}
+
+async function fetchImage(url, redirects = 0) {
+  if (redirects > 5) throw new Error('Too many redirects');
+  let parsed;
+  try {
+    parsed = new URL(url);
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') throw new Error('Unsafe image URL');
+    if (isPrivateHost(parsed.hostname)) throw new Error('Blocked internal image URL');
+  } catch (e) { throw new Error('Invalid image URL: ' + e.message); }
   return new Promise((resolve, reject) => {
-    const parsed = new URL(url);
     const mod = parsed.protocol === 'https:' ? https : http;
-    const req = mod.get(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' } }, (res) => {
+    const req = mod.get(parsed, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' } }, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        return fetchImage(res.headers.location).then(resolve).catch(reject);
+        res.resume();
+        let nextUrl = res.headers.location;
+        try { nextUrl = new URL(res.headers.location, parsed).toString(); } catch (e) {}
+        return fetchImage(nextUrl, redirects + 1).then(resolve).catch(reject);
       }
-      if (res.statusCode !== 200) return reject(new Error('HTTP ' + res.statusCode));
+      if (res.statusCode !== 200) { res.resume(); return reject(new Error('HTTP ' + res.statusCode)); }
+      let size = 0;
       const chunks = [];
-      res.on('data', c => chunks.push(c));
+      res.on('data', c => {
+        size += c.length;
+        if (size > 15 * 1024 * 1024) { req.destroy(); reject(new Error('Image too large')); return; }
+        chunks.push(c);
+      });
       res.on('end', () => resolve(Buffer.concat(chunks)));
     });
     req.on('error', reject);
@@ -1066,9 +1650,19 @@ async function fetchImage(url) {
 
 ipcMain.handle('cover:getDataUrl', async (_, filePath) => {
   try {
+    assertAllowedFileActionPath(filePath, true);
+    const ext = path.extname(filePath).toLowerCase();
+    if (!['.jpg', '.jpeg', '.png', '.webp'].includes(ext)) return null;
+    // Never serve app data files as images (config, tokens, index).
+    const ud = normalizeFsPath(app.getPath('userData'));
+    const fp = normalizeFsPath(filePath);
+    if (ud && fp && isInsidePath(ud, fp)) {
+      const rel = path.relative(ud, fp);
+      if (!rel.toLowerCase().startsWith('cover-cache') && !rel.toLowerCase().startsWith('thumbnails')) return null;
+    }
     if (fs.existsSync(filePath)) {
       const buf = fs.readFileSync(filePath);
-      return 'data:image/jpeg;base64,' + buf.toString('base64');
+      return 'data:image/' + (ext === '.png' ? 'png' : ext === '.webp' ? 'webp' : 'jpeg') + ';base64,' + buf.toString('base64');
     }
     return null;
   } catch (e) { return null; }
@@ -1099,36 +1693,61 @@ function anilistQuery(query, variables) {
         } catch (e) { reject(e); }
       });
     });
-    req.on('error', reject);
-    req.write(postData);
+      req.on('error', reject);
+      req.setTimeout(15000, () => { req.destroy(); reject(new Error('AniList query timed out')); });
+      req.write(postData);
     req.end();
   });
 }
 
+ipcMain.handle('anilist:userMalIds', async (_, userName) => {
+  try {
+    const user = String(userName || '').trim();
+    if (!/^[A-Za-z0-9_-]{2,40}$/.test(user)) return { error: 'Invalid AniList username' };
+    const data = await anilistQuery(`
+      query ($user: String) {
+        MediaListCollection(userName: $user, type: ANIME) {
+          lists { entries { media { idMal } } }
+        }
+      }
+    `, { user });
+    const coll = data && data.MediaListCollection;
+    if (!coll) return { error: 'User not found or list is private' };
+    const ids = new Set();
+    (coll.lists || []).forEach(l => (l.entries || []).forEach(e => { const id = e && e.media && e.media.idMal; if (Number.isInteger(id) && id > 0) ids.add(id); }));
+    return Array.from(ids).slice(0, 5000);
+  } catch (e) { return { error: e.message }; }
+});
+
 ipcMain.handle('anilist:search', async (_, title, count = 1) => {
   try {
+    const isManga = config.vaultMode === 'manga';
     const data = await anilistQuery(`
-      query($search: String, $perPage: Int) {
+      query($search: String, $perPage: Int, $type: MediaType) {
         Page(perPage: $perPage) {
-          media(search: $search, type: ANIME) {
+          media(search: $search, type: $type) {
             id
             title { romaji english native }
-            coverImage { large }
+            coverImage { extraLarge large medium }
+            episodes
+            chapters
+            seasonYear
             description
           }
         }
       }
-    `, { search: title, perPage: count });
+    `, { search: title, perPage: count, type: isManga ? 'MANGA' : 'ANIME' });
     return (data.Page && data.Page.media) || [];
   } catch (e) { return []; }
 });
 
-ipcMain.handle('anilist:fetchCover', async (_, seriesName, url) => {
+ipcMain.handle('anilist:fetchCover', async (_, seriesName, url, force = false) => {
   try {
     fs.mkdirSync(CACHE_DIR, { recursive: true });
-    const cacheFile = path.join(CACHE_DIR, encodeURIComponent(seriesName) + '.jpg');
-    if (fs.existsSync(cacheFile)) {
-      return cacheFile;
+    const cacheFile = getCoverCachePath(seriesName);
+    const existing = getExistingCoverCachePath(seriesName);
+    if (existing && !force) {
+      return existing;
     }
     const buf = await fetchImage(url);
     fs.writeFileSync(cacheFile, buf);
@@ -1140,33 +1759,31 @@ ipcMain.handle('anilist:fetchCover', async (_, seriesName, url) => {
 });
 
 ipcMain.handle('anilist:getCachedCover', (_, name) => {
-  const cacheFile = path.join(CACHE_DIR, encodeURIComponent(name) + '.jpg');
-  if (fs.existsSync(cacheFile)) {
-    return cacheFile;
-  }
-  return null;
+  return getExistingCoverCachePath(name);
 });
 
 ipcMain.handle('anilist:fetchAllCovers', async (_, seriesList) => {
   const results = [];
+  const isManga = config.vaultMode === 'manga';
   for (const series of seriesList) {
-    const cacheFile = path.join(CACHE_DIR, encodeURIComponent(series.name) + '.jpg');
-    if (fs.existsSync(cacheFile)) {
-      results.push({ name: series.name, path: cacheFile, status: 'cached' });
+    const cacheFile = getCoverCachePath(series.name);
+    const existing = getExistingCoverCachePath(series.name);
+    if (existing) {
+      results.push({ name: series.name, path: existing, status: 'cached' });
       continue;
     }
     try {
       const data = await anilistQuery(`
-        query($search: String) {
+        query($search: String, $type: MediaType) {
           Page(perPage: 1) {
-            media(search: $search, type: ANIME) {
+            media(search: $search, type: $type) {
               id
               title { romaji english native }
               coverImage { large medium }
             }
           }
         }
-      `, { search: series.name });
+      `, { search: getTitleAlias(series.name, 'anilist'), type: isManga ? 'MANGA' : 'ANIME' });
       const media = data.Page && data.Page.media && data.Page.media[0];
       if (media && media.coverImage && media.coverImage.large) {
         const buf = await fetchImage(media.coverImage.large);
@@ -1215,6 +1832,7 @@ function malRequest(endpoint, method = 'GET', body = null) {
         }
       });
     });
+    req.setTimeout(30000, () => { req.destroy(); reject(new Error('MAL request timed out after 30s: ' + endpoint)); });
     req.on('error', reject);
     if (postData) req.write(postData);
     req.end();
@@ -1246,6 +1864,7 @@ async function malRefreshAccessToken() {
         });
       });
       req.on('error', reject);
+      req.setTimeout(15000, () => { req.destroy(); reject(new Error('MAL token refresh timed out after 15s')); });
       req.write(postData);
       req.end();
     });
@@ -1301,37 +1920,135 @@ ipcMain.handle('mal:isAuthenticated', () => {
 });
 
 ipcMain.handle('mal:getAuthUrl', (_, clientId, clientSecret) => {
-  config.malClientId = clientId;
-  config.malClientSecret = clientSecret;
+  if (typeof clientId !== 'string' || !clientId.trim() || clientId.length > 200) throw new Error('Invalid MAL Client ID');
+  config.malClientId = clientId.trim();
+  // The stored secret is reused when the renderer no longer has it in memory.
+  config.malClientSecret = (typeof clientSecret === 'string' && clientSecret.trim()) ? clientSecret.trim() : (config.malClientSecret || '');
   config.malCodeVerifier = crypto.randomBytes(32).toString('base64url');
+  // Per-attempt random state; the loopback callback must echo it back (CSRF).
+  config.malAuthState = crypto.randomBytes(16).toString('base64url');
   saveConfig();
   const params = new URLSearchParams({
     response_type: 'code',
-    client_id: clientId,
-    code_challenge: crypto.createHash('sha256').update(config.malCodeVerifier).digest('base64url'),
-    code_challenge_method: 'S256'
+    client_id: config.malClientId,
+    // MAL's OAuth2 server supports only the "plain" PKCE method (official
+    // authorization reference); sending S256 makes the token exchange fail
+    // with invalid_grant even after successful user consent.
+    code_challenge: config.malCodeVerifier,
+    code_challenge_method: 'plain',
+    state: config.malAuthState
   });
+  appendAuthDebug('authorize-url generated state=' + config.malAuthState.slice(0, 6) +
+    '… verifierLen=' + config.malCodeVerifier.length);
   return `https://myanimelist.net/v1/oauth2/authorize?${params.toString()}`;
 });
 
-ipcMain.handle('mal:startAuthServer', async () => {
-  return new Promise((resolve) => {
-    const server = http.createServer((req, res) => {
-      const url = new URL(req.url, 'http://localhost:8080');
-      const code = url.searchParams.get('code');
-      if (code) {
-        res.writeHead(200, { 'Content-Type': 'text/html' });
-        res.end('<html><body><h1>MAL Auth Successful</h1><p>You can close this window.</p></body></html>');
-        server.close();
-        resolve(code);
-      } else {
-        res.writeHead(400);
-        res.end('No code');
+let _malAuthServers = [];
+// Diagnostics: packaged builds have no visible console, so the OAuth flow
+// writes a compact trail here. Never logs code/state VALUES — only shapes,
+// prefixes, and decisions — so sharing this file is safe.
+const AUTH_DEBUG_LOG = path.join(app.getPath('userData'), 'auth-debug.log');
+function appendAuthDebug(line) {
+  try {
+    const ts = new Date().toISOString();
+    fs.appendFileSync(AUTH_DEBUG_LOG, '[' + ts + '] ' + line + '\n');
+    try {
+      if (fs.statSync(AUTH_DEBUG_LOG).size > 64 * 1024) {
+        const lines = fs.readFileSync(AUTH_DEBUG_LOG, 'utf8').split('\n');
+        fs.writeFileSync(AUTH_DEBUG_LOG, lines.slice(-100).join('\n'));
       }
-    });
-    server.listen(8080, () => console.log('[MAL] Auth server listening on 8080'));
-    server.on('error', () => resolve(null));
-    setTimeout(() => { server.close(); resolve(null); }, 300000);
+    } catch (e) {}
+  } catch (e) { /* diagnostics must never break the flow */ }
+}
+function closeMalAuthServers() {
+  for (const s of _malAuthServers) {
+    try { s.close(); } catch (e) {}
+    // close() alone leaves keep-alive sockets (the browser holds one) binding
+    // the port; the next Connect attempt then fails instantly with EADDRINUSE.
+    try { if (typeof s.closeAllConnections === 'function') s.closeAllConnections(); } catch (e) {}
+  }
+  _malAuthServers = [];
+}
+
+ipcMain.handle('mal:startAuthServer', async () => {
+  // Tear down any previous listener first so a stuck socket from an earlier
+  // attempt can never hold :19876 and make this attempt fail before start.
+  closeMalAuthServers();
+  return new Promise((resolve) => {
+    let settled = false;
+    let timer = null;
+    const expectedState = config.malAuthState || '';
+    let boundStacks = 0;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      closeMalAuthServers();
+      resolve(value);
+    };
+    const handler = (req, res) => {
+      if (settled) { res.writeHead(404); res.end(); return; }
+      let parsed;
+      try { parsed = new URL(req.url, 'http://localhost:19876'); }
+      catch (e) { res.writeHead(400); res.end(); return; }
+      if (parsed.pathname === '/favicon.ico') { res.writeHead(204); res.end(); return; }
+      const code = parsed.searchParams.get('code');
+      const state = parsed.searchParams.get('state') || '';
+      // MAL authorization codes are large: the official reference says they are
+      // normally nearly 1,000 bytes. The old 512-char sanity cap rejected every
+      // real code before a token exchange could ever run.
+      const codeOk = typeof code === 'string' && code.length > 0 && code.length <= 4096;
+      appendAuthDebug('inbound ' + parsed.pathname +
+        ' codeLen=' + (typeof code === 'string' ? code.length : 0) +
+        ' stateEcho=' + (expectedState ? state === expectedState : 'n/a') +
+        (state && state !== expectedState ? ' got=' + state.slice(0, 6) + '. expected=' + expectedState.slice(0, 6) + '.' : ''));
+      // Exact echo verifies the flow. MAL documents the state echo, so a
+      // mismatched state almost always means a stale authorization tab from an
+      // earlier Connect attempt (each attempt regenerates the state). A missing
+      // state is tolerated as a downgrade: the PKCE verifier still binds the
+      // code exchange to this app instance.
+      if (codeOk && (!state || state === expectedState)) {
+        if (!state) console.warn('[MAL] Callback arrived without state - accepting via PKCE binding only');
+        appendAuthDebug('callback accepted (stateEcho=' + (state === expectedState) + ')');
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.end('<html><body style="font-family:sans-serif;background:#12121c;color:#e8e4dc;text-align:center;padding-top:48px"><h1>MAL Auth Successful</h1><p>You can close this window.</p></body></html>');
+        finish(code);
+      } else {
+        res.writeHead(400, { 'Content-Type': 'text/html' });
+        const reason = !codeOk
+          ? '<h2>Invalid authorization code</h2><p>MAL returned something unexpected. Press Connect again.</p>'
+          : state
+            ? '<h2>Stale authorization tab</h2><p>This tab came from an earlier Connect attempt. Close all AnimeVault authorization tabs and press Connect again, then use the newest one.</p>'
+            : '<h2>No authorization code</h2><p>Open AnimeVault and press Connect again.</p>';
+        appendAuthDebug('callback rejected (' + (!codeOk ? 'bad code length ' + String(code || '').length : state ? 'state mismatch' : 'no code') + ')');
+        res.end('<html><body style="font-family:sans-serif;background:#12121c;color:#e8e4dc;text-align:center;padding-top:48px">' + reason + '</body></html>');
+      }
+    };
+    // Bind both loopback stacks: browsers may reach "localhost" via ::1 first.
+    for (const host of ['127.0.0.1', '::1']) {
+      const server = http.createServer(handler);
+      server.on('error', (e) => {
+        appendAuthDebug('bind error ' + host + ':19876 ' + (e.code || e.message));
+        console.error('[MAL] Auth server', host, 'error:', e.code || e.message);
+      });
+      server.listen(19876, host, () => {
+        boundStacks++;
+        appendAuthDebug('listening ' + host + ':19876');
+        console.log('[MAL] Auth server listening on', host + ':19876');
+      });
+      try { server.unref(); } catch (e) {}
+      _malAuthServers.push(server);
+    }
+    // If neither stack could bind (port held by a foreign process), fail fast
+    // instead of silently timing out five minutes later.
+    setTimeout(() => {
+      if (!settled && boundStacks === 0) {
+        appendAuthDebug('port 19876 unavailable on any stack - aborting');
+        console.error('[MAL] Port 19876 unavailable on any stack');
+        finish(null);
+      }
+    }, 1500);
+    timer = setTimeout(() => { appendAuthDebug('auth window timed out (300s)'); finish(null); }, 300000);
   });
 });
 
@@ -1361,6 +2078,7 @@ ipcMain.handle('mal:exchangeToken', async (_, code) => {
         });
       });
       req.on('error', reject);
+      req.setTimeout(15000, () => { req.destroy(); reject(new Error('Auth token request timed out')); });
       req.write(postData);
       req.end();
     });
@@ -1369,10 +2087,13 @@ ipcMain.handle('mal:exchangeToken', async (_, code) => {
       config.malRefreshToken = response.refresh_token;
       config.malTokenExpiry = Date.now() + (response.expires_in || 3600) * 1000;
       saveConfig();
+      appendAuthDebug('token exchange success');
       return { success: true };
     }
+    appendAuthDebug('token exchange failed: ' + (response.error || 'unknown') + (response.message ? ' - ' + response.message : ''));
     return { success: false, error: response.error || 'Unknown error' };
   } catch (e) {
+    appendAuthDebug('token exchange threw: ' + e.message);
     return { success: false, error: e.message };
   }
 });
@@ -1380,61 +2101,146 @@ ipcMain.handle('mal:exchangeToken', async (_, code) => {
 ipcMain.handle('mal:search', async (_, query) => {
   const isManga = config.vaultMode === 'manga';
   const endpoint = isManga
-    ? `/manga?q=${encodeURIComponent(query)}&limit=10&fields=id,title,main_picture,mean,media_type,status`
-    : `/anime?q=${encodeURIComponent(query)}&limit=10&fields=id,title,main_picture,mean,media_type,status`;
+    ? `/manga?q=${encodeURIComponent(query)}&limit=10&fields=id,title,main_picture,mean,media_type,status,num_chapters`
+    : `/anime?q=${encodeURIComponent(query)}&limit=10&fields=id,title,main_picture,mean,media_type,status,num_episodes`;
   const r = await malRequestWithRetry(endpoint);
   return r.data || [];
 });
 
+const _MAL_CACHE_TTL = 3600000; // 1 hour
+const _malDetailsCache = new Map();
+function malDetailsCacheKey(malId) { return (config.vaultMode === 'manga' ? 'manga:' : 'anime:') + String(malId); }
+
 ipcMain.handle('mal:getAnimeDetails', async (_, malId) => {
+  const cacheKey = malDetailsCacheKey(malId);
+  const cached = _malDetailsCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < _MAL_CACHE_TTL) return cached.data;
   const isManga = config.vaultMode === 'manga';
   const fields = isManga
-    ? 'id,title,main_picture,mean,media_type,status,num_chapters,synopsis,genres,start_date,my_list_status'
-    : 'id,title,main_picture,mean,media_type,status,num_episodes,synopsis,genres,start_date,my_list_status';
+    ? 'id,title,alternative_titles,main_picture,mean,media_type,status,num_chapters,synopsis,genres,start_date,my_list_status'
+    : 'id,title,alternative_titles,main_picture,mean,media_type,status,num_episodes,synopsis,genres,start_date,my_list_status';
   const endpoint = isManga ? `/manga/${malId}?fields=${fields}` : `/anime/${malId}?fields=${fields}`;
   const r = await malRequestWithRetry(endpoint);
-  return r.data || null;
+  const data = r.data || null;
+  if (data) _malDetailsCache.set(cacheKey, { data, ts: Date.now() });
+  return data;
+});
+
+// ================================================================
+//  MAL BACKFILL (startup repair for missing list status)
+// ================================================================
+ipcMain.handle('mal:backfillMissing', async (_, seriesList) => {
+  if (!Array.isArray(seriesList) || !seriesList.length || seriesList.length > 500) return { checked: 0, refreshed: 0, skipped: [] };
+  if (!config.malAccessToken) return { checked: seriesList.length, refreshed: 0, skipped: seriesList.slice(), error: 'Not authenticated' };
+  const history = getWatchHistoryStore();
+  const isManga = config.vaultMode === 'manga';
+  const skipped = [];
+  let refreshed = 0;
+  const fields = isManga
+    ? 'id,title,alternative_titles,main_picture,mean,media_type,status,num_chapters,synopsis,genres,start_date,my_list_status'
+    : 'id,title,alternative_titles,main_picture,mean,media_type,status,num_episodes,synopsis,genres,start_date,my_list_status';
+  for (let i = 0; i < seriesList.length; i++) {
+    const name = safeHistoryKey(seriesList[i]);
+    const wd = history[name];
+    if (!wd || !wd.malId) { skipped.push(name); continue; }
+    const ls = wd.malData && wd.malData.my_list_status;
+    const usable = ls && typeof ls === 'object' &&
+      (ls.status || ls.score != null || ls.num_episodes_watched != null ||
+       ls.num_watched_episodes != null || ls.num_chapters_read != null);
+    if (usable) { skipped.push(name); continue; }
+    try {
+      const endpoint = isManga ? '/manga/' + wd.malId + '?fields=' + fields : '/anime/' + wd.malId + '?fields=' + fields;
+      const r = await malRequestWithRetry(endpoint);
+      if (r.status === 200 && r.data) {
+        wd.malData = mergeMalData(wd.malData, r.data);
+        refreshed++;
+      } else {
+        skipped.push(name);
+      }
+    } catch (e) {
+      skipped.push(name);
+    }
+    if (i < seriesList.length - 1) await new Promise(resolve => setTimeout(resolve, 350));
+  }
+  if (refreshed > 0) saveConfig();
+  return { checked: seriesList.length, refreshed, skipped };
 });
 
 ipcMain.handle('mal:updateStatus', async (_, malId, numWatched, status) => {
+  const id = safeMalId(malId); if (!id) return null;
   const isManga = config.vaultMode === 'manga';
-  const endpoint = isManga ? `/manga/${malId}/my_list_status` : `/anime/${malId}/my_list_status`;
+  const endpoint = isManga ? `/manga/${id}/my_list_status` : `/anime/${id}/my_list_status`;
   const body = isManga ? { num_chapters_read: numWatched, status } : { num_watched_episodes: numWatched, status };
   const r = await malRequestWithRetry(endpoint, 'PATCH', body);
   return r.data || null;
 });
 
 ipcMain.handle('mal:addOrUpdateListItem', async (_, malId, fields) => {
+  const id = safeMalId(malId); if (!id) return null;
   const isManga = config.vaultMode === 'manga';
-  const endpoint = isManga ? `/manga/${malId}/my_list_status` : `/anime/${malId}/my_list_status`;
+  const endpoint = isManga ? `/manga/${id}/my_list_status` : `/anime/${id}/my_list_status`;
   const r = await malRequestWithRetry(endpoint, 'PATCH', fields);
+  if (r.data) _malDetailsCache.delete(malDetailsCacheKey(id));
   return r.data || null;
 });
 
 ipcMain.handle('mal:editStatus', async (_, malId, fields, seriesName) => {
+  const id = safeMalId(malId); if (!id) return null;
   const isManga = config.vaultMode === 'manga';
-  const endpoint = isManga ? `/manga/${malId}/my_list_status` : `/anime/${malId}/my_list_status`;
-  const r = await malRequestWithRetry(endpoint, 'PATCH', fields);
+  const endpoint = isManga ? `/manga/${id}/my_list_status` : `/anime/${id}/my_list_status`;
+
+  // Translate anime-status strings to manga equivalents
+  let body = fields;
+  if (isManga && fields && fields.status) {
+    const statusMap = {
+      'watching': 'reading',
+      'plan_to_watch': 'plan_to_read'
+    };
+    if (statusMap[fields.status]) {
+      body = { ...fields, status: statusMap[fields.status] };
+    }
+  }
+
+  const r = await malRequestWithRetry(endpoint, 'PATCH', body);
   if (r.data && seriesName) {
-    if (!config.watchHistory[seriesName]) config.watchHistory[seriesName] = {};
+    const key = safeHistoryKey(seriesName);
+    const history = getWatchHistoryStore();
+    if (!history[key]) history[key] = {};
     // Normalize: the API returns flat list-status fields; wrap them under my_list_status
     // so they match the shape from malGetAnimeDetails
     const wrapped = { my_list_status: r.data };
-    config.watchHistory[seriesName].malData = { ...config.watchHistory[seriesName].malData, ...wrapped };
+    history[key].malData = { ...history[key].malData, ...wrapped };
     saveConfig();
+    _malDetailsCache.delete(malDetailsCacheKey(id));
   }
   return r.data || null;
 });
 
 ipcMain.handle('mal:deleteEntry', async (_, malId) => {
+  const id = safeMalId(malId); if (!id) return false;
   const isManga = config.vaultMode === 'manga';
-  const endpoint = isManga ? `/manga/${malId}/my_list_status` : `/anime/${malId}/my_list_status`;
+  const endpoint = isManga ? `/manga/${id}/my_list_status` : `/anime/${id}/my_list_status`;
   const r = await malRequestWithRetry(endpoint, 'DELETE');
+  _malDetailsCache.delete(malDetailsCacheKey(id));
+  if (r.status === 200) {
+    // The entry is gone from the user's MAL list: drop the locally cached list
+    // status so cards no longer show a status MAL no longer has.
+    const history = getWatchHistoryStore();
+    for (const name of Object.keys(history)) {
+      const wd = history[name];
+      if (wd && String(wd.malId) === String(id) && wd.malData && wd.malData.my_list_status) {
+        const next = { ...wd.malData };
+        delete next.my_list_status;
+        wd.malData = next;
+      }
+    }
+    saveConfig();
+  }
   return r.status === 200;
 });
 
 ipcMain.handle('mal:autoSync', async (_, seriesName) => {
-  const wd = config.watchHistory[seriesName];
+  const wd = getWatchHistoryStore()[safeHistoryKey(seriesName)];
   if (!wd || !wd.malId) return { synced: false, error: 'No MAL link' };
   const numWatched = (wd.episodesWatched || []).length;
   const isManga = config.vaultMode === 'manga';
@@ -1445,6 +2251,7 @@ ipcMain.handle('mal:autoSync', async (_, seriesName) => {
     if (numWatched > current) {
       const patchBody = isManga ? { num_chapters_read: numWatched } : { num_watched_episodes: numWatched };
       await malRequestWithRetry(endpoint, 'PATCH', patchBody);
+      _malDetailsCache.delete(malDetailsCacheKey(wd.malId));
       return { synced: true, updated: numWatched };
     }
     return { synced: true, updated: null };
@@ -1453,22 +2260,26 @@ ipcMain.handle('mal:autoSync', async (_, seriesName) => {
 });
 
 ipcMain.handle('mal:bulkAutoSync', async (_, seriesList) => {
+  if (!Array.isArray(seriesList) || seriesList.length > 500) return [];
   const results = [];
   const isManga = config.vaultMode === 'manga';
-  for (const name of seriesList) {
+  const history = getWatchHistoryStore();
+  for (const rawName of seriesList) {
+    const name = safeHistoryKey(rawName);
     try {
       // Skip if already linked
-      const wd = config.watchHistory[name];
+      const wd = history[name];
       if (wd && wd.malId) {
         results.push({ name, status: 'linked', malId: wd.malId });
         continue;
       }
       // Search MAL for this series
       const searchEndpoint = isManga
-        ? `/manga?q=${encodeURIComponent(name)}&limit=10&fields=id,title,main_picture,mean,media_type,status,num_chapters`
-        : `/anime?q=${encodeURIComponent(name)}&limit=10&fields=id,title,main_picture,mean,media_type,status,num_episodes`;
+        ? `/manga?q=${encodeURIComponent(name)}&limit=10&fields=id,title,alternative_titles,main_picture,mean,media_type,status,num_chapters`
+        : `/anime?q=${encodeURIComponent(name)}&limit=10&fields=id,title,alternative_titles,main_picture,mean,media_type,status,num_episodes`;
       const searchR = await malRequestWithRetry(searchEndpoint);
-      const items = (searchR.data || []).map(x => x.node || x).filter(Boolean);
+      const searchItems = Array.isArray(searchR.data) ? searchR.data : (searchR.data && Array.isArray(searchR.data.data) ? searchR.data.data : []);
+      const items = searchItems.map(x => x.node || x).filter(Boolean);
       if (!items.length) {
         results.push({ name, status: 'needs_review', reason: 'No MAL results' });
         continue;
@@ -1489,8 +2300,8 @@ ipcMain.handle('mal:bulkAutoSync', async (_, seriesList) => {
       const AUTO_LINK_THRESHOLD = 0.6;
       if (best && bestScore >= AUTO_LINK_THRESHOLD) {
         // Auto-link this series
-        if (!config.watchHistory[name]) config.watchHistory[name] = { episodesWatched: [], lastWatched: null, malId: null };
-        config.watchHistory[name].malId = best.id;
+        if (!history[name]) history[name] = { episodesWatched: [], lastWatched: null, malId: null };
+        history[name].malId = best.id;
         saveConfig();
         results.push({ name, status: 'linked', malId: best.id, title: best.title, score: bestScore });
       } else {
@@ -1505,36 +2316,63 @@ ipcMain.handle('mal:bulkAutoSync', async (_, seriesList) => {
 });
 
 ipcMain.handle('mal:unlinkSeries', (_, seriesName) => {
-  if (config.watchHistory[seriesName]) {
-    delete config.watchHistory[seriesName].malId;
-    delete config.watchHistory[seriesName].malData;
+  const history = getWatchHistoryStore();
+  const key = safeHistoryKey(seriesName);
+  if (history[key]) {
+    delete history[key].malId;
+    delete history[key].malData;
     saveConfig();
   }
   return true;
 });
 
 ipcMain.handle('mal:getTopAnime', async (_, limit = 50, offset = 0) => {
+  const l = Math.min(100, Math.max(1, Number(limit) || 50));
+  const o = Math.max(0, Number(offset) || 0);
   const isManga = config.vaultMode === 'manga';
   const endpoint = isManga
-    ? `/manga/ranking?ranking_type=all&limit=${limit}&offset=${offset}&fields=id,title,main_picture,mean,media_type,status`
-    : `/anime/ranking?ranking_type=all&limit=${limit}&offset=${offset}&fields=id,title,main_picture,mean,media_type,status`;
+    ? `/manga/ranking?ranking_type=all&limit=${l}&offset=${o}&fields=id,title,main_picture,mean,media_type,status`
+    : `/anime/ranking?ranking_type=all&limit=${l}&offset=${o}&fields=id,title,main_picture,mean,media_type,status`;
   const r = await malRequestWithRetry(endpoint);
   return r.data || [];
 });
 
 ipcMain.handle('mal:getSeasonal', async (_, year, season) => {
-  const r = await malRequestWithRetry(`/anime/season/${year}/${season}?limit=50&fields=id,title,main_picture,num_episodes,status,mean,media_type,genres,start_date,synopsis`);
+  const y = Number(year);
+  const s = String(season || '').toLowerCase();
+  if (!/^(winter|spring|summer|fall)$/.test(s)) throw new Error('Invalid season');
+  if (!Number.isInteger(y) || y < 1970 || y > 2100) throw new Error('Invalid year');
+  const r = await malRequestWithRetry(`/anime/season/${y}/${s}?limit=50&fields=id,title,main_picture,num_episodes,status,mean,media_type,genres,start_date,synopsis`);
   return r.data || [];
 });
 
 ipcMain.handle('mal:getUserList', async (_, status = '', limit = 1000, offset = 0) => {
+  const l = Math.min(1000, Math.max(1, Number(limit) || 1000));
+  const o = Math.max(0, Number(offset) || 0);
+  const st = String(status || '');
+  if (st && !/^[a-z_]+$/.test(st)) throw new Error('Invalid status');
   const isManga = config.vaultMode === 'manga';
   let url = isManga
-    ? `/users/@me/mangalist?limit=${limit}&offset=${offset}&fields=list_status,status,num_chapters,start_date`
-    : `/users/@me/animelist?limit=${limit}&offset=${offset}&fields=list_status,status,num_episodes,broadcast,start_date`;
-  if (status) url += `&status=${status}`;
+    ? `/users/@me/mangalist?limit=${l}&offset=${o}&fields=list_status,status,num_chapters,start_date`
+    : `/users/@me/animelist?limit=${l}&offset=${o}&fields=list_status,status,num_episodes,broadcast,start_date`;
+  if (st) url += `&status=${st}`;
   const r = await malRequestWithRetry(url);
   return r.data || [];
+});
+
+ipcMain.handle('mal:getStatusCounts', async () => {
+  const isManga = config.vaultMode === 'manga';
+  const endpoint = isManga
+    ? '/users/@me/mangalist?limit=1000&fields=list_status'
+    : '/users/@me/animelist?limit=1000&fields=list_status';
+  const r = await malRequestWithRetry(endpoint);
+  const items = r.data && Array.isArray(r.data.data) ? r.data.data : [];
+  const counts = {};
+  items.forEach(item => {
+    const st = item && item.list_status && item.list_status.status;
+    if (st) counts[st] = (counts[st] || 0) + 1;
+  });
+  return { counts, total: items.length, source: items.length ? 'mal' : 'local' };
 });
 
 ipcMain.handle('mal:getSyncLog', () => {
@@ -1552,7 +2390,8 @@ ipcMain.handle('mal:clearSyncLog', () => {
 // ================================================================
 function nyaaSearchHtml(searchQuery) {
   return new Promise((resolve) => {
-    const url = `https://nyaa.si/?f=0&c=0_0&q=${encodeURIComponent(searchQuery)}`;
+    const category = config.vaultMode === 'manga' ? '3_1' : '1_2';
+    const url = `https://nyaa.si/?f=0&c=${category}&q=${encodeURIComponent(searchQuery)}`;
     const req = https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } }, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         return resolve([]);
@@ -1562,20 +2401,34 @@ function nyaaSearchHtml(searchQuery) {
       res.on('end', () => {
         const results = [];
         try {
-          const rows = html.match(/<tr class="[^"]*default[^"]*"[\s\S]*?<\/tr>/g) || [];
+          const rows = html.match(/<tr class="[^"]*(?:default|success|danger)[^"]*"[\s\S]*?<\/tr>/g) || [];
           for (const row of rows) {
             try {
               const titleMatch = row.match(/<a[^>]*href="\/view\/\d+"[^>]*title="([^"]+)"/);
               const idMatch = row.match(/<a[^>]*href="\/view\/(\d+)"/);
               const sizeMatch = row.match(/<td[^>]*class="text-center[^"]*"[^>]*>[\s\S]*?<\/td>[\s\S]*?<td[^>]*class="text-center[^"]*"[^>]*>[\s\S]*?<\/td>[\s\S]*?<td[^>]*class="text-center[^"]*"[^>]*>([\s\S]*?)<\/td>/);
-              const seedersMatch = row.match(/<td[^>]*class="text-center[^"]*"[^>]*>(\d+)<\/td>/g);
+              // nyaa.si marks the seeder cell with the "success" class. The old
+              // code indexed a /g match array position that never exists, so
+              // every fallback result reported 0 seeders and broke scoring.
+              let seeders = 0;
+              const seedCell = row.match(/<td[^>]*class="text-center[^"]*success[^"]*"[^>]*>([\s\S]*?)<\/td>/);
+              if (seedCell) {
+                seeders = parseInt(seedCell[1].replace(/<[^>]+>/g, '').trim(), 10) || 0;
+              } else {
+                const cellRe = /<td[^>]*class="text-center[^"]*"[^>]*>([\s\S]*?)<\/td>/g;
+                let cell;
+                while ((cell = cellRe.exec(row)) !== null) {
+                  const text = cell[1].replace(/<[^>]+>/g, '').trim();
+                  if (/^\d+$/.test(text)) { seeders = parseInt(text, 10) || 0; break; }
+                }
+              }
               const magnetMatch = row.match(/href="(magnet:\?[^"]+)"/);
               if (titleMatch && idMatch) {
                 results.push({
                   id: idMatch[1],
                   title: titleMatch[1],
                   size: sizeMatch ? sizeMatch[1].trim() : '',
-                  seeders: seedersMatch && seedersMatch[2] ? parseInt(seedersMatch[2].replace(/<[^>]+>/g, '')) || 0 : 0,
+                  seeders,
                   magnet: magnetMatch ? magnetMatch[1] : ''
                 });
               }
@@ -1592,7 +2445,8 @@ function nyaaSearchHtml(searchQuery) {
 
 function nyaaSearch(searchQuery) {
   return new Promise((resolve) => {
-    const rssUrl = `https://nyaa.si/?page=rss&q=${encodeURIComponent(searchQuery)}&c=0_0&f=0`;
+    const category = config.vaultMode === 'manga' ? '3_1' : '1_2';
+    const rssUrl = `https://nyaa.si/?page=rss&q=${encodeURIComponent(searchQuery)}&c=${category}&f=0`;
     const req = https.get(rssUrl, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } }, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         return resolve([]);
@@ -1612,7 +2466,11 @@ function nyaaSearch(searchQuery) {
               const seeders = parseInt((item.match(/<nyaa:seeders>([^<]+)<\/nyaa:seeders>/) || [])[1] || '0');
               const magnet = (item.match(/<nyaa:infoHash>([^<]+)<\/nyaa:infoHash>/) || [])[1] || '';
               const nyaaMagnet = magnet ? `magnet:?xt=urn:btih:${magnet}&dn=${encodeURIComponent(title)}` : '';
-              results.push({ id, title, size, seeders, magnet: nyaaMagnet });
+              const pubDateRaw = (item.match(/<pubDate>([^<]+)<\/pubDate>/) || [])[1] || '';
+              const publishedAt = pubDateRaw && !isNaN(Date.parse(pubDateRaw))
+                ? new Date(pubDateRaw).toISOString()
+                : '';
+              results.push({ id, title, size, seeders, magnet: nyaaMagnet, publishedAt });
             } catch(e2) { console.error('[Nyaa] RSS parse row error:', e2.message); }
           }
         } catch(e) { console.error('[Nyaa] RSS parse error:', e.message); }
@@ -1633,54 +2491,122 @@ ipcMain.handle('nyaa:search', async (_, query) => {
   return nyaaSearch(query);
 });
 
-ipcMain.handle('nyaa:autoDownload', async (_, seriesTitle, quality, preferredUploader, epNum, mode = 'ep') => {
+async function nyaaAutoDownloadForIpc(seriesTitle, quality, preferredUploader, epNum, mode = 'ep', trackedEntry = null) {
   try {
     const uploader = preferredUploader || config.nyaaUploader || 'erai';
     const q = quality || config.nyaaQuality || '1080p';
-    const queries = [];
-    if (uploader === 'erai') {
-      queries.push(`[Erai-raws] ${seriesTitle} ${epNum} ${q}`);
-      queries.push(`[Erai-raws] ${seriesTitle} ${epNum}`);
-    } else if (uploader === 'subsplease') {
-      queries.push(`[SubsPlease] ${seriesTitle} (${q}) ${epNum}`);
-    } else {
-      queries.push(`${seriesTitle} ${epNum} ${q}`);
+    const titleVariants = getSearchVariants(seriesTitle).slice(0, 3);
+    const epRaw = epNum != null ? String(parseInt(epNum, 10)) : '';
+    const epPadded = epNum != null ? epRaw.padStart(2, '0') : '';
+    const preferredQueries = [];
+    const broadQueries = [];
+    for (const title of titleVariants) {
+      if (uploader === 'erai') {
+        if (epNum != null) {
+          preferredQueries.push(`[Erai-raws] ${title} - ${epPadded} ${q}`);
+          preferredQueries.push(`[Erai-raws] ${title} - ${epRaw}`);
+        } else preferredQueries.push(`[Erai-raws] ${title} ${q}`);
+      } else if (uploader === 'subsplease') {
+        preferredQueries.push(`[SubsPlease] ${title}${epNum != null ? ` - ${epPadded}` : ''} (${q})`);
+      } else if (uploader === 'judas') {
+        preferredQueries.push(`[Judas] ${title}${epNum != null ? ` ${epPadded}` : ''} ${q}`);
+      } else if (uploader === 'varyg') {
+        preferredQueries.push(`${title}${epNum != null ? ` ${epPadded}` : ''} ${q} VARYG`);
+      }
+      if (epNum != null) {
+        broadQueries.push(`${title} ${epPadded} ${q}`);
+        broadQueries.push(`${title} ${epRaw}`);
+      } else broadQueries.push(`${title} ${q}`, title);
     }
-    queries.push(`${seriesTitle} ${epNum}`);
+    const queries = epNum != null
+      ? buildEpisodeSearchQueries(seriesTitle, q, uploader, epNum, config.forceHevc !== false)
+      : preferredQueries.concat(broadQueries)
+        .flatMap(getSearchVariants)
+        .filter((query, index, all) => query && all.indexOf(query) === index);
 
     let allResults = [];
     const seenIds = new Set();
     for (const qText of queries) {
       const r = await nyaaSearch(qText);
       for (const item of r) {
-        if (!seenIds.has(item.id)) {
-          seenIds.add(item.id);
+        const resultKey = item.id || item.magnet || item.title;
+        if (!seenIds.has(resultKey)) {
+          seenIds.add(resultKey);
           allResults.push(item);
         }
       }
-      if (allResults.length > 0) break;
+      if (epNum != null) {
+        if (allResults.some(item =>
+          parseNyaaEpisodeNumber(item.title) === parseInt(epNum, 10) &&
+          releaseMatchesUploader(item, uploader) &&
+          (trackedEntry ? releaseMatchesTrackedSeason(item, trackedEntry, seriesTitle) : releaseMatchesSeriesTitle(item, seriesTitle)) &&
+          releaseMatchesQuality(item, q)
+        )) break;
+      } else if (allResults.some(item =>
+        releaseMatchesUploader(item, uploader) && releaseMatchesSeriesTitle(item, seriesTitle)
+      )) break;
     }
 
     if (!allResults.length) return { success: false, error: 'No results found' };
 
-    // Score and pick best
-    const targetEp = parseInt(epNum, 10);
-    const matched = allResults.map(r => ({ ...r, ep: parseNyaaEpisodeNumber(r.title) }))
-      .filter(r => r.ep === targetEp);
-    if (!matched.length) return { success: false, error: 'No exact episode match' };
+    // Episode requests require an exact match. Full-series requests score the
+    // broad result set instead of comparing every result against NaN.
+    const isEpisodeRequest = epNum !== null && epNum !== undefined && mode === 'ep';
+    const targetEp = isEpisodeRequest ? parseInt(epNum, 10) : null;
+    let matched = isEpisodeRequest
+      ? allResults.map(r => ({ ...r, ep: parseNyaaEpisodeNumber(r.title) })).filter(r => {
+          return r.ep === targetEp &&
+            (trackedEntry ? releaseMatchesTrackedSeason(r, trackedEntry, seriesTitle) : releaseMatchesSeriesTitle(r, seriesTitle)) &&
+            releaseMatchesQuality(r, q);
+        })
+      : allResults;
+    if (!matched.length) return { success: false, error: isEpisodeRequest ? 'No exact episode match' : 'No series releases found' };
 
+    // A configured uploader is authoritative whenever it supplied a valid
+    // candidate. Scoring chooses only within that tier; other uploaders are a
+    // fallback for genuine no-match cases.
+    matched = preferUploaderMatches(matched, uploader);
+
+    const scoreCtx = { h264Ceiling: computeH264Ceiling(matched) };
     const chosen = matched.reduce((best, r) => {
-      const s = scoreRelease(r, uploader);
-      const bs = best ? scoreRelease(best, uploader) : -Infinity;
+      const seriesScore = item => {
+        let value = scoreRelease(item, uploader, scoreCtx);
+        if (!isEpisodeRequest) {
+          if (/\b(?:batch|complete|全集|season\s*pack)\b/i.test(item.title)) value += 700;
+          if (parseNyaaEpisodeNumber(item.title) !== null) value -= 300;
+        }
+        return value;
+      };
+      const s = seriesScore(r);
+      const bs = best ? seriesScore(best) : -Infinity;
       return s > bs ? r : best;
     }, null);
 
     if (!chosen) return { success: false, error: 'Scoring produced no winner' };
 
-    // Download
+    // Hand off to the OS first. History is recorded only on success so a
+    // failed fetch/open cannot poison the dedup window and silently block
+    // retries for an hour.
     const dedupKey = [seriesTitle, epNum, mode].join('|');
     const nowMs = Date.now();
-    const logEntry = {
+    let method;
+    if (chosen.id) {
+      const torrentData = await downloadNyaaTorrentFile(chosen.id);
+      const tmpDir = path.join(app.getPath('temp'), 'animevault-torrents');
+      fs.mkdirSync(tmpDir, { recursive: true });
+      const safeName = chosen.title.replace(/[\\/:*?"<>|]/g, '_').substring(0, 80);
+      const tmpFile = path.join(tmpDir, safeName + '.torrent');
+      fs.writeFileSync(tmpFile, torrentData);
+      await shell.openPath(tmpFile);
+      method = 'external';
+    } else if (chosen.magnet && isSafeExternalUrl(chosen.magnet)) {
+      await shell.openExternal(chosen.magnet);
+      method = 'magnet';
+    } else {
+      return { success: false, error: 'Selected release has no safe download link' };
+    }
+
+    pushDownloadHistory({
       timestamp: nowMs,
       key: dedupKey,
       series: seriesTitle,
@@ -1691,37 +2617,22 @@ ipcMain.handle('nyaa:autoDownload', async (_, seriesTitle, quality, preferredUpl
       size: chosen.size || '',
       nyaaId: chosen.id || '',
       preferredUploader: uploader,
-      method: 'external'
-    };
-    pushDownloadHistory(logEntry);
+      method
+    });
 
-    if (chosen.id) {
-      const torrentData = await downloadNyaaTorrentFile(chosen.id);
-      const tmpDir = path.join(app.getPath('temp'), 'animevault-torrents');
-      fs.mkdirSync(tmpDir, { recursive: true });
-      const safeName = chosen.title.replace(/[\\/:*?"<>|]/g, '_').substring(0, 80);
-      const tmpFile = path.join(tmpDir, safeName + '.torrent');
-      fs.writeFileSync(tmpFile, torrentData);
-      await shell.openPath(tmpFile);
-    } else {
-      await shell.openExternal(chosen.magnet);
-    }
-
-    return { success: true, title: chosen.title, seeders: chosen.seeders };
+    return { success: true, title: chosen.title, seeders: chosen.seeders, chosen };
   } catch (e) {
     console.error('[Nyaa:autoDownload] Error:', e.message);
     return { success: false, error: e.message };
   }
-});
-
-function normalizeMagnet(magnet) {
-  if (!magnet || !magnet.startsWith('magnet:')) return '';
-  try {
-    const hash = magnet.match(/xt=urn:btih:([a-fA-F0-9]{40})/);
-    if (hash) return hash[1].toLowerCase();
-  } catch (e) {}
-  return '';
 }
+
+ipcMain.handle('nyaa:autoDownload', (_, seriesTitle, quality, preferredUploader, epNum, mode = 'ep') => {
+  const trackedEntry = (config.autoDownloadWatchlist || []).find(entry =>
+    entry.seriesName === seriesTitle || entry.searchTitle === seriesTitle
+  ) || null;
+  return nyaaAutoDownloadForIpc(seriesTitle, quality, preferredUploader, epNum, mode, trackedEntry);
+});
 
 function pushDownloadHistory(entry) {
   if (!Array.isArray(config.downloadHistory)) config.downloadHistory = [];
@@ -1736,19 +2647,120 @@ function pushDownloadHistory(entry) {
 // ================================================================
 autoDownload.setDeps({
   config, saveConfig, mainWindow: () => mainWindow, shell, app,
-  getLocalHighestEpisode, getLocalEpisodes, pushDownloadHistory, malRequestWithRetry, fuzzyTitleMatch,
-  nyaaSearch, normalizeMagnet,
+  getLocalHighestEpisode, getLocalEpisodes, pushDownloadHistory,
   getLibraryScan: () => lastLibraryScan,
+  getLibraryScanReady: () => libraryScanReady,
   getWatchDataSync: (name) => {
     // Watch data lives in config.watchHistory, not a separate file
-    return config.watchHistory[name] || null;
+    return config.watchHistory[safeHistoryKey(name)] || null;
   }
+});
+
+// ================================================================
+//  AI ASSISTANT (OpenRouter)
+// ================================================================
+openrouter.setDeps({
+  config, saveConfig, mainWindow: () => mainWindow
+});
+
+ipcMain.handle('ai:getStatus', () => ({
+  hasKey: !!config.openrouterApiKey,
+  model: config.openrouterModel || ''
+}));
+
+ipcMain.handle('ai:setKey', (_, key) => {
+  const k = typeof key === 'string' ? key.trim() : '';
+  if (!k || k.length > 200 || /\s/.test(k)) throw new Error('Invalid API key');
+  saveOpenrouterKey(k);
+  config.openrouterApiKey = k;
+  scrubOpenrouterKeyFromConfigFiles();
+  return true;
+});
+
+ipcMain.handle('ai:clearKey', () => {
+  config.openrouterApiKey = '';
+  try { if (fs.existsSync(OPENROUTER_KEY_PATH)) fs.unlinkSync(OPENROUTER_KEY_PATH); } catch (err) {
+    throw new Error('Could not remove stored API key');
+  }
+  scrubOpenrouterKeyFromConfigFiles();
+  return true;
+});
+
+ipcMain.handle('ai:setModel', (_, model) => {
+  const m = typeof model === 'string' ? model.trim().replace(/[^\w.\-/:-]/g, '').slice(0, 120) : '';
+  if (!m) throw new Error('Invalid model id');
+  config.openrouterModel = m;
+  saveConfig();
+  return true;
+});
+
+ipcMain.handle('ai:send', async (_, messages, model, options) => {
+  const r = await openrouter.chatStream(messages, model, options);
+  return { ok: r.ok, error: r.ok ? null : r.message };
+});
+
+ipcMain.handle('ai:webSearch', async (_, query) => {
+  if (!query || typeof query !== 'string') return { results: [] };
+  return new Promise((resolve) => {
+    const q = encodeURIComponent(query.trim().slice(0, 200));
+    const req = https.get('https://api.duckduckgo.com/?q=' + q + '&format=json&no_html=1&skip_disambig=1', {
+      headers: { 'User-Agent': 'AnimeVault/4.11 (Desktop App)' }
+    }, (res) => {
+      let data = '';
+      res.on('data', c => { if (data.length < 50000) data += c; });
+      res.on('end', () => {
+        try {
+          const j = JSON.parse(data);
+          const results = [];
+          if (j.AbstractText) results.push({ title: j.Heading || query, snippet: j.AbstractText, url: j.AbstractURL });
+          if (Array.isArray(j.RelatedTopics)) {
+            j.RelatedTopics.slice(0, 5).forEach(t => {
+              if (t.Text && t.FirstURL) results.push({ title: t.Text.slice(0, 60), snippet: t.Text, url: t.FirstURL });
+            });
+          }
+          resolve({ results });
+        } catch (e) { resolve({ results: [] }); }
+      });
+      res.on('error', () => resolve({ results: [] }));
+    });
+    req.on('error', () => resolve({ results: [] }));
+    req.setTimeout(8000, () => { req.destroy(); resolve({ results: [] }); });
+  });
+});
+
+ipcMain.handle('ai:stop', () => {
+  openrouter.abortChat();
+  return true;
 });
 
 ipcMain.handle('autoDownload:getWatchlist', () => config.autoDownloadWatchlist || []);
 ipcMain.handle('autoDownload:addSeries', (_, entry) => {
+  if (!entry || typeof entry !== 'object' || !entry.seriesName || typeof entry.seriesName !== 'string') return false;
   if (!config.autoDownloadWatchlist) config.autoDownloadWatchlist = [];
-  config.autoDownloadWatchlist.push(entry);
+  const key = Number(entry && entry.malId) || null;
+  const existing = config.autoDownloadWatchlist.find(w =>
+    (key && Number(w.malId) === key) || w.seriesName === entry.seriesName
+  );
+  const localSeries = resolveTrackedLocalSeries(entry.seriesName, entry.malId, entry.seriesPath);
+  const localEpisodes = getLocalEpisodes(entry.seriesName, entry.malId, entry.seriesPath);
+  const localHighest = localEpisodes.length ? Math.max(...localEpisodes) : 0;
+  const watchData = localSeries && localSeries.watchData || config.watchHistory[entry.seriesName] || {};
+  const malData = watchData.malData || {};
+  const seriesPath = entry.seriesPath || (localSeries && localSeries.path) || '';
+  const identityKey = String(entry.malId || '') + '|' + String(seriesPath || entry.seriesName || '');
+  const clean = {
+    ...entry,
+    seriesPath,
+    airingStartDate: entry.airingStartDate || malData.start_date || '',
+    lastLocalEp: localHighest,
+    lastDownloadedEp: Math.max(localHighest, Number(entry.lastDownloadedEp) || 0),
+    trackingBaselineEp: Math.max(localHighest, Number(entry.trackingBaselineEp) || 0),
+    trackingIdentityKey: identityKey,
+    source: 'explicit',
+    addedAt: (existing && existing.addedAt) || Date.now()
+  };
+  if (existing) Object.assign(existing, clean);
+  else config.autoDownloadWatchlist.push(clean);
   saveConfig();
   return true;
 });
@@ -1759,7 +2771,13 @@ ipcMain.handle('autoDownload:removeSeries', (_, seriesName) => {
 });
 ipcMain.handle('autoDownload:updateSeries', (_, seriesName, updates) => {
   const entry = (config.autoDownloadWatchlist || []).find(w => w.seriesName === seriesName);
-  if (entry) { Object.assign(entry, updates); saveConfig(); }
+  if (entry && updates && typeof updates === 'object') {
+    const allowed = ['episodeOffset', 'verifiedLatest', 'verifiedAt', 'lastChecked', 'searchTitle', 'preferredUploader', 'preferredQuality', 'totalEps', 'estimatedLatest'];
+    for (const k of Object.keys(updates)) {
+      if (allowed.includes(k)) entry[k] = updates[k];
+    }
+    saveConfig();
+  }
   return true;
 });
 ipcMain.handle('autoDownload:toggle', (_, enabled) => {
@@ -1774,7 +2792,8 @@ ipcMain.handle('autoDownload:getStatus', () => ({
   watchlistCount: (config.autoDownloadWatchlist || []).length
 }));
 ipcMain.handle('autoDownload:setPollMinutes', (_, mins) => {
-  config.autoDownloadPollMinutes = mins;
+  const m = Number(mins);
+  config.autoDownloadPollMinutes = (Number.isFinite(m) && m >= 5 && m <= 1440) ? Math.floor(m) : (config.autoDownloadPollMinutes || 30);
   saveConfig();
   if (config.autoDownloadEnabled) { stopAutoDownloadPoller(); startAutoDownloadPoller(); }
   return true;
@@ -1784,9 +2803,54 @@ ipcMain.handle('autoDownload:setCriteria', (_, enabled) => {
   saveConfig();
   return true;
 });
+ipcMain.handle('autoDownload:setBatchLimit', (_, limit) => {
+  const lim = Number(limit);
+  config.autoDownloadBatchLimit = Number.isFinite(lim) && lim >= 0 ? Math.floor(lim) : 0;
+  saveConfig();
+  return true;
+});
 ipcMain.handle('autoDownload:pollNow', async (_, force) => {
-  const results = await runAutoDownloadPoller(!!force); // true = bypass dedup too; false = bypass enabled check only
+  // true = bypass enabled check + dedup window + recent-check skip; false = bypass enabled check only
+  const results = await runAutoDownloadPoller(!!force);
   return { success: true, results };
+});
+ipcMain.handle('autoDownload:catchupSeries', async (_, seriesName, malId) => {
+  const highest = getLocalHighestEpisode(seriesName, malId);
+  const watch = (config.autoDownloadWatchlist || []).find(w =>
+    w.seriesName === seriesName || (malId && Number(w.malId) === Number(malId))
+  );
+  const entry = watch || { seriesName, malId, episodeOffset: 0 };
+  const verifiedLatest = await autoDownload.verifyLatestAvailableEpisode(entry);
+  if (!verifiedLatest) return { success: false, error: 'No verified episode release found on Nyaa' };
+  if (verifiedLatest <= highest) return { success: false, error: `Local library is already at verified episode ${verifiedLatest}` };
+
+  const downloaded = [];
+  const uploader = entry.preferredUploader || config.nyaaUploader || 'erai';
+  const quality = entry.preferredQuality || config.nyaaQuality || '1080p';
+
+  for (let ep = highest + 1; ep <= verifiedLatest; ep++) {
+    const result = await nyaaAutoDownloadForIpc(entry.searchTitle || seriesName, quality, uploader, ep, 'ep', entry);
+    if (result && result.success) {
+      downloaded.push({ episode: ep, title: result.title || entry.seriesName });
+      entry.lastDownloadedEp = ep;
+      entry.lastDownloadedAt = Date.now();
+      if (watch) saveConfig();
+      await new Promise(r => setTimeout(r, 600));
+    }
+  }
+
+  return { success: downloaded.length > 0, downloaded, verifiedLatest, highest };
+});
+
+ipcMain.handle('autoDownload:verifyLatest', async (_, seriesName, malId, offset = 0) => {
+  const watch = (config.autoDownloadWatchlist || []).find(w =>
+    w.seriesName === seriesName || (malId && Number(w.malId) === Number(malId))
+  );
+  const entry = watch || { seriesName, malId, totalEps: 0 };
+  entry.episodeOffset = Math.max(-12, Math.min(12, Number(offset) || 0));
+  const episode = await autoDownload.verifyLatestAvailableEpisode(entry);
+  if (watch) saveConfig();
+  return { success: episode > 0, episode, verifiedAt: entry.verifiedAt, offset: entry.episodeOffset };
 });
 
 ipcMain.handle('downloads:getHistory', () => {
@@ -1806,14 +2870,122 @@ ipcMain.handle('downloads:checkRecent', (_, seriesTitle, epNum, dlMode) => {
 
 ipcMain.handle('autoDownload:latestEpisode', async (_, seriesName, malId) => {
   const highest = getLocalHighestEpisode(seriesName, malId);
-  const nextEp = highest + 1;
-  return { highest, nextEp };
+  const watch = (config.autoDownloadWatchlist || []).find(w =>
+    w.seriesName === seriesName || (malId && Number(w.malId) === Number(malId))
+  );
+  const entry = watch || { seriesName, malId, episodeOffset: 0 };
+  const episode = await autoDownload.verifyLatestAvailableEpisode(entry);
+  if (!episode) return { success: false, error: 'No confidently matched episode release was found' };
+  if (episode <= highest) return { success: false, error: `Local library is already at verified episode ${episode}` };
+  if (watch) saveConfig();
+  const result = await nyaaAutoDownloadForIpc(entry.searchTitle || seriesName, config.nyaaQuality, config.nyaaUploader, episode, 'ep', entry);
+  return { ...result, episode, highest };
+});
+
+ipcMain.handle('manager:renameSeries', async (_, seriesPath, oldName, newName) => {
+  try {
+    assertAllowedChildFileActionPath(seriesPath);
+    const cleanName = String(newName || '').trim();
+    if (!cleanName || cleanName === '.' || cleanName === '..' || /[<>:"/\\|?*\x00-\x1f]/.test(cleanName) || /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i.test(cleanName)) {
+      return { success: false, error: 'The new name contains invalid Windows filename characters' };
+    }
+    if (!fs.existsSync(seriesPath) || !fs.statSync(seriesPath).isDirectory()) {
+      return { success: false, error: 'Series folder not found' };
+    }
+    const currentName = String(oldName || path.basename(seriesPath));
+    const destination = path.join(path.dirname(seriesPath), cleanName);
+    assertAllowedChildFileActionPath(destination);
+    if (destination !== seriesPath && fs.existsSync(destination)) {
+      return { success: false, error: 'A folder with that name already exists' };
+    }
+
+    const scanner = config.vaultMode === 'manga' ? getMangaFiles : getVideoFiles;
+    const parser = config.vaultMode === 'manga' ? parseChapterNumber : parseEpisodeNumber;
+    const escapeRe = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const changes = scanner(seriesPath).map(file => {
+      const ext = path.extname(file.name);
+      const base = path.parse(file.name).name;
+      let renamed = base.replace(new RegExp('^' + escapeRe(currentName), 'i'), cleanName);
+      if (renamed === base) {
+        const ep = parser(file.name);
+        const suffix = base.match(/(\s+(?:S\d{1,2}E\d{1,3}|-\s*(?:Ep\s*|Ch\s*)?\d{1,4}).*)$/i);
+        renamed = suffix ? cleanName + suffix[1] : (ep ? `${cleanName} - ${String(ep).padStart(2, '0')}` : base);
+      }
+      return { from: file.path, to: path.join(seriesPath, renamed + ext), old: file.name, name: renamed + ext };
+    }).filter(change => change.from !== change.to);
+
+    const targets = new Set();
+    for (const change of changes) {
+      const key = change.to.toLowerCase();
+      if (targets.has(key) || (fs.existsSync(change.to) && change.from.toLowerCase() !== key)) {
+        return { success: false, error: `Rename collision: ${path.basename(change.to)}` };
+      }
+      targets.add(key);
+    }
+    const completed = [];
+    try {
+      for (const change of changes) {
+        fs.renameSync(change.from, change.to);
+        completed.push(change);
+      }
+      if (destination !== seriesPath) fs.renameSync(seriesPath, destination);
+    } catch (renameError) {
+      for (const change of completed.reverse()) {
+        try { if (fs.existsSync(change.to)) fs.renameSync(change.to, change.from); } catch (_) {}
+      }
+      return { success: false, error: `Rename rolled back: ${renameError.message}` };
+    }
+
+    const history = getWatchHistoryStore();
+    if (history[currentName]) {
+      history[cleanName] = history[currentName];
+      delete history[currentName];
+    }
+    for (const key of ['titleAliases','gapRules']) {
+      const modeMap = getModeConfigMap(key);
+      if (modeMap[currentName]) {
+        modeMap[cleanName] = modeMap[currentName];
+        delete modeMap[currentName];
+      }
+    }
+    for (const entry of config.autoDownloadWatchlist || []) {
+      if (entry.seriesName === currentName) entry.seriesName = cleanName;
+    }
+    const oldCover = getExistingCoverCachePath(currentName);
+    const newCover = getCoverCachePath(cleanName);
+    if (oldCover && !fs.existsSync(newCover)) fs.copyFileSync(oldCover, newCover);
+    saveConfig();
+    _doScanLibrary();
+    return { success: true, oldName: currentName, newName: cleanName, path: destination, filesRenamed: changes.length };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
 });
 
 // ================================================================
 //  FILE MANAGER
 // ================================================================
+ipcMain.handle('manager:previewParse', (_, filename, folderName = '') => {
+  if (typeof filename !== 'string' || !filename.trim() || filename.length > 500) {
+    return { error: 'Enter a valid filename' };
+  }
+  if (typeof folderName !== 'string' || folderName.length > 260) return { error: 'Invalid folder name' };
+  const parsed = config.vaultMode === 'manga'
+    ? parseMangaFilename(path.basename(filename), folderName)
+    : parseVideoFilename(path.basename(filename), folderName);
+  return {
+    ...parsed,
+    mediaNumber: config.vaultMode === 'manga' ? parseChapterNumber(filename) : parseEpisodeNumber(filename),
+    searchTitles: parsed.series ? {
+      mal: getTitleAlias(parsed.series, 'mal'),
+      anilist: getTitleAlias(parsed.series, 'anilist'),
+      nyaa: getTitleAlias(parsed.series, 'nyaa')
+    } : null
+  };
+});
+
 ipcMain.handle('manager:rename', async (_, rootFolder, dryRun = true) => {
+  if (!isAllowedFileActionPath(rootFolder)) return { error: 'Folder is outside configured AnimeVault folders' };
   if (!fs.existsSync(rootFolder)) return { error: 'Folder not found' };
   const results = [];
   try {
@@ -1835,6 +3007,7 @@ ipcMain.handle('manager:rename', async (_, rootFolder, dryRun = true) => {
 });
 
 ipcMain.handle('manager:group', async (_, rootFolder, seasonalFolder, dryRun = true) => {
+  if (!isAllowedFileActionPath(rootFolder) || (seasonalFolder && !isAllowedFileActionPath(seasonalFolder))) return { error: 'Folder is outside configured AnimeVault folders' };
   if (!fs.existsSync(rootFolder)) return { error: 'Folder not found' };
   const results = [];
   try {
@@ -1854,6 +3027,7 @@ ipcMain.handle('manager:group', async (_, rootFolder, seasonalFolder, dryRun = t
 });
 
 ipcMain.handle('manager:ungroup', async (_, rootFolder, seasonalFolder, dryRun = true) => {
+  if (!isAllowedFileActionPath(rootFolder) || (seasonalFolder && !isAllowedFileActionPath(seasonalFolder))) return { error: 'Folder is outside configured AnimeVault folders' };
   if (!fs.existsSync(rootFolder)) return { error: 'Folder not found' };
   const results = [];
   try {
@@ -1872,11 +3046,12 @@ ipcMain.handle('manager:ungroup', async (_, rootFolder, seasonalFolder, dryRun =
 });
 
 ipcMain.handle('manager:batch', async (_, batchFolder, dryRun = true) => {
+  if (!isAllowedFileActionPath(batchFolder)) return { error: 'Folder is outside configured AnimeVault folders' };
   if (!fs.existsSync(batchFolder)) return { error: 'Folder not found' };
   const results = [];
   try {
     const files = getVideoFiles(batchFolder);
-    const groups = {};
+    const groups = Object.create(null);
     for (const file of files) {
       const parsed = parseVideoFilename(file.name);
       if (parsed.matched && parsed.series) {
@@ -1884,7 +3059,7 @@ ipcMain.handle('manager:batch', async (_, batchFolder, dryRun = true) => {
         groups[parsed.series].push(file);
       }
     }
-    for (const series in groups) {
+    for (const series of Object.keys(groups)) {
       const seriesDir = path.join(batchFolder, series);
       if (!dryRun) fs.mkdirSync(seriesDir, { recursive: true });
       for (const file of groups[series]) {
@@ -1898,6 +3073,7 @@ ipcMain.handle('manager:batch', async (_, batchFolder, dryRun = true) => {
 });
 
 ipcMain.handle('manager:format', async (_, sourceFolder, destFolder) => {
+  if (!isAllowedFileActionPath(sourceFolder) || (destFolder && !isAllowedFileActionPath(destFolder))) return { error: 'Folder is outside configured AnimeVault folders' };
   if (!fs.existsSync(sourceFolder)) return { error: 'Source folder not found' };
   const results = [];
   const undo = [];
@@ -1924,7 +3100,10 @@ ipcMain.handle('manager:format', async (_, sourceFolder, destFolder) => {
 
 ipcMain.handle('manager:formatFolder', async (_, folderPath, newFolderName) => {
   try {
+    assertAllowedChildFileActionPath(folderPath);
+    if (!newFolderName || path.basename(newFolderName) !== newFolderName || newFolderName === '.' || newFolderName === '..' || /[<>:"/\\|?*\x00-\x1f]/.test(newFolderName) || /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i.test(newFolderName)) throw new Error('Invalid folder name');
     const newPath = path.join(path.dirname(folderPath), newFolderName);
+    if (newPath !== folderPath && fs.existsSync(newPath)) throw new Error('A folder with that name already exists');
     fs.renameSync(folderPath, newPath);
     return { success: true, newPath };
   } catch (e) { return { success: false, error: e.message }; }
@@ -1932,7 +3111,10 @@ ipcMain.handle('manager:formatFolder', async (_, folderPath, newFolderName) => {
 
 ipcMain.handle('manager:formatManga', async (_, folderPath, newFolderName) => {
   try {
+    assertAllowedChildFileActionPath(folderPath);
+    if (!newFolderName || path.basename(newFolderName) !== newFolderName || newFolderName === '.' || newFolderName === '..' || /[<>:"/\\|?*\x00-\x1f]/.test(newFolderName) || /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i.test(newFolderName)) throw new Error('Invalid folder name');
     const newPath = path.join(path.dirname(folderPath), newFolderName);
+    if (newPath !== folderPath && fs.existsSync(newPath)) throw new Error('A folder with that name already exists');
     fs.renameSync(folderPath, newPath);
     return { success: true, newPath };
   } catch (e) { return { success: false, error: e.message }; }
@@ -1942,9 +3124,14 @@ ipcMain.handle('manager:undoFormat', async () => {
   try {
     const undoPath = path.join(app.getPath('userData'), 'format-undo.json');
     if (!fs.existsSync(undoPath)) return { error: 'No undo available' };
-    const undo = JSON.parse(fs.readFileSync(undoPath, 'utf-8'));
+    const raw = fs.readFileSync(undoPath, 'utf-8');
+    const undo = JSON.parse(raw);
+    if (!Array.isArray(undo)) throw new Error('Invalid undo data format');
     for (const op of undo) {
-      if (fs.existsSync(op.old)) fs.renameSync(op.old, op.new);
+      if (op && op.old && op.new && fs.existsSync(op.old)) {
+        assertAllowedFileActionPath(op.new);
+        fs.renameSync(op.old, op.new);
+      }
     }
     fs.unlinkSync(undoPath);
     return { success: true };
@@ -1958,13 +3145,16 @@ ipcMain.handle('manager:hasUndo', () => {
 // ================================================================
 //  MANGA
 // ================================================================
-ipcMain.handle('manga:openFile', (_, filePath) => {
+ipcMain.handle('manga:openFile', async (_, filePath) => {
   try {
+    assertAllowedFileActionPath(filePath);
+    assertPlayableMedia(filePath, MANGA_EXTS);
     const reader = config.readerPath;
     if (reader && fs.existsSync(reader)) {
-      spawn(reader, [filePath], { detached: true });
+      const res = await spawnDetached(reader, [filePath]);
+      if (!res.ok) return { success: false, error: 'Failed to launch the manga reader: ' + res.message };
     } else {
-      shell.openPath(filePath);
+      await shell.openPath(filePath);
     }
     return { success: true };
   } catch (e) { return { success: false, error: e.message }; }
@@ -1978,16 +3168,17 @@ ipcMain.handle('manga:detectReaders', async () => {
     'C:\\Program Files\\SumatraPDF\\SumatraPDF.exe',
     'C:\\Program Files\\Honeyview\\Honeyview.exe'
   ];
-  for (const p of commonPaths) {
-    if (fs.existsSync(p)) return { path: p };
-  }
-  return { path: null };
+  const readers = commonPaths.filter(p => { try { return fs.existsSync(p); } catch (e) { return false; } })
+    .map(p => ({ name: path.basename(p, '.exe'), path: p }));
+  return { path: readers.length ? readers[0].path : null, readers };
 });
 
 
 // Batch C F9: Import/Export & Backup
 ipcMain.handle('library:exportMetadata', async () => {
-  return { version: 1, exportedAt: new Date().toISOString(), config, library: lastLibraryScan };
+  const safeConfig = { ...config };
+  ['malAccessToken','malRefreshToken','malClientSecret','malCodeVerifier'].forEach(key => delete safeConfig[key]);
+  return { version: 1, exportedAt: new Date().toISOString(), config: safeConfig, library: lastLibraryScan };
 });
 
 ipcMain.handle('library:exportCSV', async () => {
@@ -1998,21 +3189,29 @@ ipcMain.handle('library:exportCSV', async () => {
     const ls = m.my_list_status || {};
     rows.push([s.name, s.category || '', s.episodeCount, w.episodesWatched ? w.episodesWatched.length : 0, w.malId || '', m.mean || '', ls.status || '']);
   }
-  return rows.map(r => r.map(c => `"${String(c).replace(/"/g, '\"')}"`).join(',')).join('\n');
+  return rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
 });
 
 ipcMain.handle('library:importAniList', async (_, filePath) => {
   try {
-    const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    // Legacy channel: the renderer imports AniList data directly over GraphQL.
+    // If an explicit file path is ever passed, it must be inside userData and JSON.
+    if (!filePath || !isAllowedFileActionPath(filePath, true)) return { success: false, error: 'File is outside AnimeVault folders' };
+    if (path.extname(filePath).toLowerCase() !== '.json') return { success: false, error: 'Expected a .json file' };
+    const raw = fs.readFileSync(filePath, 'utf-8');
+    if (raw.length > 50 * 1024 * 1024) return { success: false, error: 'File too large' };
+    const data = JSON.parse(raw);
     let imported = 0;
-    for (const entry of (data.entries || [])) {
-      const title = entry.media?.title?.romaji || entry.media?.title?.english;
-      if (!title) continue;
-      const status = entry.status?.toLowerCase().replace(/_/g, ' ');
-      const score = entry.score || 0;
-      const progress = entry.progress || 0;
-      if (!config.watchHistory[title]) config.watchHistory[title] = {};
-      config.watchHistory[title].malData = { ...config.watchHistory[title].malData, mean: score, my_list_status: { status, num_watched_episodes: progress } };
+    for (const entry of (Array.isArray(data.entries) ? data.entries : [])) {
+      const title = entry && entry.media ? (entry.media.title?.romaji || entry.media.title?.english) : null;
+      if (!title || typeof title !== 'string') continue;
+      const key = safeHistoryKey(title);
+      const status = entry.status ? String(entry.status).toLowerCase().replace(/_/g, ' ') : '';
+      const score = Number(entry.score) || 0;
+      const progress = Number(entry.progress) || 0;
+      const history = getWatchHistoryStore();
+      if (!history[key]) history[key] = {};
+      history[key].malData = { ...history[key].malData, mean: score, my_list_status: { status, num_watched_episodes: progress } };
       imported++;
     }
     saveConfig();
@@ -2028,7 +3227,16 @@ ipcMain.handle('library:backup', async (_, destPath) => {
     const zip = new AdmZip();
     zip.addLocalFile(CONFIG_PATH, '', 'config.json');
     zip.addLocalFolder(CACHE_DIR, 'cover-cache');
-    const outPath = destPath || path.join(app.getPath('downloads'), `AnimeVault-Backup-${new Date().toISOString().slice(0,10)}.zip`);
+    let outPath;
+    if (destPath && typeof destPath === 'string' && destPath.trim()) {
+      outPath = path.resolve(destPath);
+      const ud = normalizeFsPath(app.getPath('userData'));
+      if (ud && isInsidePath(ud, outPath)) return { success: false, error: 'Backup destination cannot be inside app data' };
+      if (path.extname(outPath).toLowerCase() !== '.zip') return { success: false, error: 'Backup must end in .zip' };
+    } else {
+      outPath = path.join(app.getPath('downloads'), `AnimeVault-Backup-${new Date().toISOString().slice(0,10)}.zip`);
+    }
+    fs.mkdirSync(path.dirname(outPath), { recursive: true });
     zip.writeZip(outPath);
     return { success: true, path: outPath };
   } catch (e) {
@@ -2038,8 +3246,14 @@ ipcMain.handle('library:backup', async (_, destPath) => {
 
 ipcMain.handle('library:restore', async (_, zipPath) => {
   try {
+    if (!zipPath || path.extname(zipPath).toLowerCase() !== '.zip') return { success: false, error: 'Choose a .zip backup file' };
     const AdmZip = require('adm-zip');
     const zip = new AdmZip(zipPath);
+    const unsafe = zip.getEntries().find(entry => {
+      const name = entry.entryName.replace(/\\/g, '/');
+      return path.isAbsolute(name) || name.split('/').includes('..') || (name !== 'config.json' && !name.startsWith('cover-cache/'));
+    });
+    if (unsafe) return { success: false, error: 'Backup contains unsafe or unexpected files' };
     zip.extractEntryTo('config.json', path.dirname(CONFIG_PATH), false, true);
     zip.extractEntryTo('cover-cache/', app.getPath('userData'), false, true);
     loadConfig();
@@ -2063,6 +3277,17 @@ function isFileLocked(filePath) {
   } catch (e) {
     return true; // Locked by another process
   }
+}
+
+function matchesWatcherIgnore(filename) {
+  return (config.watcherIgnorePatterns || []).some(pattern => {
+    if (typeof pattern !== 'string' || !pattern.trim()) return false;
+    try { return new RegExp(pattern, 'i').test(filename); }
+    catch (e) {
+      const glob = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
+      try { return new RegExp(glob, 'i').test(filename); } catch (ignored) { return false; }
+    }
+  });
 }
 
 // Find existing series folder across all library folders
@@ -2115,9 +3340,7 @@ function watcherPoll() {
     const looseFiles = fileScanner(watchFolder);
     console.log('[Watcher] Loose files:', looseFiles.length);
     for (const f of looseFiles) {
-      const shouldIgnore = (config.watcherIgnorePatterns || []).some(p =>
-        new RegExp(p.replace(/\*/g, '.*'), 'i').test(f.name)
-      );
+      const shouldIgnore = matchesWatcherIgnore(f.name);
       if (shouldIgnore) {
         console.log('[Watcher] Ignored by pattern:', f.name);
         continue;
@@ -2263,9 +3486,7 @@ function watcherPoll() {
       console.log('[Watcher] Subdir', folderName, 'has', dirFiles.length, 'files');
       let movedCount = 0;
       for (const f of dirFiles) {
-        const shouldIgnore = (config.watcherIgnorePatterns || []).some(p =>
-          new RegExp(p.replace(/\*/g, '.*'), 'i').test(f.name)
-        );
+        const shouldIgnore = matchesWatcherIgnore(f.name);
         if (shouldIgnore) {
           console.log('[Watcher] Ignored by pattern:', f.name);
           continue;
@@ -2337,8 +3558,8 @@ function startFileWatcher(watchFolder, destFolder) {
     return;
   }
   console.log('[Watcher] Starting file watcher for', watchFolder);
-  // First poll after 5s, then every 30s
-  setTimeout(() => watcherPoll(), 5000);
+  // Let the initial library render settle before the first background disk pass.
+  setTimeout(() => watcherPoll(), 20000);
   watcherInterval = setInterval(() => watcherPoll(), 30000);
 }
 
@@ -2350,10 +3571,14 @@ function stopFileWatcher() {
 }
 
 ipcMain.handle('watcher:start', (_, watchFolder, destFolder) => {
-  config.watcherFolder = watchFolder;
-  config.watcherDest = destFolder;
+  const wf = typeof watchFolder === 'string' ? watchFolder.trim() : '';
+  const df = typeof destFolder === 'string' ? destFolder.trim() : wf;
+  if (!wf || !path.isAbsolute(wf) || !fs.existsSync(wf)) return { error: 'Watch folder does not exist' };
+  if (df !== wf && !isAllowedFileActionPath(df)) return { error: 'Destination folder is outside configured AnimeVault folders' };
+  config.watcherFolder = wf;
+  config.watcherDest = df;
   saveConfig();
-  startFileWatcher(watchFolder, destFolder);
+  startFileWatcher(wf, df);
   return true;
 });
 
@@ -2373,14 +3598,19 @@ ipcMain.handle('watcher:pollNow', () => {
 
 ipcMain.handle('watcher:placeNewSeries', (_, item, destFolder) => {
   try {
-    const targetDir = path.join(destFolder || config.watcherDest || config.folders[0]?.path || '', item.series);
+    if (!item || typeof item !== 'object' || !item.series || !item.originalPath) throw new Error('Invalid placement item');
+    const baseDest = destFolder || config.watcherDest || config.folders[0]?.path || '';
+    if (!baseDest || !isAllowedFileActionPath(baseDest)) throw new Error('Destination is outside configured AnimeVault folders');
+    if (!isAllowedFileActionPath(item.originalPath)) throw new Error('Source is outside configured AnimeVault folders');
+    if (path.basename(item.series) !== item.series || item.series === '.' || item.series === '..') throw new Error('Invalid series name');
+    const targetDir = path.join(baseDest, item.series);
     fs.mkdirSync(targetDir, { recursive: true });
 
     // If placing an entire folder, move it into the destination
     if (item.isFolder) {
       // When moving a folder, place it inside the targetDir
       // The folder name should already be the clean series name
-      const targetPath = path.join(targetDir, item.series);
+      const targetPath = targetDir;
       if (fs.existsSync(targetPath)) {
         // Destination already exists: move files inside individually
         const files = (config.vaultMode === 'manga' ? getMangaFiles : getVideoFiles)(item.originalPath, false);
@@ -2421,6 +3651,13 @@ ipcMain.handle('watcher:placeNewSeries', (_, item, destFolder) => {
 // ================================================================
 //  DUPLICATE FILE DETECTION
 // ================================================================
+function fmtBytes(b) {
+  if (!b || b === 0) return '0 B';
+  const k = 1024, s = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(b) / Math.log(k));
+  return (b / Math.pow(k, i)).toFixed(i > 0 ? 1 : 0) + ' ' + s[i];
+}
+
 async function checkDuplicatesAfterScan(library) {
   try {
     const duplicates = [];
@@ -2428,17 +3665,25 @@ async function checkDuplicatesAfterScan(library) {
       if (!series.episodes || series.episodes.length < 2) continue;
       const seen = new Map();
       for (const ep of series.episodes) {
-        const num = parseEpisodeNumber(ep.name);
-        if (num === null) continue;
+        const num = ep.episodeNum != null ? ep.episodeNum : parseMediaNumber(ep.name);
+        if (num === null || num === undefined || isNaN(num)) continue;
         const key = `${series.name}_ep${num}`;
+        const enriched = {
+          ...ep,
+          codec: /\b(?:HEVC|x265|H\.265)\b/i.test(ep.name) ? 'HEVC'
+               : (/\b(?:H\.264|x264|AVC)\b/i.test(ep.name) ? 'H.264' : 'Unknown'),
+          resolution: detectResolution(ep.name),
+          sizeFormatted: fmtBytes(ep.size || 0)
+        };
         if (seen.has(key)) {
-          duplicates.push({
-            series: series.name,
-            episode: num,
-            files: [seen.get(key), ep]
-          });
+          const existing = duplicates.find(d => d.series === series.name && d.episode === num);
+          if (existing) {
+            existing.files.push(enriched);
+          } else {
+            duplicates.push({ series: series.name, episode: num, files: [seen.get(key), enriched] });
+          }
         } else {
-          seen.set(key, ep);
+          seen.set(key, enriched);
         }
       }
     }
@@ -2450,16 +3695,34 @@ async function checkDuplicatesAfterScan(library) {
   }
 }
 
+let duplicateScanTimer = null;
+function scheduleDuplicateCheck(library) {
+  if (duplicateScanTimer) clearTimeout(duplicateScanTimer);
+  duplicateScanTimer = setTimeout(() => {
+    duplicateScanTimer = null;
+    checkDuplicatesAfterScan(library);
+  }, 2500);
+}
+
 ipcMain.handle('duplicate:resolve', (_, data) => {
   try {
-    const { keep, delete: deletePath } = data;
-    if (deletePath && fs.existsSync(deletePath)) {
-      fs.unlinkSync(deletePath);
+    if (!data || typeof data !== 'object') return { success: false, error: 'Invalid payload' };
+    const { keep } = data;
+    // "delete" may be a single path (legacy) or every extra copy at once.
+    const deletePaths = Array.isArray(data.delete) ? data.delete : (data.delete ? [data.delete] : []);
+    let deleted = 0;
+    for (const p of deletePaths) {
+      if (!p || typeof p !== 'string' || p === keep) continue;
+      assertAllowedFileActionPath(p);
+      if (fs.existsSync(p)) {
+        fs.unlinkSync(p);
+        deleted++;
+      }
     }
-    if (mainWindow && !mainWindow.isDestroyed()) {
+    if (deleted > 0 && mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('duplicate:resolved', data);
     }
-    return { success: true };
+    return { success: true, deleted };
   } catch (e) {
     return { success: false, error: e.message };
   }
@@ -2468,10 +3731,8 @@ ipcMain.handle('duplicate:resolve', (_, data) => {
 // ================================================================
 //  WINDOW MANAGEMENT
 // ================================================================
-let protocolRegistered = false;
-
 function createWindow() {
-  if (mainWindow) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.focus();
     return;
   }
@@ -2486,13 +3747,26 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: true
     },
     show: false,
     backgroundColor: '#0a0a0f'
   });
 
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (isSafeExternalUrl(url)) shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (url !== mainWindow.webContents.getURL()) event.preventDefault();
+  });
+  // Deny every renderer permission request by default. The app has no
+  // camera/mic/geolocation features; approving nothing shrinks the attack
+  // surface and keeps the renderer fully in-process.
+  const { session } = require('electron');
+  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => callback(false));
+  session.defaultSession.setPermissionCheckHandler(() => false);
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
     if (config.maximized) mainWindow.maximize();
@@ -2508,10 +3782,6 @@ function createWindow() {
   // Apply minimize-to-tray if enabled
   if (config.minimizeToTray) {
     applyMinimizeToTray(true);
-  }
-
-  if (!protocolRegistered) {
-    protocolRegistered = true;
   }
 }
 
@@ -2538,15 +3808,6 @@ function applyMinimizeToTray(enabled) {
   } else {
     destroyTray();
   }
-}
-
-function showNotification(title, body, onClick) {
-  if (!config.desktopNotifications) return;
-  try {
-    const notif = new Notification({ title, body, silent: false });
-    if (onClick) notif.on('click', onClick);
-    notif.show();
-  } catch (e) { console.error('[Notification] Failed:', e.message); }
 }
 
 function createTray() {
@@ -2645,8 +3906,33 @@ ipcMain.handle('window:setMinimizeToTray', (_, enabled) => {
 // ================================================================
 //  APP LIFECYCLE
 // ================================================================
+// cover://<encodeURIComponent(absPath)> — same access rules as cover:getDataUrl:
+// image extensions only, and inside userData restricted to cover-cache/thumbnails.
+function handleCoverRequest(request) {
+  try {
+    const fp = normalizeFsPath(decodeURIComponent(request.url.slice('cover://'.length)));
+    if (!fp || !fs.existsSync(fp)) return new Response(null, { status: 404 });
+    const ext = path.extname(fp).toLowerCase();
+    if (!['.jpg', '.jpeg', '.png', '.webp'].includes(ext)) return new Response(null, { status: 404 });
+    const ud = normalizeFsPath(app.getPath('userData'));
+    if (ud && isInsidePath(ud, fp)) {
+      const rel = path.relative(ud, fp).toLowerCase();
+      if (!rel.startsWith('cover-cache') && !rel.startsWith('thumbnails')) return new Response(null, { status: 404 });
+    } else if (!isAllowedFileActionPath(fp)) {
+      return new Response(null, { status: 404 });
+    }
+    const mime = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg';
+    return new Response(fs.readFileSync(fp), { headers: { 'Content-Type': mime } });
+  } catch (e) {
+    return new Response(null, { status: 404 });
+  }
+}
+
 app.whenReady().then(() => {
+  protocol.handle('cover', handleCoverRequest);
+  appendAuthDebug('boot version=' + app.getVersion() + ' pid=' + process.pid);
   loadConfig();
+  loadOpenrouterKey();
   createWindow();
 
   // Resume file watcher if enabled
@@ -2658,12 +3944,6 @@ app.whenReady().then(() => {
   if (config.autoDownloadEnabled && config.autoDownloadWatchlist?.length) {
     startAutoDownloadPoller();
   }
-  // Criteria sync deferred until first library scan completes (Phase 1.7)
-  // hasInitialCriteriaSyncRun is declared at module scope
-
-  // Update auto-download state from module
-  const d = autoDownload.d ? autoDownload.d() : {};
-  d.wasPolling = false;
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -2676,6 +3956,7 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   isQuitting = true;
+  flushSaveConfig();
   stopFileWatcher();
   stopAutoDownloadPoller();
 });

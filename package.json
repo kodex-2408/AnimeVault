@@ -1,6 +1,6 @@
 {
   "name": "animevault",
-  "version": "4.10.1",
+  "version": "5.0.0",
   "description": "Personal anime/manga library manager with MAL sync, Nyaa integration, and enhanced HEVC-aware auto-download",
   "main": "main.js",
   "author": "Kike",
@@ -8,63 +8,65 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "build": "electron-builder --win portable --x64 --arm64",
-    "build-x64": "electron-builder --win portable --x64",
-    "build-arm64": "electron-builder --win portable --arm64",
-    "build-installer": "electron-builder --win nsis --x64 --arm64",
+    "test": "node tests/contracts.test.js && node tests/search-matching.test.js && node tests/mal-data.test.js && node tests/mal-backfill.test.js && node tests/state-integrity.test.js && node tests/auto-download-state.test.js && node tests/security-and-parsers.test.js",
+    "build-x64": "electron-builder --win --x64",
+    "build-arm64": "electron-builder --win --arm64",
+    "build": "electron-builder --win",
+    "build-fast": "electron-builder --win --x64 -c.compression=store",
+    "build-dir": "electron-builder --win --x64 --dir",
     "build-installer-x64": "electron-builder --win nsis --x64",
-    "build-installer-arm64": "electron-builder --win nsis --arm64"
+    "build-installer-arm64": "electron-builder --win nsis --arm64",
+    "build-installer": "electron-builder --win nsis",
+    "build-mobile": "node mobile/scripts/build-www.js",
+    "build-apk": "node mobile/scripts/build-apk.js"
   },
-  "dependencies": {},
   "devDependencies": {
     "electron": "^33.0.0",
     "electron-builder": "^25.1.8"
   },
+  "dependencies": {
+    "adm-zip": "^0.5.18"
+  },
   "build": {
     "appId": "com.animevault.app",
     "productName": "AnimeVault",
+    "compression": "normal",
+    "directories": {
+      "output": "dist"
+    },
     "files": [
       "main.js",
-      "autoDownload.js",
       "preload.js",
+      "autoDownload.js",
+      "openrouter.js",
       "index.html",
-      "icon.png"
-    ],
-    "extraResources": [
-      {
-        "from": "bin/",
-        "to": "bin/",
-        "filter": [
-          "mpv.exe",
-          "*.dll"
-        ]
-      }
+      "theme-boot.js",
+      "renderer/**/*",
+      "styles/**/*",
+      "package.json",
+      "icon.png",
+      "luma/**/*",
+      "599-*.png",
+      "bin/**/*",
+      "!dist{,/**/*}",
+      "!tests{,/**/*}",
+      "!*.md",
+      "!BUILD*.bat"
     ],
     "win": {
+      "icon": "icon.png",
+      "artifactName": "AnimeVault-${arch}.${ext}",
       "target": [
-        {
-          "target": "portable",
-          "arch": [
-            "x64",
-            "arm64"
-          ]
-        },
-        {
-          "target": "nsis",
-          "arch": [
-            "x64",
-            "arm64"
-          ]
-        }
-      ],
-      "icon": "icon.png"
+        "portable"
+      ]
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "AnimeVault-Setup-${arch}.${ext}"
     },
     "portable": {
-      "artifactName": "AnimeVault-${arch}.exe"
+      "artifactName": "AnimeVault-${arch}.${ext}"
     }
   }
 }
