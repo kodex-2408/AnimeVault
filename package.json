@@ -22,7 +22,7 @@
   },
   "devDependencies": {
     "electron": "^44.4.5",
-    "electron-builder": "^26.15.3"
+    "electron-builder": "^25.1.8"
   },
   "dependencies": {
     "adm-zip": "^0.6.1"
@@ -31,13 +31,6 @@
     "appId": "com.animevault.app",
     "productName": "AnimeVault",
     "compression": "normal",
-    "electronFuses": {
-      "runAsNode": false,
-      "enableCookieEncryption": true,
-      "enableNodeOptionsEnvironmentVariable": false,
-      "enableNodeCliInspectArguments": false,
-      "onlyLoadAppFromAsar": true
-    },
     "directories": {
       "output": "dist"
     },

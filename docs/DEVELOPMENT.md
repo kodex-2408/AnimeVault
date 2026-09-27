@@ -193,12 +193,19 @@ recorded loss event (2026-08-22) had an off-screen cause that was never identifi
   counts and sizes, keeps the current credentials, and saves via
   `writeConfigSafely` + `loadConfig`.
 - **Electron**: `app.enableSandbox()` (skipped only with an explicit
-  `--no-sandbox`, which root/CI runs need), a `web-contents-created` guard
-  (no webviews, no pop-ups, no navigation), and build-time fuses in
-  `package.json` (`runAsNode`, `enableNodeOptionsEnvironmentVariable`,
-  `enableNodeCliInspectArguments` off; `onlyLoadAppFromAsar` on).
-  Embedded asar integrity validation is not enabled yet — turn it on only
-  after verifying a packaged Windows build starts with it.
+  `--no-sandbox`, which root/CI runs need) and a `web-contents-created` guard
+  (no webviews, no pop-ups, no navigation).
+- **No Electron fuses (yet).** 5.1 briefly shipped `electronFuses` with
+  electron-builder 26; the packaged Windows ARM64 portable build then exited
+  before any app code ran (no startup.log), while `npm start` worked. Packaging
+  is back to the 5.0 setup (electron-builder 25, no fuses). Re-enable fuses only
+  after `dist\win-arm64-unpacked\AnimeVault.exe` is confirmed to start on real
+  Windows ARM64 hardware. Build-time tools still show `npm audit` advisories;
+  none ship in the app (`npm audit --omit=dev` is clean).
+- **startup.log** (`%APPDATA%\animevault`) records every start, fatal
+  main-process errors and single-instance hand-offs. If a build shows no
+  window and writes no line here, the failure is below the app code
+  (packaging, launcher, OS).
 
 ## Glass material system (5.1)
 

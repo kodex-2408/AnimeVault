@@ -158,24 +158,28 @@ body:has(.toolbar.stuck) .titlebar::before { opacity: 0; }
 .dbk { position: absolute; inset: 0; background: var(--scrim); backdrop-filter: blur(8px); animation: fadeIn var(--dur-3) var(--ease-soft) both; }
 .dpn {
   position: relative; width: min(1000px, 100%); max-height: 100%; overflow-y: auto; overflow-x: hidden; border-radius: var(--r-2xl);
+  /* no scrollbar gutter: it would cut a strip off the right of the artwork
+     header and make the sheet lopsided (wheel, keys and touchpad still scroll) */
+  scrollbar-width: none;
   background: var(--glass-bg-solid); backdrop-filter: var(--glass-filter); box-shadow: var(--glass-edge-strong), var(--shadow-4);
   animation: sheetIn var(--dur-4) var(--ease-spring) both;
 }
+.dpn::-webkit-scrollbar { display: none; }
 @keyframes sheetIn { from { opacity: 0; transform: translateY(26px) scale(.965); } to { opacity: 1; transform: none; } }
 .dov.closing .dpn { animation: sheetOut var(--dur-2) var(--ease-soft) both; }
 .dov.closing .dbk { animation: fadeOut var(--dur-2) var(--ease-soft) both; }
 @keyframes sheetOut { to { opacity: 0; transform: translateY(14px) scale(.98); } }
 .sheet-loading { min-height: 420px; display: grid; place-items: center; }
-.sheet-hero { position: relative; min-height: 300px; padding: 30px 32px 26px; display: flex; align-items: flex-end; isolation: isolate; overflow: hidden; color: #fff;
+.sheet-hero { position: relative; padding: 30px 32px; display: flex; align-items: center; isolation: isolate; overflow: hidden; color: #fff;
   border-radius: var(--r-2xl) var(--r-2xl) 0 0; --rim-hi: rgba(255,255,255,.45); --rim-mid: rgba(255,255,255,.12); --rim-lo: rgba(255,255,255,0); --rim-end: rgba(255,255,255,0); }
 .sheet-bg { position: absolute; inset: -60px; z-index: -2; width: calc(100% + 120px); height: calc(100% + 120px); object-fit: cover; filter: blur(36px) saturate(1.6) brightness(.9); }
 .sheet-scrim { position: absolute; inset: 0; z-index: -1; background: linear-gradient(180deg, rgba(8,7,6,.15) 0%, rgba(8,7,6,.55) 60%, rgba(8,7,6,.8) 100%); }
 .sheet-close { position: absolute; top: 16px; right: 16px; z-index: 3; color: #fff; }
-.sheet-head { display: flex; align-items: flex-end; gap: 26px; width: 100%; }
+.sheet-head { display: flex; align-items: center; gap: 28px; width: 100%; padding-right: 36px; }
 .sheet-poster { width: 168px; height: 246px; flex-shrink: 0; object-fit: cover; border-radius: var(--r-lg); box-shadow: 0 28px 56px -14px rgba(0,0,0,.65), 0 0 0 1px rgba(255,255,255,.16); animation: posterIn calc(700ms * var(--m)) var(--ease-spring) both; }
 .sheet-poster.ph { display: grid; place-items: center; background: rgba(255,255,255,.08); color: rgba(255,255,255,.5); }
 .sheet-poster.ph svg { width: 40px; height: 40px; }
-.sheet-headtext { flex: 1; min-width: 0; padding-bottom: 4px; }
+.sheet-headtext { flex: 1; min-width: 0; }
 .sheet-eyebrow { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: rgba(255,255,255,.72); }
 .sheet-title { font-family: var(--font-display); font-size: clamp(22px, 2.6vw, 32px); font-weight: 780; letter-spacing: -.8px; line-height: 1.1; margin: 6px 0 12px; }
 .sheet-meta { display: flex; flex-wrap: wrap; gap: 6px; }

@@ -36,10 +36,8 @@ posture, design decisions, open roadmap — lives in [DEVELOPMENT.md](DEVELOPMEN
 - Restoring a backup put covers in the wrong folder, so they never showed.
 
 ### Security
-- Electron 33 → 44 (a year of Chromium security fixes), electron-builder 26,
-  adm-zip 0.6.1; `npm audit` reports 0 vulnerabilities (was 25).
-- Packaged builds lock Electron fuses: no run-as-Node mode, no NODE_OPTIONS
-  or --inspect hooks, and app code loads only from the packaged app archive.
+- Electron 33 → 44 (a year of Chromium security fixes) and adm-zip 0.6.1;
+  the shipped app has 0 known vulnerabilities (`npm audit --omit=dev`).
 - File actions check where a path really points, so a shortcut, symlink or
   junction inside a library folder can't reach files outside it.
 - Your home folder, system folders, Program Files and the app's own folders
