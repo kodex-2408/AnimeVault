@@ -6,6 +6,21 @@ const http = require('http');
 const net = require('net');
 const { execFile } = require('child_process');
 const crypto = require('crypto');
+// Packaged builds have no console. Anything that stops the app from starting
+// is recorded in %APPDATA%\animevault\startup.log so a silent launch failure
+// can be diagnosed (and a fatal error is shown instead of vanishing).
+function logStartup(line) {
+  try {
+    const p = path.join(app.getPath('userData'), 'startup.log');
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    if (fs.existsSync(p) && fs.statSync(p).size > 256 * 1024) fs.writeFileSync(p, '');
+    fs.appendFileSync(p, '[' + new Date().toISOString() + '] v' + app.getVersion() + ' ' + process.arch + ' ' + line + '\n');
+  } catch (e) { /* logging must never break startup */ }
+}
+process.on('uncaughtException', (err) => {
+  logStartup('FATAL ' + (err && err.stack || err));
+  try { dialog.showErrorBox('AnimeVault ran into a problem', String(err && err.message || err) + '\n\nDetails were saved to startup.log in %APPDATA%\\animevault.'); } catch (e) {}
+});
 const autoDownload = require('./autoDownload');
 const openrouter = require('./openrouter');
 const {
@@ -4179,6 +4194,7 @@ app.on('web-contents-created', (_, contents) => {
 });
 
 app.whenReady().then(() => {
+  logStartup('started from ' + process.execPath);
   protocol.handle('cover', handleCoverRequest);
   appendAuthDebug('boot version=' + app.getVersion() + ' pid=' + process.pid);
   loadConfig();
@@ -4217,6 +4233,7 @@ app.on('before-quit', () => {
 if (process.platform === 'win32') {
   const gotTheLock = app.requestSingleInstanceLock();
   if (!gotTheLock) {
+    logStartup('another AnimeVault instance is already running (npm start, a hidden tray window, or another build) - handing over to it');
     app.quit();
   } else {
     // A second launch hands over to the running instance. That instance may be

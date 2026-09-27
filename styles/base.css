@@ -202,6 +202,9 @@ body:has(.app.sidebar-collapsed) .titlebar::before { left: calc(var(--rail-w) + 
 .app.sidebar-collapsed .sidebar { width: var(--rail-w); }
 .app.sidebar-collapsed .ni { padding: 0; gap: 0; justify-content: center; }
 .app.sidebar-collapsed .ni .ni-label, .app.sidebar-collapsed .nav-sec { opacity: 0; width: 0; overflow: hidden; padding-left: 0; padding-right: 0; }
+/* the label is flex: 1 when expanded; without zeroing the flex basis it keeps
+   its width in the rail and pushes every icon off-center */
+.app.sidebar-collapsed .ni .ni-label { flex: 0 0 0; }
 .app.sidebar-collapsed .nav-sec { height: 14px; padding: 0; }
 .app.sidebar-collapsed .ni-badge { position: absolute; top: 2px; right: 4px; min-width: 16px; height: 16px; font-size: 9.5px; padding: 0 4px; }
 .app.sidebar-collapsed .sidebar-foot { flex-direction: column; }
