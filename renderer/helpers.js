@@ -180,25 +180,15 @@ function nyaaSearchAnchor(value){
 }
 function compactNyaaBrowserQuery(seriesTitle,uploader){
   var anchor=nyaaSearchAnchor(seriesTitle);
-  if(uploader==='erai')return 'erai hevc '+anchor;
-  if(uploader==='subsplease')return 'subsplease '+anchor;
-  if(uploader==='judas')return 'judas hevc '+anchor;
-  if(uploader==='varyg')return 'varyg hevc '+anchor;
-  return anchor;
+  return uploader==='erai'?'erai '+anchor:anchor;
 }
 function buildNyaaUrl(seriesTitle,epNum){
   seriesTitle=aliasFor(seriesTitle,'nyaa');
   var cat=isManga()?'3_1':'1_2';
-  var uploader=S.cfg.nyaaUploader||'erai';
-  var quality=S.cfg.nyaaQuality||'1080p';
   seriesTitle=normalizeNyaaSearchTitle(seriesTitle)||seriesTitle;
-  var q='';
-  if(isManga()){
-    q=seriesTitle;
-  } else {
-    q=compactNyaaBrowserQuery(seriesTitle,uploader);
-  }
-  return 'https://nyaa.si/?f=0&c='+cat+'&q='+encodeURIComponent(q)+'&s=id&o=desc';
+  // Same rule as in-app downloads: every group, most seeded first.
+  var q=isManga()?seriesTitle:compactNyaaBrowserQuery(seriesTitle,null)+(epNum!=null?' '+String(parseInt(epNum,10)).padStart(2,'0'):'');
+  return 'https://nyaa.si/?f=0&c='+cat+'&q='+encodeURIComponent(q)+'&s=seeders&o=desc';
 }
 function getCurrentSeason(){var m=new Date().getMonth();if(m<3)return{season:'winter',year:new Date().getFullYear()};if(m<6)return{season:'spring',year:new Date().getFullYear()};if(m<9)return{season:'summer',year:new Date().getFullYear()};return{season:'fall',year:new Date().getFullYear()};}
 function _isDonghua(a){

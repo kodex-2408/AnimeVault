@@ -56,4 +56,24 @@ const none = context.mergeMalData(
 assert.deepStrictEqual(none.my_list_status, undefined,
   'a metadata-only GET must not turn an empty placeholder into a phantom status');
 
+// 5.1: a status changed on MAL itself (newer updated_at) reaches the app...
+const localEdit = { status: 'watching', score: 0, num_episodes_watched: 3, updated_at: '2026-09-01T10:00:00+00:00' };
+const droppedOnMal = { status: 'dropped', score: 0, num_episodes_watched: 3, updated_at: '2026-09-20T10:00:00+00:00' };
+assert.deepStrictEqual(context.mergeMalData({ my_list_status: localEdit }, { my_list_status: droppedOnMal }).my_list_status, droppedOnMal,
+  'a newer MAL status (e.g. dropped on the website) must replace the stored one');
+// ...while an older GET never undoes a newer local PATCH.
+const stale = { status: 'plan_to_watch', score: 0, num_episodes_watched: 0, updated_at: '2026-08-01T10:00:00+00:00' };
+assert.deepStrictEqual(context.mergeMalData({ my_list_status: localEdit }, { my_list_status: stale }).my_list_status, localEdit,
+  'an older MAL status must not overwrite a newer local one');
+
+// The list pull uses the same rule (executed from main.js source).
+const pullStart = main.indexOf('function shouldAdoptRemoteListStatus');
+const pullEnd = main.indexOf('\n}\n', pullStart);
+vm.runInNewContext(main.slice(pullStart, pullEnd + 2) + ';this.shouldAdopt=shouldAdoptRemoteListStatus;', context);
+assert.strictEqual(context.shouldAdopt(localEdit, droppedOnMal), true);
+assert.strictEqual(context.shouldAdopt(localEdit, stale), false);
+assert.strictEqual(context.shouldAdopt(null, droppedOnMal), true);
+assert.strictEqual(context.shouldAdopt({ status: 'watching' }, droppedOnMal), true, 'an untimestamped local status defers to MAL');
+assert.strictEqual(context.shouldAdopt(localEdit, { score: 3 }), false, 'a remote entry without a status is ignored');
+
 console.log('MAL data merge regression checks passed');

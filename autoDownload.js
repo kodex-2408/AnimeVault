@@ -259,6 +259,57 @@ function scoreRelease(r, preferredUploader, ctx) {
   return score;
 }
 
+// ================================================================
+//  RELEASE CHOICE (5.1)
+//  Erai-raws is the go-to group. When it has no valid release, the most
+//  popular (most-seeded) release from any group wins, so matches follow what
+//  people actually seed. "Prefer HEVC" puts a healthy HEVC release (3+
+//  seeders) ahead of other codecs; newer uploads break ties. Full-series
+//  requests rank batch/season packs ahead of single episodes.
+// ================================================================
+const PREFERRED_GROUP = 'erai';
+const HEALTHY_SEEDERS = 3;
+function isHevcRelease(r) { return /\b(hevc|x265|h\.?265)\b/i.test(String(r && r.title || '')); }
+function isBatchRelease(r) {
+  const t = String(r && r.title || '');
+  // "Batch"/"Complete", ranges like "01 ~ 12" or "(01-12)", or no episode number at all
+  return /\b(?:batch|complete|全集|season\s*pack)\b/i.test(t) || /\b\d{1,3}\s*~\s*\d{1,3}\b/.test(t) ||
+    /\(\s*\d{1,3}\s*-\s*\d{1,3}\s*\)/.test(t) || parseNyaaEpisodeNumber(t) === null;
+}
+function releaseGroup(r) {
+  const m = String(r && r.title || '').match(/^\s*\[([^\]]{1,40})\]/);
+  return m ? m[1] : '';
+}
+function rankReleases(results, opts = {}) {
+  const preferHevc = opts.preferHevc !== undefined ? !!opts.preferHevc : (d().config.forceHevc !== false);
+  const wantBatch = !!opts.batch;
+  const list = (results || []).filter(Boolean);
+  // "Avoid oversized HEVC": an HEVC file over twice the best H.264 size loses its codec preference.
+  const h264Ceiling = d().config.avoidOversizedHevc ? computeH264Ceiling(list) : 0;
+  const keyed = list.map(r => ({
+    r,
+    group: releaseMatchesUploader(r, PREFERRED_GROUP) ? 0 : 1,
+    batch: wantBatch ? (isBatchRelease(r) ? 0 : 1) : 0,
+    hevc: preferHevc && isHevcRelease(r) && (r.seeders || 0) >= HEALTHY_SEEDERS &&
+      !(h264Ceiling && parseReleaseSize(r.size) > h264Ceiling * 2) ? 0 : 1,
+    seeders: Number(r.seeders) || 0,
+    published: getReleasePublishedMs(r) || 0,
+  }));
+  keyed.sort((a, b) => a.batch - b.batch || a.group - b.group || a.hevc - b.hevc || b.seeders - a.seeders || b.published - a.published);
+  return keyed.map(k => k.r);
+}
+// Compact, renderer-safe description of a candidate for the release picker.
+function describeRelease(r) {
+  const t = String(r.title || '');
+  const res = (t.match(/\b(480|720|1080|2160)p\b/i) || [])[1];
+  return {
+    title: t, group: releaseGroup(r), seeders: Number(r.seeders) || 0, size: r.size || '',
+    codec: isHevcRelease(r) ? 'HEVC' : (/\b(h\.?264|x264|avc)\b/i.test(t) ? 'H.264' : ''),
+    resolution: res ? res + 'p' : '', preferred: releaseMatchesUploader(r, PREFERRED_GROUP),
+    published: getReleasePublishedMs(r) || 0,
+  };
+}
+
 function normalizeUploaderKey(value) {
   const key = String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
   if (key === 'erai' || key === 'erairaw' || key === 'erairaws') return 'erairaws';
@@ -651,7 +702,7 @@ async function verifyLatestAvailableEpisode(entry) {
     }
   }
   const quality = entry.preferredQuality || entry.quality || d().config.nyaaQuality || '1080p';
-  const uploader = entry.preferredUploader || d().config.nyaaUploader || 'erai';
+  const uploader = PREFERRED_GROUP;
   const compact = getCompactSearchQuery(title, uploader, null, d().config.forceHevc !== false);
   const queries = [compact, title + ' ' + quality, title].filter((q, i, all) => q && all.indexOf(q) === i);
   const seen = new Map();
@@ -694,7 +745,7 @@ async function runAutoDownloadPoller(force = false) {
   for (const entry of watchlist) {
     try {
       if (!entry.seriesName) continue;
-      const uploader = entry.preferredUploader || cfg.nyaaUploader || 'erai';
+      const uploader = PREFERRED_GROUP;
       const quality = entry.preferredQuality || cfg.nyaaQuality || '1080p';
       const nowMs = Date.now();
       const pollInterval = (cfg.autoDownloadPollMinutes || 30) * 60 * 1000;
@@ -839,17 +890,8 @@ async function runAutoDownloadPoller(force = false) {
           break;
         }
 
-        // Uploader preference is a selection tier, not merely a score bonus.
-        // Other sources are eligible only if no valid preferred-uploader
-        // release exists for this title, episode, season, and quality search.
-        matched = preferUploaderMatches(matched, uploader);
-
-        const scoreCtx = { h264Ceiling: computeH264Ceiling(matched) };
-        const chosen = matched.reduce((best, r) => {
-          const s = scoreRelease(r, uploader, scoreCtx);
-          const bs = best ? scoreRelease(best, uploader, scoreCtx) : -Infinity;
-          return s > bs ? r : best;
-        }, null);
+        // Erai-raws first; otherwise the most-seeded release from any group.
+        const chosen = rankReleases(matched)[0] || null;
 
         if (!chosen) {
           console.log('[AutoDL] Scoring produced no winner for', entry.seriesName);
@@ -1009,6 +1051,11 @@ module.exports = {
   normalizeUploaderKey,
   releaseMatchesUploader,
   preferUploaderMatches,
+  rankReleases,
+  describeRelease,
+  isHevcRelease,
+  isBatchRelease,
+  PREFERRED_GROUP,
   releaseMatchesSeriesTitle,
   releaseMatchesQuality,
   normalizeTitleWords,

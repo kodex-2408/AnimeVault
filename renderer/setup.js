@@ -25,7 +25,7 @@ var SETUP_STEPS=[
     return '<div class="list-group">'
       +setRow({icon:'playCircle',color:'#30d158',title:'Video player',desc:'Bundled MPV needs no setup.',ctrl:cfgSelect('playerType',[['bundled-mpv','Bundled MPV (recommended)'],['vlc','VLC'],['mpv','MPV'],['system-default','System default']],'bundled-mpv')})
       +setRow({icon:'subtitles',color:'#ffcc4d',title:'Subtitle language',ctrl:cfgSelect('subLangPrimary',[['','Off'],['en','English'],['es','Spanish'],['pt','Portuguese'],['fr','French'],['de','German'],['ja','Japanese']],'')})
-      +setRow({icon:'magnet',color:'#0a84ff',title:'Release group',ctrl:cfgSelect('nyaaUploader',[['erai','Erai-raws'],['subsplease','SubsPlease'],['judas','Judas'],['varyg','VARYG']],'erai')})
+      +setRow({icon:'magnet',color:'#0a84ff',title:'Release choice',desc:'Erai-raws first, otherwise the most-seeded release.',ctrl:cfgSwitch('releasePicker')+'<span class="muted">Let me pick</span>'})
       +'</div>';
   }},
   {title:'Connect MyAnimeList',icon:'layers',body:function(){
@@ -33,6 +33,11 @@ var SETUP_STEPS=[
     return '<p class="setup-lead">Optional — you can do this later from the MyAnimeList page.</p><div class="field"><label class="field-label">Client ID</label><input class="input mono" id="setupMalCid" value="'+E(S.cfg.malClientId||'')+'" placeholder="From myanimelist.net/apiconfig"></div>'
       +'<div class="field-hint" style="margin:8px 0 12px">Set the app’s redirect URL to <code class="code-chip">http://localhost:19876/callback</code>.</div>'
       +'<div class="row"><button class="btn btn-secondary"'+A('openUrl','https://myanimelist.net/apiconfig')+'>'+ic('external')+'Open API page</button><button class="btn btn-primary"'+A('setupConnectMal')+'>'+ic('link')+'Connect</button></div>';
+  }},
+  {title:'Meet Luma',icon:'sparkles',body:function(){
+    if(S.cfg.hasGeminiApiKey)return emptyState('checkCircle','Luma is ready','Your Google AI Studio key is saved. Chat with Luma from the title bar.','',true);
+    return '<div class="setup-luma"><img src="luma/luma-front.png" alt="" class="luma-hero"></div><p class="setup-lead">Luma is your library assistant, powered by Google Gemini with your own <b>free</b> Google AI Studio key — open the page below, choose “Create API key”, and paste it here. Optional: you can add it later in Settings.</p>'
+      +aiKeyForm('setupAiKey');
   }},
   {title:'After you watch…',icon:'film',body:function(){
     var del=!!S.cfg.watchAndDelete;

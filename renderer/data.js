@@ -37,8 +37,8 @@ async function rebuildLibraryIndex(){
 }
 async function setCoverFromPath(name,path,deferRender){
   if(!name||!path)return false;
-  // cover:// streams from disk; a unique URL string busts the image cache.
-  S.covers[name]='cover://'+encodeURIComponent(path)+'#'+Date.now();
+  // cover:// streams from disk; a fresh ?v= makes the replaced file load anew.
+  S.covers[name]=coverSrc(path,Date.now());
   if(S.cur&&S.cur.name===name){
     var s=S.lib.find(function(x){return x.name===name});
     if(s)S.cur=s;
@@ -156,12 +156,12 @@ function fetchMissingLibraryCovers(){
   var missing=S.lib.filter(function(s){return !s.name.startsWith('__unsorted')&&!S.covers[s.name]});
   if(!missing.length)return;
   var coverActivity=activityStart('covers','Fetch missing covers',missing.length+' title'+(missing.length===1?'':'s'));
-  api.anilistFetchAllCovers(missing.map(function(s){return {name:s.name}})).then(function(results){
+  api.anilistFetchAllCovers(missing.map(function(s){return {name:s.name,malId:s.watchData&&s.watchData.malId||null};})).then(function(results){
     var withPath=results.filter(function(x){return x.path});
     if(!withPath.length){activityFinish(coverActivity,'success','No new covers were available');return;}
     var fetched=0;
     withPath.forEach(function(r){
-      S.covers[r.name]='cover://'+encodeURIComponent(r.path);
+      S.covers[r.name]=coverSrc(r.path,r.version||Date.now());
       fetched++;
       if(fetched===withPath.length){activityFinish(coverActivity,'success','Fetched '+withPath.length+' cover'+(withPath.length===1?'':'s'));render();}
       else _scheduleCoverRender();
@@ -177,7 +177,7 @@ async function loadLib(skipAutoSync,forceScan){
     S.pendingNewSeries=(S.pendingNewSeries||[]).filter(function(item){return !linkedNames[item.series];});
     // Covers stream from disk via the cover:// protocol: no per-cover IPC and
     // no base64 copies retained in the JS heap.
-    S.lib.forEach(function(s){var cp=s.coverLocal||s.coverCached;if(cp)S.covers[s.name]='cover://'+encodeURIComponent(cp);});
+    S.lib.forEach(function(s){var cp=s.coverLocal||s.coverCached;if(cp)S.covers[s.name]=coverSrc(cp,s.coverVersion);});
     var scannedNames=S.lib.filter(function(s){return !s.name.startsWith('__unsorted')}).map(function(s){return s.name;});
     if(S.mal){
       var addedPrompt=false;
@@ -243,11 +243,38 @@ function scheduleStartupLibraryMaintenance(){
       queuePendingMalMatches(false);
       fetchMissingLibraryCovers();
       scheduleMalBackfill(500);
+      pullMalStatuses();
     };
     if(typeof requestIdleCallback==='function')requestIdleCallback(run,{timeout:4000});
     else setTimeout(run,0);
   },6000);
 }
+// ------------------------------------------------- MAL → local status pull --
+// Changes made on MyAnimeList itself (website, phone, another PC) flow back:
+// after startup, every 10 minutes, and when the window regains focus.
+var _malPullAt=0,_malPullTimer=null;
+async function pullMalStatuses(opts){
+  opts=opts||{};
+  if(!S.mal||S.cfg.syncPaused||!api.malPullListStatuses)return;
+  if(!opts.force&&Date.now()-_malPullAt<3*60*1000)return;
+  _malPullAt=Date.now();
+  var r;try{r=await api.malPullListStatuses();}catch(e){console.warn('[MAL pull]',e);return;}
+  if(!r||r.error||!r.updated||!r.updated.length)return;
+  r.updated.forEach(function(u){
+    var s=S.lib.find(function(x){return x.name===u.name;});if(!s)return;
+    if(!s.watchData)s.watchData={};
+    var md=Object.assign({},s.watchData.malData||{});
+    if(u.listStatus)md.my_list_status=u.listStatus;else delete md.my_list_status;
+    s.watchData.malData=md;
+  });
+  S.myListData=null;S._statsCounts=null;
+  if(notifEnabled('malSync'))toast(r.updated.length===1?'“'+r.updated[0].name+'” is now '+(r.updated[0].to?statusLabel(r.updated[0].to).toLowerCase():'off your list')+' (from MyAnimeList)':'Updated '+r.updated.length+' series from MyAnimeList','i');
+  if(S.cur&&r.updated.some(function(u){return u.name===S.cur.name;}))odtl(S.cur.name);
+  render();
+}
+clearInterval(_malPullTimer);_malPullTimer=setInterval(function(){pullMalStatuses({force:true});},10*60*1000);
+window.addEventListener('focus',function(){pullMalStatuses();});
+
 async function runMalBackfill(){
   if(!S.mal||!S.lib||!S.lib.length)return;
   var candidates=S.lib.filter(function(s){
@@ -625,11 +652,9 @@ async function autoDownloadLatest(title,isAiring,nextEp){
 async function autoDownloadFull(title,isAiring){
   if(!title){toast('No series title found','e');return;}
   var quality=S.cfg.nyaaQuality||'1080p';
-  var uploader=isAiring?(S.cfg.nyaaUploader||'erai'):null;
   toast('Searching Nyaa for "'+title+'"...','i');
-  var r=await api.nyaaAutoDownload(title,quality,uploader,null,'full');
-  if(r.error){toast('Download failed: '+r.error,'e');return;}
-  toast('Opened: '+r.chosen.title+' ('+r.chosen.seeders+' seeds)','s');
+  var r=await api.nyaaAutoDownload(title,quality,null,null,'full',{interactive:true});
+  handleReleaseResult(r);
 }
 async function autoDownloadSeries(title,isAiring){
   await autoDownloadFull(title,!!isAiring);
@@ -637,12 +662,36 @@ async function autoDownloadSeries(title,isAiring){
 async function autoDownloadEpisode(title,epNum){
   if(!title){toast('No series title found','e');return;}
   var quality=S.cfg.nyaaQuality||'1080p';
-  var uploader=S.cfg.nyaaUploader||'erai';
   toast('Searching Nyaa for Ep '+epNum+'...','i');
-  var r=await api.nyaaAutoDownload(title,quality,uploader,epNum,'ep');
-  if(r.error){toast('Download failed: '+r.error,'e');return;}
+  var r=await api.nyaaAutoDownload(title,quality,null,epNum,'ep',{interactive:true});
+  handleReleaseResult(r);
+}
+// Result of a manual download: either already handed off, or (with "Let me
+// pick the release" on) a ranked list to choose from.
+function handleReleaseResult(r){
+  if(!r){toast('Download failed','e');return;}
+  if(r.needsChoice){showReleasePicker(r);return;}
+  if(r.error||!r.success){toast('Download failed: '+(r.error||'unknown error'),'e');return;}
   toast('Opened: '+r.chosen.title+' ('+r.chosen.seeders+' seeds)','s');
 }
+function showReleasePicker(r){
+  var rows=r.candidates.map(function(c,i){
+    var age=c.published?timeAgo(c.published):'';
+    return '<button class="release-row'+(i===0?' best':'')+'"'+A('pickRelease',r.token,i)+'>'
+      +'<span class="release-main"><span class="row-title clamp-2">'+E(c.title)+'</span>'
+      +'<span class="release-tags">'+(c.group?'<span class="tag'+(c.preferred?' accent':'')+'">'+E(c.group)+'</span>':'')+(c.resolution?'<span class="tag">'+E(c.resolution)+'</span>':'')+(c.codec?'<span class="tag'+(c.codec==='HEVC'?' blue':'')+'">'+E(c.codec)+'</span>':'')+(c.size?'<span class="tag">'+E(c.size)+'</span>':'')+(age?'<span class="muted">'+E(age)+'</span>':'')+'</span></span>'
+      +'<span class="release-seeds"><b class="num">'+c.seeders.toLocaleString()+'</b><span>seeders</span></span>'+(i===0?'<span class="release-best">'+ic('sparkles')+'Best match</span>':'')+'</button>';
+  }).join('');
+  openModal({id:'releasePicker',title:'Choose a release',sub:E(r.seriesTitle)+(r.epNum!=null?' · '+epLabel()+' '+E(r.epNum):' · full series'),icon:'magnet',width:680,
+    body:'<div class="release-list">'+rows+'</div>',foot:'<span class="muted left">Erai-raws first, then most seeded</span><button class="btn btn-ghost" data-modal-close>Cancel</button>'});
+}
+act('pickRelease',async function(el,ev,token,i){
+  var m=document.getElementById('releasePicker');if(m&&m._modal)m._modal.close();
+  toast('Opening release…','i');
+  var r=await api.nyaaDownloadChoice(token,i);
+  if(r&&r.success)toast('Opened: '+r.title+' ('+(r.seeders||0)+' seeds)','s');
+  else toast('Download failed: '+((r&&r.error)||'unknown error'),'e');
+});
 async function downloadLatestEpisode(seriesName,malId){
   if(!seriesName){toast('No series name provided','e');return;}
   toast('Searching Nyaa for latest episode of '+seriesName+'...','i');
@@ -702,7 +751,7 @@ async function deleteSeries(name,seriesPath){
 async function fetchAll(){var m=S.lib.filter(function(s){return !s.name.startsWith('__unsorted')&&!S.covers[s.name]});
   if(!m.length){if(notifEnabled('rescan'))toast('All covers fetched!','s');return;}if(notifEnabled('rescan'))toast('Fetching '+m.length+' covers...','i');
   var activityId=activityStart('covers','Fetch missing covers',m.length+' titles');
-  var r=await api.anilistFetchAllCovers(m);var n=0;
+  var r=await api.anilistFetchAllCovers(m.map(function(s){return {name:s.name,malId:s.watchData&&s.watchData.malId||null};}));var n=0;
   for(var i=0;i<r.length;i++){if(r[i].path){var ok=await setCoverFromPath(r[i].name,r[i].path,true);if(ok)n++;}activityUpdate(activityId,(i+1)+' / '+r.length+' processed');}
   activityFinish(activityId,'success',n+' covers fetched');toast(n+' covers fetched','s');render();}
 async function fetch1(name){toast('Searching...','i');var r=await api.anilistSearch(aliasFor(name,'anilist'),1);

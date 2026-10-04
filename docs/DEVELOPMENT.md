@@ -13,7 +13,7 @@ User-facing release history lives in [CHANGELOG.md](CHANGELOG.md).
 | `main.js` | Electron main process: IPC handlers, library scanning, watch history, MAL API client, Nyaa search/download handoff, file watcher, duplicates, cover:// protocol, config persistence |
 | `preload.js` | `contextBridge` API surface (`window.api`) — every renderer capability is an explicit channel here |
 | `autoDownload.js` | Electron-free module: Nyaa RSS/HTML search, release scoring, title matching, tracking-ledger reconciliation. Required directly by tests |
-| `openrouter.js` | Electron-free module: streaming OpenRouter chat client (SSE from main process; the renderer never sees the key or the network). Required directly by tests |
+| `gemini.js` | Electron-free module: streaming Google Gemini client for Luma, using the user's own free AI Studio key (SSE from main process; the renderer never sees the key or the network). Required directly by tests |
 | `index.html` | App shell only: titlebar, sidebar, overlay hosts, strict CSP, and the ordered `<script src>` list. No inline code |
 | `theme-boot.js` | Applies the cached theme before first paint (no flash of the wrong theme) |
 | `styles/` | `tokens.css` (colors, glass, shadows, radii, motion) → `base.css` (shell, sidebar, titlebar) → `components.css` (buttons, cards, menus, modals…) → `views.css` (per-page layouts) |
@@ -22,7 +22,7 @@ User-facing release history lives in [CHANGELOG.md](CHANGELOG.md).
 | `renderer/data.js` | Library/MAL/download data layer and sync queues |
 | `renderer/app.js` | Navigation, sidebar, routing, shortcuts, command palette |
 | `renderer/<view>.js` | One file per area: `library`, `detail`, `explore`, `schedule`, `stats`, `hub`, `filemgmt`, `mal`, `settings`, `appearance`, `luma`, `setup`; `bootstrap.js` runs last |
-| `tests/` | Eight Node suites, no Electron or network needed (`npm test`); `source-extract.js` is the shared function extractor |
+| `tests/` | Nine Node suites, no Electron or network needed (`npm test`); `source-extract.js` is the shared function extractor |
 
 Runtime split matters for testing: anything pure lives in `autoDownload.js` and is
 requireable; everything touching Electron/IPC/DOM is tested by *extracting real
@@ -58,6 +58,7 @@ Run everything with `npm test`; each file is standalone `node tests/<file>`.
 | `state-integrity.test.js` | Source-text invariants | Vault-mode store routing, sandbox stays on, CSP present, secrets stripped from metadata export, dormant code stays removed |
 | `auto-download-state.test.js` | Requires `../autoDownload` | Handoff trust windows, cursor reconciliation/fallback, legacy baseline migration |
 | `security-and-parsers.test.js` | Generalized source-extraction + invariants | See next section |
+| `library-layout.test.js` | Real helpers from `main.js` in `vm` against a temp tree | Category inference, category containers, season-aware folder matching, scene-style names, sequel cover matching |
 | `filesystem-safety.test.js` | Real path helpers and File Management handlers from `main.js`, run in `vm` against a temp folder tree | Symlink/junction containment, forbidden roots, safe names, no-clobber moves, Ungroup scope, organizer result contract and undo, renderer config-write validation |
 
 ### How source extraction works
@@ -115,9 +116,9 @@ run these inside the packaged app after meaningful changes (~5 minutes):
 6. **Playback without a player** — with a bogus VLC path in Settings, playing an
    episode must show an info toast (OS default player) — never a main-process
    error dialog.
-7. **Assistant round-trip** — Assistant view: paste an `sk-or-` key, save, send a
-   message; tokens stream into the bubble, Stop aborts mid-stream, wrong key
-   surfaces the API error text. The key must never appear in DevTools network
+7. **Assistant round-trip** — Luma dock: paste a Google AI Studio key (`AIza…`),
+   save (a rejected key is refused immediately), send a message; tokens stream
+   into the bubble, Stop aborts mid-stream, API errors show their text. The key must never appear in DevTools network
    or config reads (it lives only in the main process).
 
 ---
@@ -154,8 +155,21 @@ recorded loss event (2026-08-22) had an off-screen cause that was never identifi
 - **Handoff counters are hints, not truth.** `lastDownloadedEp` is trusted only
   while the local folder corroborates it (or within a grace window); otherwise the
   cursor falls back to the folder so deleted episodes are re-offered.
-- **`mergeMalData` authority**: PATCH responses override local cached list status;
-  GET responses seed status only for series without usable local status.
+- **`mergeMalData` authority**: when both sides carry MAL's `updated_at`, the
+  newer list status wins (so changes made on MAL reach the app, and a stale GET
+  never undoes a fresh PATCH). Without timestamps the stored status stays
+  authoritative and GET only seeds series that have none. `mal:pullListStatuses`
+  applies the same rule to the whole MAL list (startup, every 10 min, on focus).
+- **Release choice (5.2)**: `autoDownload.rankReleases` — batch first (full-series
+  requests only), then Erai-raws, then a healthy HEVC release when "Prefer HEVC" is
+  on (3+ seeders, not oversized when that setting is on), then seeders, then the
+  newer upload. The per-group preference setting is gone. With "Let me pick the
+  release", manual downloads return ranked candidates; the choice comes back as
+  token + index only (`nyaa:downloadChoice`), never as a URL from the renderer.
+- **Library layout (5.2)**: a folder's category is its type, or — for "custom" —
+  inferred from its label/name. Subfolders named like a category (movies,
+  seasonal, series…) that contain folders are containers (`listSeriesDirs`).
+  Watcher matching is season-aware (`parseSeasonSuffix`) and ignores punctuation.
 - **Manga field mapping happens client-side.** Server-side translation maps status
   strings only; `num_chapters_read` vs `num_watched_episodes` must be chosen by
   the caller based on vault mode.

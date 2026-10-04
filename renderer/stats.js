@@ -1,4 +1,13 @@
-/* AnimeVault renderer — Stats dashboard (SVG charts, single accent hue for magnitude). */
+/* AnimeVault renderer — Stats dashboard.
+   Color by job: entities (formats, categories) keep a fixed palette slot so a
+   format is the same color whatever its rank; magnitude charts use one hue
+   each; MAL scores use a light→dark ramp of one hue. Palette: --viz-* tokens. */
+var FORMAT_COLORS={TV:'var(--viz-1)',MOVIE:'var(--viz-2)',ONA:'var(--viz-3)',OVA:'var(--viz-4)',SPECIAL:'var(--viz-5)',TV_SPECIAL:'var(--viz-5)',MUSIC:'var(--viz-7)',MANGA:'var(--viz-1)',ONE_SHOT:'var(--viz-2)',MANHWA:'var(--viz-3)',MANHUA:'var(--viz-4)',NOVEL:'var(--viz-7)',LIGHT_NOVEL:'var(--viz-7)'};
+var FORMAT_LABELS={TV:'TV',MOVIE:'Movie',ONA:'ONA',OVA:'OVA',SPECIAL:'Special',TV_SPECIAL:'TV special',MUSIC:'Music',MANGA:'Manga',ONE_SHOT:'One-shot',MANHWA:'Manhwa',MANHUA:'Manhua',NOVEL:'Novel',LIGHT_NOVEL:'Light novel',UNKNOWN:'Unknown'};
+var CATEGORY_COLORS={series:'var(--viz-1)',seasonal:'var(--viz-3)',movies:'var(--viz-2)',movie:'var(--viz-2)',ova:'var(--viz-4)',manga:'var(--viz-7)'};
+function vizColor(map,key){return map[String(key||'').toLowerCase()]||map[String(key||'').toUpperCase()]||'var(--viz-other)';}
+// Sequential: one hue, lighter for low scores, full strength for high ones.
+function scoreColor(score){var t=Math.max(0,Math.min(1,(score-1)/9));return 'color-mix(in srgb, var(--viz-1) '+Math.round(28+t*72)+'%, var(--surface-1))';}
 
 var _statsSeq=0;
 async function renderStats(){
@@ -45,11 +54,11 @@ function vStats(countInfo){
 
   var h='<div class="view stats">'+pageHead('Stats','A look at your '+VM('anime','manga')+' library'+(countInfo&&countInfo.source==='mal'?' and your MyAnimeList account':''),'<button class="btn btn-ghost btn-sm"'+A('statsRefresh')+'>'+ic('refresh')+'Refresh</button>');
   h+='<div class="kpis">'
-    +kpi('library','Series',all.length.toLocaleString(),Object.keys(byCat).length+' categories')
-    +kpi(VM('film','book'),epLabelFull()+' on disk',totalEps.toLocaleString(),fmtBytes(diskBytes))
-    +kpi('checkCircle',watchedLabel().charAt(0).toUpperCase()+watchedLabel().slice(1),watchedEps.toLocaleString(),pct+'% of files','<div class="progress" style="--p:'+pct+'%"><i></i></div>')
-    +kpi('link','Linked to MAL',linked+'<small> / '+all.length+'</small>',Math.round(linked/all.length*100)+'% of library','<div class="progress" style="--p:'+Math.round(linked/all.length*100)+'%"><i></i></div>')
-    +kpi('star','Average MAL score',meanN?(meanSum/meanN).toFixed(2):'—',meanN?'across '+meanN+' rated series':'link series to see scores')
+    +kpi('library','Series',all.length.toLocaleString(),Object.keys(byCat).length+' categories','','var(--viz-1)')
+    +kpi(VM('film','book'),epLabelFull()+' on disk',totalEps.toLocaleString(),fmtBytes(diskBytes),'','var(--viz-3)')
+    +kpi('checkCircle',watchedLabel().charAt(0).toUpperCase()+watchedLabel().slice(1),watchedEps.toLocaleString(),pct+'% of files','<div class="progress" style="--p:'+pct+'%"><i></i></div>','var(--viz-6)')
+    +kpi('link','Linked to MAL',linked+'<small> / '+all.length+'</small>',Math.round(linked/all.length*100)+'% of library','<div class="progress" style="--p:'+Math.round(linked/all.length*100)+'%"><i></i></div>','var(--viz-7)')
+    +kpi('star','Average MAL score',meanN?(meanSum/meanN).toFixed(2):'—',meanN?'across '+meanN+' rated series':'link series to see scores','','var(--star)')
     +'</div>';
 
   h+='<div class="chart-grid">';
@@ -57,30 +66,30 @@ function vStats(countInfo){
   var stMeta=[['watching',watchingLabel(),'var(--st-watching)'],['completed','Completed','var(--st-completed)'],['plan_to_watch',planLabel(),'var(--st-plan)'],['on_hold','On hold','var(--st-hold)'],['dropped','Dropped','var(--st-dropped)']];
   h+=chartCard('Your list by status',countInfo&&countInfo.source==='mal'?'From your MyAnimeList account':'From linked library series',donut(stMeta.map(function(m){return {label:m[1],value:statusCounts[m[0]]||0,color:m[2]};})),'span-4');
   // Score distribution
-  var scoreRows=[];for(var i=1;i<=10;i++)scoreRows.push({label:String(i),value:scoreDist[i]||0,tip:'MAL score '+i+'.00–'+i+'.99'});
+  var scoreRows=[];for(var i=1;i<=10;i++)scoreRows.push({label:String(i),value:scoreDist[i]||0,tip:'MAL score '+i+'.00–'+i+'.99',color:scoreColor(i)});
   h+=chartCard('MAL score distribution','Series in your library by community score',columns(scoreRows,{unit:'series'}),'span-4');
   // Formats
-  var fmt=Object.keys(byFormat).sort(function(a,b){return byFormat[b]-byFormat[a];}).map(function(k){return {label:k,value:byFormat[k]};});
+  var fmt=Object.keys(byFormat).sort(function(a,b){return byFormat[b]-byFormat[a];}).map(function(k){return {label:FORMAT_LABELS[k]||k,value:byFormat[k],color:vizColor(FORMAT_COLORS,k),swatch:true};});
   h+=chartCard('Formats','',fmt.length?hbars(fmt,{unit:'series'}):chartEmpty('Link series to MyAnimeList to see formats'),'span-4');
   // Heatmap
   h+=chartCard(VM('Watch activity','Reading activity'),'Days you last '+watchedLabel()+' something, past 26 weeks',heatmap(dayCounts),'span-8');
   // Genres
   var gen=Object.keys(genreCounts).sort(function(a,b){return genreCounts[b]-genreCounts[a];}).slice(0,10).map(function(k){return {label:k,value:genreCounts[k]};});
-  h+=chartCard('Top genres','',gen.length?hbars(gen,{unit:'series'}):chartEmpty('Link series to MyAnimeList to see genres'),'span-4 row-2');
+  h+=chartCard('Top genres','',gen.length?hbars(gen,{unit:'series',color:'var(--viz-7)'}):chartEmpty('Link series to MyAnimeList to see genres'),'span-4 row-2');
   // Monthly
   var months=[];var d=new Date();d.setDate(1);
   for(var m=11;m>=0;m--){var dd=new Date(d.getFullYear(),d.getMonth()-m,1);var key=dd.getFullYear()+'-'+String(dd.getMonth()+1).padStart(2,'0');months.push({label:dd.toLocaleDateString(undefined,{month:'short'}),value:monthly[key]||0,tip:dd.toLocaleDateString(undefined,{month:'long',year:'numeric'})});}
-  h+=chartCard('Series last '+watchedLabel()+', by month','Past 12 months',columns(months,{unit:'series'}),'span-4');
+  h+=chartCard('Series last '+watchedLabel()+', by month','Past 12 months',columns(months,{unit:'series',color:'var(--viz-1)'}),'span-4');
   // Years
   var years=Object.keys(yearCounts).sort().slice(-12).map(function(y){return {label:"'"+y.slice(2),value:yearCounts[y],tip:'Premiered in '+y};});
-  h+=chartCard('Premiere year','Most recent 12 years',years.length?columns(years,{unit:'series'}):chartEmpty('Link series to MyAnimeList to see years'),'span-4');
+  h+=chartCard('Premiere year','Most recent 12 years',years.length?columns(years,{unit:'series',color:'var(--viz-3)'}):chartEmpty('Link series to MyAnimeList to see years'),'span-4');
   // Categories
-  var cats=Object.keys(byCat).sort(function(a,b){return byCat[b]-byCat[a];}).map(function(k){return {label:k,value:byCat[k]};});
+  var cats=Object.keys(byCat).sort(function(a,b){return byCat[b]-byCat[a];}).map(function(k){return {label:k,value:byCat[k],color:vizColor(CATEGORY_COLORS,k),swatch:true};});
   h+=chartCard('Library categories','',hbars(cats,{unit:'series',cap:true}),'span-4');
   h+='</div></div>';
   return h;
 }
-function kpi(icon,label,value,sub,extra){return '<div class="kpi"><div class="kpi-label">'+ic(icon)+E(label)+'</div><div class="kpi-value">'+value+'</div>'+(sub?'<div class="kpi-sub">'+E(sub)+'</div>':'')+(extra||'')+'</div>';}
+function kpi(icon,label,value,sub,extra,color){return '<div class="kpi"'+(color?' style="--kc:'+color+'"':'')+'><div class="kpi-label">'+ic(icon)+E(label)+'</div><div class="kpi-value">'+value+'</div>'+(sub?'<div class="kpi-sub">'+E(sub)+'</div>':'')+(extra||'')+'</div>';}
 function chartCard(title,sub,body,cls){return '<div class="chart-card panel '+(cls||'')+'"><div class="chart-head"><div class="chart-title">'+E(title)+'</div>'+(sub?'<div class="chart-sub">'+E(sub)+'</div>':'')+'</div><div class="chart-body">'+body+'</div></div>';}
 function chartEmpty(t){return '<div class="chart-empty">'+ic('info')+E(t)+'</div>';}
 
@@ -105,20 +114,20 @@ function columns(rows,o){
   var h='<div class="cols">';
   rows.forEach(function(r,i){
     var pct=r.value/max*100;
-    h+='<div class="col-item"'+Tip((r.tip||r.label)+': '+r.value.toLocaleString()+(o.unit?' '+o.unit:''))+'><div class="col-track">'+(i===peak&&r.value?'<span class="col-val">'+r.value+'</span>':'')+'<div class="col-bar" style="height:'+Math.max(r.value?3:0,pct).toFixed(1)+'%"></div></div><div class="col-label">'+E(r.label)+'</div></div>';
+    h+='<div class="col-item"'+Tip((r.tip||r.label)+': '+r.value.toLocaleString()+(o.unit?' '+o.unit:''))+'><div class="col-track">'+(i===peak&&r.value?'<span class="col-val">'+r.value+'</span>':'')+'<div class="col-bar" style="height:'+Math.max(r.value?3:0,pct).toFixed(1)+'%'+((r.color||o.color)?';--bar:'+(r.color||o.color):'')+'"></div></div><div class="col-label">'+E(r.label)+'</div></div>';
   });
   return h+'</div>';
 }
 function hbars(rows,o){
   o=o||{};var max=Math.max.apply(null,rows.map(function(r){return r.value;}).concat([1]));
-  return '<div class="hbars">'+rows.map(function(r){return '<div class="hbar"'+Tip(r.label+': '+r.value+(o.unit?' '+o.unit:''))+'><span class="hbar-label ellipsis'+(o.cap?' cap':'')+'">'+E(r.label)+'</span><span class="hbar-track"><i style="width:'+(r.value/max*100).toFixed(1)+'%"></i></span><span class="hbar-val num">'+r.value+'</span></div>';}).join('')+'</div>';
+  return '<div class="hbars">'+rows.map(function(r){var col=r.color||o.color;return '<div class="hbar"'+Tip(r.label+': '+r.value+(o.unit?' '+o.unit:''))+'><span class="hbar-label'+(o.cap?' cap':'')+'">'+(r.swatch?'<span class="legend-sw" style="background:'+col+'"></span>':'')+'<span class="ellipsis">'+E(r.label)+'</span></span><span class="hbar-track"><i style="width:'+(r.value/max*100).toFixed(1)+'%'+(col?';--bar:'+col:'')+'"></i></span><span class="hbar-val num">'+r.value+'</span></div>';}).join('')+'</div>';
 }
 function heatmap(dayCounts){
   var weeks=26;var today=new Date();today.setHours(0,0,0,0);
   var start=new Date(today);start.setDate(start.getDate()-(weeks*7-1)-((start.getDay()+6)%7));
   var max=1;Object.keys(dayCounts).forEach(function(k){if(dayCounts[k]>max)max=dayCounts[k];});
   var h='<div class="heat"><div class="heat-days"><span>Mon</span><span></span><span>Wed</span><span></span><span>Fri</span><span></span><span>Sun</span></div><div class="heat-grid">';
-  var d=new Date(start);var lastMonth=-1;var monthsRow='';
+  var d=new Date(start);var lastMonth=-1;var lastLabelCol=-9;var monthsRow='';
   for(var w=0;w<=weeks;w++){
     var col='<div class="heat-col">';
     var mlabel='';
@@ -128,7 +137,8 @@ function heatmap(dayCounts){
         var key=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
         var c=dayCounts[key]||0;var lvl=c?Math.min(4,Math.ceil(c/max*4)):0;
         col+='<span class="heat-cell l'+lvl+'"'+Tip(d.toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'})+' — '+(c?plural(c,'series','series'):'no activity'))+'></span>';
-        if(i===0&&d.getMonth()!==lastMonth){mlabel=d.toLocaleDateString(undefined,{month:'short'});lastMonth=d.getMonth();}
+        // label a month at its first column, unless the previous label is too close to fit
+        if(i===0&&d.getMonth()!==lastMonth){if(w-lastLabelCol>=3){mlabel=d.toLocaleDateString(undefined,{month:'short'});lastLabelCol=w;}lastMonth=d.getMonth();}
       }
       d.setDate(d.getDate()+1);
     }

@@ -3,6 +3,48 @@
 All notable changes, newest first. Engineering context — test guide, security
 posture, design decisions, open roadmap — lives in [DEVELOPMENT.md](DEVELOPMENT.md).
 
+## 5.2.0 — Smarter library, Luma on Gemini
+
+### Library & downloads
+- **New downloads are recognized**: scene-style names like
+  `Even.the.Student.Council.Has.Its.Holes.S01E01.1080p…mkv` were never matched
+  (the S01E01 pattern only worked at the very start of a name). The watcher now
+  picks them up, and never files a season 2 episode into the season 1 folder.
+- **Categories**: folders left as "Custom" are categorized by their name
+  (Movies, Seasonal, Series…), and `movies` / `seasonal` / `series` folders inside
+  a library folder are treated as category containers. A folder's category can
+  be changed in place in Settings → Library.
+- **Covers for sequels**: linked series look their cover up by MAL ID; others try
+  AniList's spellings ("2nd Season", "Season 2", "II") and only accept the
+  matching season, falling back to MAL's poster. A cover you pick shows at once —
+  no restart needed.
+- **MyAnimeList changes come back**: status changes made on MAL itself (dropped,
+  completed, removed) now update the app — after startup, every 10 minutes and
+  when the window regains focus. Newer always wins, so in-app edits are safe.
+- **Release choice**: Erai-raws is the go-to group; when it has no matching
+  release, the most-seeded release from any group wins (with your HEVC
+  preference applied to healthy releases). Batches still come first for
+  full-series downloads. The release-group setting is gone; a new "Let me pick
+  the release" switch shows the top matches (group, seeders, size, codec, age)
+  when you download from the app. "Search on Nyaa" links sort by seeders.
+
+### Luma
+- Luma now runs on Google Gemini with your own free Google AI Studio key
+  (Settings → Luma, the Luma dock, or the new "Meet Luma" step of the setup
+  wizard, each with a link to get the key). The key is checked with Google when
+  you save it and stored encrypted with your Windows account. The OpenRouter
+  integration and any stored OpenRouter key are removed.
+
+### Look & feel
+- The docked Collection toolbar spans the full width and fades out softly
+  instead of ending in a hard-edged bar.
+- The Explore "Top rated" card is readable in light themes.
+- The sidebar highlight no longer dips the wrong way or overshoots on long
+  moves (its stretch was multiplying the travel distance); springs are calmer
+  across the app.
+- Stats has color: fixed colors per format and category, a color per chart,
+  colored KPI icons, and month labels that no longer collide.
+
 ## 5.1.0 — Refined glass, hardened core
 
 ### Design

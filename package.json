@@ -1,6 +1,6 @@
 {
   "name": "animevault",
-  "version": "5.1.0",
+  "version": "5.2.0",
   "description": "Personal anime/manga library manager with MAL sync, Nyaa integration, and enhanced HEVC-aware auto-download",
   "main": "main.js",
   "author": "Kike",
@@ -8,7 +8,7 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "test": "node tests/contracts.test.js && node tests/search-matching.test.js && node tests/mal-data.test.js && node tests/mal-backfill.test.js && node tests/state-integrity.test.js && node tests/auto-download-state.test.js && node tests/security-and-parsers.test.js && node tests/filesystem-safety.test.js",
+    "test": "node tests/contracts.test.js && node tests/search-matching.test.js && node tests/mal-data.test.js && node tests/mal-backfill.test.js && node tests/state-integrity.test.js && node tests/auto-download-state.test.js && node tests/security-and-parsers.test.js && node tests/filesystem-safety.test.js && node tests/library-layout.test.js",
     "build-x64": "electron-builder --win --x64",
     "build-arm64": "electron-builder --win --arm64",
     "build": "electron-builder --win",
@@ -38,7 +38,7 @@
       "main.js",
       "preload.js",
       "autoDownload.js",
-      "openrouter.js",
+      "gemini.js",
       "index.html",
       "theme-boot.js",
       "renderer/**/*",
