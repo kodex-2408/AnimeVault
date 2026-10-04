@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
-const main = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8');
+const main = require('./main-source').readMainSource();
 const start = main.indexOf('function mergeMalData');
 const end = main.indexOf('\n}\n\nfunction getModeConfigMap', start);
 assert(start >= 0 && end > start, 'mergeMalData helper must remain defined near the config helpers');

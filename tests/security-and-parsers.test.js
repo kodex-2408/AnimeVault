@@ -14,7 +14,7 @@ const path = require('path');
 const vm = require('vm');
 
 const root = path.join(__dirname, '..');
-const mainSrc = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
+const mainSrc = require('./main-source').readMainSource();
 const htmlSrc = require('./renderer-source').combined;
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 
@@ -184,6 +184,18 @@ function mustExtract(fnCode, label) {
   assert(pkg.build.files.includes('luma/**/*'), 'build.files must keep shipping luma assets'); checks++;
   assert(fs.existsSync(path.join(root, 'luma')), 'luma/ is referenced by build.files — do not delete it'); checks++;
   assert.strictEqual(pkg.main, 'main.js'); checks++;
+  // The main process is split across main/: every local require must resolve
+  // to a file the packaged app ships, or the exe exits before any window.
+  assert(pkg.build.files.includes('main/**/*'), 'build.files must ship the main/ modules'); checks++;
+  const { mainFiles } = require('./main-source');
+  for (const f of mainFiles()) {
+    const text = fs.readFileSync(path.join(root, f), 'utf8');
+    for (const m of text.matchAll(/require\('(\.{1,2}\/[^']+)'\)/g)) {
+      const target = path.relative(root, path.resolve(root, path.dirname(f), m[1])).split(path.sep).join('/') + '.js';
+      assert(fs.existsSync(path.join(root, target)), f + ' requires a missing module: ' + m[1]); checks++;
+      assert(target.startsWith('main/') || pkg.build.files.includes(target), target + ' (required by ' + f + ') is not in build.files'); checks++;
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

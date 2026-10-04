@@ -3,6 +3,7 @@ var _persistInboxTimer=null,_activitySaveTimer=null,_pendingMalQueueRunning=fals
 
 
 function persistImportInbox(){
+  Store.notify('pendingNewSeries');
   clearTimeout(_persistInboxTimer);
   _persistInboxTimer=setTimeout(function(){
     var key=importInboxKey();var rows=(S.pendingNewSeries||[]).map(pendingForStorage);
@@ -14,6 +15,7 @@ function restoreImportInbox(){
   S.pendingNewSeries=Array.isArray(rows)?rows.filter(function(x){return x&&x.series;}).map(function(x){x.files=Array.isArray(x.files)?x.files:[];x.malLoading=false;x.malError='';return x;}):[];
 }
 function persistActivities(){
+  Store.notify('activities');
   clearTimeout(_activitySaveTimer);
   _activitySaveTimer=setTimeout(function(){S.cfg.activityLog=(S.activities||[]).slice(0,100);api.setConfig('activityLog',S.cfg.activityLog);},120);
 }
@@ -565,10 +567,10 @@ async function startMal(){var cid=document.getElementById('malCid');var csec=doc
     if(!code){toast('Authorization cancelled or timed out','e');return;}
     var r=await api.malExchangeToken(code);
     if(!r||!r.success){toast('MAL token exchange failed: '+((r&&r.error)||'unknown error'),'e');return;}
-    S.mal=true;S.cfg=await api.getConfig();uMal();toast('Connected!','s');queuePendingMalMatches();await loadLib(true);render();scheduleMalBackfill(800);
+    S.mal=true;S.cfg=await api.getConfig();toast('Connected!','s');queuePendingMalMatches();await loadLib(true);render();scheduleMalBackfill(800);
   }catch(e){toast('Connect error: '+(e.message||e),'e');}
 }
-async function disconnMal(){await api.setAllConfig(Object.assign({},S.cfg,{malAccessToken:'',malRefreshToken:'',malTokenExpiry:0}));S.mal=false;S.cfg=await api.getConfig();uMal();toast('Disconnected','i');render();}
+async function disconnMal(){await api.setAllConfig(Object.assign({},S.cfg,{malAccessToken:'',malRefreshToken:'',malTokenExpiry:0}));S.mal=false;S.cfg=await api.getConfig();toast('Disconnected','i');render();}
 async function placeNewSeries(idx,destFolder,malId){
   if(!S.pendingNewSeries||!S.pendingNewSeries[idx])return;
   var item=S.pendingNewSeries[idx];

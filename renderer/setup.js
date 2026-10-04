@@ -79,7 +79,7 @@ async function setupConnectMal(){
     toast('Finish signing in in your browser…','i');
     var code=await serverP;if(!code){toast('Authorization timed out','e');return;}
     var r=await api.malExchangeToken(code);if(!r||!r.success){toast('Token exchange failed: '+((r&&r.error)||'unknown'),'e');return;}
-    S.mal=true;S.cfg=await api.getConfig();uMal();toast('Connected to MyAnimeList','s');scheduleMalBackfill(800);renderSetupStep();
+    S.mal=true;S.cfg=await api.getConfig();toast('Connected to MyAnimeList','s');scheduleMalBackfill(800);renderSetupStep();
   }catch(e){toast('Connect failed: '+(e.message||e),'e');}
 }
 act('setupAccent',function(el,ev,c){setThemeAccent(c);renderSetupStep();});

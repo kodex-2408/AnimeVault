@@ -40,7 +40,7 @@ if "%arch%"=="2" (set ARCH_LABEL=arm64)
 if "%arch%"=="3" (set ARCH_LABEL=x64 + arm64)
 if not defined ARCH_LABEL set ARCH_LABEL=x64
 
-echo  [ >> ]   Building installer for: %ARCH_LABEL%
+echo  [ ^>^> ]   Building installer for: %ARCH_LABEL%
 echo.
 
 :: Install - always sync dependencies. An updated app folder keeps its old

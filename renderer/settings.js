@@ -272,6 +272,6 @@ async function resetAllPreferences(){
   await api.setAllConfig({setupDone:false,malAccessToken:'',malRefreshToken:'',malTokenExpiry:0,malCodeVerifier:'',malClientId:'',malClientSecret:'',folders:[],mangaFolders:[],watchHistory:{},mangaWatchHistory:{},animeImportInbox:[],mangaImportInbox:[],titleAliases:{anime:{},manga:{}},gapRules:{anime:{},manga:{}},activityLog:[],performanceMode:false,incrementalScan:true,watcherFolder:'',watcherDest:''});
   await api.clearLibraryScanCache();
   S.cfg=await api.getConfig();S.mal=false;S.lib=[];S.covers={};S.pendingNewSeries=[];S.activities=[];
-  uMal();applyTheme();applyPerformanceMode(false);
+  applyTheme();applyPerformanceMode(false);
   toast('Everything was reset','s');showSetupWizard();go('settings');
 }

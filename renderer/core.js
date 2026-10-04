@@ -7,7 +7,63 @@
  */
 'use strict';
 
-var S = {
+// ------------------------------------------------------------------ state --
+// One state object, S, shared by every renderer script. It is a minimal
+// reactive store: assigning a top-level key (S.mal = true, S.lib = rows)
+// publishes that key to its subscribers once, on the next microtask, however
+// many times it changed in between. Mutating inside a value (S.lib.push(x),
+// S.cfg.syncPaused = true) is invisible to the store - call Store.notify(key)
+// afterwards. Subscribers are for side UI that must follow the state (chips,
+// badges); views still render on navigation.
+//   var off = Store.subscribe(['mal', 'cfg'], function (changedKeys) { ... });
+//   Store.set({ q: '', filter: 'all' });
+var Store = (function(){
+  var subs = [];           // {keys: {key:true} | null (= any key), fn}
+  var pending = null;      // keys changed since the last flush
+  function flush(){
+    var changed = pending; pending = null;
+    var keys = Object.keys(changed);
+    subs.slice().forEach(function(sub){
+      var mine = sub.keys ? keys.filter(function(k){ return sub.keys[k]; }) : keys;
+      if(!mine.length) return;
+      try { sub.fn(mine); } catch (e) { console.error('[Store] subscriber failed:', e); }
+    });
+  }
+  function notify(key){
+    if(!pending){ pending = Object.create(null); queueMicrotask(flush); }
+    pending[key] = true;
+  }
+  function create(initial){
+    return new Proxy(initial, {
+      set: function(target, key, value){
+        var prev = target[key];
+        target[key] = value;
+        if(typeof key === 'string' && !Object.is(prev, value)) notify(key);
+        return true;
+      },
+      deleteProperty: function(target, key){
+        if(key in target){ delete target[key]; if(typeof key === 'string') notify(key); }
+        return true;
+      }
+    });
+  }
+  return {
+    create: create,
+    notify: notify,
+    // Assign several keys at once (one notification per key, batched).
+    set: function(patch){ Object.keys(patch || {}).forEach(function(k){ S[k] = patch[k]; }); },
+    // keys: a key, an array of keys, or '*' for every change. Returns unsubscribe.
+    subscribe: function(keys, fn){
+      var map = null;
+      if(keys !== '*'){ map = Object.create(null); [].concat(keys).forEach(function(k){ map[k] = true; }); }
+      var sub = { keys: map, fn: fn };
+      subs.push(sub);
+      return function(){ var i = subs.indexOf(sub); if(i > -1) subs.splice(i, 1); };
+    }
+  };
+})();
+
+var S = Store.create({
   lib: [], view: 'library', q: '', filter: 'all', catFilter: 'all', cur: null, cfg: {}, mal: false, covers: {}, loading: false,
   exFilter: { genres: [], types: [], minScore: 0, status: '' }, vaultMode: 'anime', pendingNewSeries: [], activities: [],
   selectMode: false, selectedSeries: [], myListSelectMode: false, selectedMalIds: [], librarySort: 'name',
@@ -19,7 +75,8 @@ var S = {
   hubTab: 'inbox', fmTab: 'tools', setSection: 'library', heroIdx: 0,
   ai: { msgs: [], busy: false, webSearch: true, dockOpen: false, dockMinimized: false, dockExpanded: false },
   watcherLog: [], _autoDownloadWatchlist: []
-};
+
+});
 
 // ---------------------------------------------------------------- escaping --
 // E(): text nodes and double-quoted attribute values.
