@@ -22,7 +22,7 @@ process.on('uncaughtException', (err) => {
   try { dialog.showErrorBox('AnimeVault ran into a problem', String(err && err.message || err) + '\n\nDetails were saved to startup.log in %APPDATA%\\animevault.'); } catch (e) {}
 });
 const autoDownload = require('./autoDownload');
-const openrouter = require('./openrouter');
+const gemini = require('./gemini');
 const {
   runAutoDownloadPoller,
   startAutoDownloadPoller,
@@ -56,7 +56,9 @@ protocol.registerSchemesAsPrivileged([
 
 const CONFIG_PATH = path.join(app.getPath('userData'), 'config.json');
 const CONFIG_BACKUP_PATH = CONFIG_PATH + '.bak';
-const OPENROUTER_KEY_PATH = path.join(app.getPath('userData'), 'openrouter-key.enc');
+const GEMINI_KEY_PATH = path.join(app.getPath('userData'), 'gemini-key.enc');
+// 5.0 stored an OpenRouter key here; 5.1 removes it on first start.
+const LEGACY_OPENROUTER_KEY_PATH = path.join(app.getPath('userData'), 'openrouter-key.enc');
 const CACHE_DIR = path.join(app.getPath('userData'), 'cover-cache');
 const LIBRARY_INDEX_PATH = path.join(app.getPath('userData'), 'library-index.json');
 
@@ -111,8 +113,8 @@ let config = {
   animeImportInbox: [],
   mangaImportInbox: [],
   activityLog: [],
-  openrouterApiKey: '',
-  openrouterModel: 'google/gemini-3.5-flash-lite',
+  geminiApiKey: '',
+  geminiModel: 'gemini-flash-latest',
   autoDownloadBatchLimit: 0,
 };
 
@@ -154,14 +156,14 @@ const STATIC_CONFIG_KEYS = new Set([
   'watchHistory', 'mangaWatchHistory', 'theme', 'accentColor', 'fontFamily', 'themePreset', 'fullTheme',
   'themeAccents', 'customThemeColors',
   'autoMarkEnabled', 'autoMarkPercent', 'vaultMode', 'mangaUploaders', 'forceHevc', 'avoidOversizedHevc',
-  'nyaaUploader', 'nyaaQuality', 'autoDownloadWatchlist', 'autoDownloadCriteria', 'autoDownloadPollMinutes',
+  'nyaaUploader', 'nyaaQuality', 'releasePicker', 'autoDownloadWatchlist', 'autoDownloadCriteria', 'autoDownloadPollMinutes',
   'autoDownloadEnabled', 'autoDownloadNotify', 'autoDownloadBatchLimit', 'minimizeToTray', 'desktopNotifications', 'watchAndDelete',
   'watcherFolder', 'watcherDest', 'watcherIgnorePatterns', 'searchPresets', 'performanceMode', 'incrementalScan',
   'titleAliases', 'gapRules', 'animeImportInbox', 'mangaImportInbox', 'activityLog', 'downloadHistory',
   'animeKnownSeries', 'mangaKnownSeries', 'animeImportReviewDismissed', 'mangaImportReviewDismissed',
   'notificationPrefs', 'syncPaused', 'hideDonghua', 'audioDelay', 'animSpeed', 'backgroundEffects',
   'backgroundType', 'backgroundIntensity', 'maximized', 'setupDone', 'importAutoMatch', 'lumaMascot', 'lumaSparkles', 'lumaSize', 'lumaSpeed',
-  'untrackOnDelete', 'mutedDupSeries', 'openrouterApiKey', 'openrouterModel', 'hasOpenrouterApiKey',
+  'untrackOnDelete', 'mutedDupSeries', 'geminiApiKey', 'geminiModel', 'hasGeminiApiKey',
   // 5.0 UI preferences
   'glassLevel', 'lastDarkTheme', 'lastLightTheme', 'sidebarCollapsed', 'schedView', 'heroTone'
 ]);
@@ -183,7 +185,16 @@ function mergeMalData(existingMalData, incomingMalData) {
     (previousListStatus.status || previousListStatus.score != null ||
      previousListStatus.num_episodes_watched != null || previousListStatus.num_watched_episodes != null ||
      previousListStatus.num_chapters_read != null);
-  if (hasUsablePrevious) {
+  // MAL timestamps every list entry. When both sides carry updated_at, the
+  // newer one wins — so a status changed on MAL itself (dropped, completed)
+  // reaches the app, while a fresh local PATCH is never undone by a stale GET.
+  // Without timestamps the stored status stays authoritative (pre-5.1 rule).
+  const incomingStatus = incoming.my_list_status;
+  const tsPrev = previousListStatus && Date.parse(previousListStatus.updated_at);
+  const tsIn = incomingStatus && typeof incomingStatus === 'object' && Date.parse(incomingStatus.updated_at);
+  if (hasUsablePrevious && tsPrev && tsIn && tsIn > tsPrev) {
+    merged.my_list_status = incomingStatus;
+  } else if (hasUsablePrevious) {
     merged.my_list_status = previousListStatus;
   } else if (!incoming.my_list_status || typeof incoming.my_list_status !== 'object') {
     delete merged.my_list_status;
@@ -336,31 +347,42 @@ function loadConfig() {
   }
 }
 
-function loadOpenrouterKey() {
-  const plaintextKey = typeof config.openrouterApiKey === 'string' ? config.openrouterApiKey.trim() : '';
+// Keys that live only in encrypted files / memory, never in config.json.
+const API_KEY_CONFIG_FIELDS = ['geminiApiKey', 'openrouterApiKey'];
+
+// Loads the user's Google AI Studio key (encrypted with the OS account) and
+// removes everything left from the 5.0 OpenRouter integration.
+function loadGeminiKey() {
+  const plaintextKey = typeof config.geminiApiKey === 'string' ? config.geminiApiKey.trim() : '';
+  const hadLegacy = 'openrouterApiKey' in config || 'openrouterModel' in config || fs.existsSync(LEGACY_OPENROUTER_KEY_PATH);
+  delete config.geminiApiKey;
   delete config.openrouterApiKey;
+  delete config.openrouterModel;
+  try { if (fs.existsSync(LEGACY_OPENROUTER_KEY_PATH)) fs.unlinkSync(LEGACY_OPENROUTER_KEY_PATH); } catch (e) { console.error('[AI] Could not remove the old OpenRouter key:', e.message); }
   try {
-    if (plaintextKey) saveOpenrouterKey(plaintextKey);
-    if (fs.existsSync(OPENROUTER_KEY_PATH)) {
+    if (plaintextKey) saveGeminiKey(plaintextKey);
+    if (fs.existsSync(GEMINI_KEY_PATH)) {
       if (!safeStorage.isEncryptionAvailable()) throw new Error('OS credential encryption is unavailable');
-      config.openrouterApiKey = safeStorage.decryptString(fs.readFileSync(OPENROUTER_KEY_PATH));
+      config.geminiApiKey = safeStorage.decryptString(fs.readFileSync(GEMINI_KEY_PATH));
     } else {
-      config.openrouterApiKey = '';
+      config.geminiApiKey = '';
     }
-    if (plaintextKey) scrubOpenrouterKeyFromConfigFiles();
   } catch (err) {
-    config.openrouterApiKey = '';
-    console.error('[OpenRouter] Could not load encrypted API key:', err.message);
+    config.geminiApiKey = '';
+    console.error('[AI] Could not load the encrypted Google AI Studio key:', err.message);
   }
+  if (plaintextKey || hadLegacy) { scrubApiKeysFromConfigFiles(); saveConfig(); }
 }
 
-function saveOpenrouterKey(key) {
+function saveGeminiKey(key) {
   if (!safeStorage.isEncryptionAvailable()) throw new Error('Secure OS key storage is unavailable');
-  fs.mkdirSync(path.dirname(OPENROUTER_KEY_PATH), { recursive: true });
-  fs.writeFileSync(OPENROUTER_KEY_PATH, safeStorage.encryptString(key), { mode: 0o600 });
+  fs.mkdirSync(path.dirname(GEMINI_KEY_PATH), { recursive: true });
+  fs.writeFileSync(GEMINI_KEY_PATH, safeStorage.encryptString(key), { mode: 0o600 });
 }
 
-function scrubOpenrouterKeyFromConfigFiles() {
+// Removes API keys (current and legacy) from config.json, its backups and the
+// daily snapshots.
+function scrubApiKeysFromConfigFiles() {
   const files = [CONFIG_PATH, CONFIG_BACKUP_PATH, CONFIG_BACKUP_PATH + '.old'];
   const backupDir = path.join(path.dirname(CONFIG_PATH), 'backups');
   if (fs.existsSync(backupDir)) {
@@ -372,11 +394,12 @@ function scrubOpenrouterKeyFromConfigFiles() {
     try {
       if (!fs.existsSync(file)) continue;
       const data = JSON.parse(fs.readFileSync(file, 'utf-8'));
-      if (!Object.prototype.hasOwnProperty.call(data, 'openrouterApiKey')) continue;
-      delete data.openrouterApiKey;
+      const keys = API_KEY_CONFIG_FIELDS.concat('openrouterModel').filter(k => Object.prototype.hasOwnProperty.call(data, k));
+      if (!keys.length) continue;
+      keys.forEach(k => delete data[k]);
       fs.writeFileSync(file, JSON.stringify(data, null, 2));
     } catch (err) {
-      console.error('[OpenRouter] Could not scrub API key from', file, err.message);
+      console.error('[AI] Could not scrub API keys from', file, err.message);
     }
   }
 }
@@ -428,7 +451,7 @@ function snapshotConfigDaily() {
 
 function writeConfigSafely() {
   const { _userDataPath, ...safeConfig } = config;
-  delete safeConfig.openrouterApiKey;
+  API_KEY_CONFIG_FIELDS.forEach(k => delete safeConfig[k]);
   const payload = JSON.stringify(safeConfig, null, 2);
   const tempPath = CONFIG_PATH + '.tmp';
   fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
@@ -655,12 +678,12 @@ ipcMain.handle('config:get', () => {
   // to keep" without ever receiving the secret itself. Whitelisted in
   // STATIC_CONFIG_KEYS so cfg round-trips through setAllConfig stay legal.
   safe.hasMalClientSecret = !!safe.malClientSecret;
-  safe.hasOpenrouterApiKey = !!safe.openrouterApiKey;
+  safe.hasGeminiApiKey = !!safe.geminiApiKey;
   // Credentials and internal flow state never cross to the renderer.
   // malAuthState must be stripped here specifically: setAllConfig hard-throws
   // on unknown keys, so a leaked key would break every cfg round-trip
   // (theme toggles, disconnect, reset).
-  ['malClientSecret', 'malCodeVerifier', 'malAccessToken', 'malRefreshToken', 'malAuthState', 'openrouterApiKey'].forEach(key => { delete safe[key]; });
+  ['malClientSecret', 'malCodeVerifier', 'malAccessToken', 'malRefreshToken', 'malAuthState', 'geminiApiKey', 'openrouterApiKey', 'openrouterModel'].forEach(key => { delete safe[key]; });
   return safe;
 });
 
@@ -669,7 +692,7 @@ function configValueUnchanged(key, value) {
 }
 
 ipcMain.handle('config:set', (_, key, value) => {
-  if (!isSafeConfigKey(key) || key === 'openrouterApiKey' || key === 'hasOpenrouterApiKey' || key === '_userDataPath' || key === '__proto__' || key === 'constructor' || key === 'prototype') {
+  if (!isSafeConfigKey(key) || key === 'geminiApiKey' || key === 'hasGeminiApiKey' || key === '_userDataPath' || key === '__proto__' || key === 'constructor' || key === 'prototype') {
     throw new Error('Invalid config key');
   }
   if (!configValueUnchanged(key, value)) validateRendererConfigValue(key, value);
@@ -687,8 +710,8 @@ ipcMain.handle('config:setAll', (_, c) => {
   }
   const incoming = { ...c };
   delete incoming._userDataPath;
-  delete incoming.openrouterApiKey;
-  delete incoming.hasOpenrouterApiKey;
+  delete incoming.geminiApiKey;
+  delete incoming.hasGeminiApiKey;
   delete incoming.__proto__;
   delete incoming.constructor;
   delete incoming.prototype;
@@ -815,6 +838,9 @@ function stripReleaseMetadata(name) {
 }
 
 function extractSeriesName(name, defaultSeason) {
+  // Scene-style names use dots/underscores instead of spaces
+  // ("Even.the.Student.Council.Has.Its.Holes."): turn them into words first.
+  if (!/\s/.test(String(name || '').trim())) name = String(name || '').replace(/[._]+/g, ' ');
   // Strip all release metadata
   let cleaned = stripReleaseMetadata(name);
   // Strip season info
@@ -851,8 +877,8 @@ function parseVideoFilename(filename, folderName) {
   const stripped = stripReleaseMetadata(base);
 
   // Pattern 1: S01E05 (in stripped or original)
-  let m = stripped.match(/(?:^[\s._-])S(\d{1,2})E(\d{1,3})(?:[\s._-]|$)/i) ||
-          base.match(/(?:^[\s._-])S(\d{1,2})E(\d{1,3})(?:[\s._-]|$)/i);
+  let m = stripped.match(/(?:^|[\s._-])S(\d{1,2})E(\d{1,3})(?:[\s._-]|$)/i) ||
+          base.match(/(?:^|[\s._-])S(\d{1,2})E(\d{1,3})(?:[\s._-]|$)/i);
   if (m) {
     const s = parseInt(m[1]), e = parseInt(m[2]);
     const seriesInfo = extractSeriesName(base.split(/S\d{1,2}E\d{1,3}/i)[0]);
@@ -930,8 +956,8 @@ function parseVideoFilename(filename, folderName) {
 function parseMangaFilename(filename, folderName) {
   const ext = path.extname(filename), base = path.parse(filename).name;
   const stripped = stripReleaseMetadata(base);
-  let m = stripped.match(/(?:^[\s._-])S(\d{1,2})E(\d{1,3})(?:[\s._-]|$)/i) ||
-          base.match(/(?:^[\s._-])S(\d{1,2})E(\d{1,3})(?:[\s._-]|$)/i);
+  let m = stripped.match(/(?:^|[\s._-])S(\d{1,2})E(\d{1,3})(?:[\s._-]|$)/i) ||
+          base.match(/(?:^|[\s._-])S(\d{1,2})E(\d{1,3})(?:[\s._-]|$)/i);
   if (m) {
     const s = parseInt(m[1]), e = parseInt(m[2]);
     const seriesInfo = extractSeriesName(base.split(/S\d{1,2}E\d{1,3}/i)[0]);
@@ -1114,14 +1140,61 @@ function isLikelyMangaHistory(watchData) {
     data.num_chapters != null || list.num_chapters_read != null || list.status === 'reading' || list.status === 'plan_to_read';
 }
 
+// ---- Library layout ----------------------------------------------------------
+// A library folder's category comes from its type; a folder left as "custom"
+// (or added before types existed) is named after its contents more often than
+// not, so its label or folder name decides ("Movies", "Seasonal", "Series").
+// Inside a library folder, a subfolder named like a category ("movies",
+// "seasonal", "series"…) that holds series folders is a container: its
+// subfolders are the series, filed under that category.
+const CATEGORY_DIR_NAMES = {
+  movies: 'movies', movie: 'movies', films: 'movies',
+  seasonal: 'seasonal', airing: 'seasonal', simulcast: 'seasonal',
+  series: 'series', shows: 'series', 'tv shows': 'series', 'tv series': 'series',
+  ova: 'ova', ovas: 'ova', specials: 'ova',
+};
+function categoryForName(name) {
+  return CATEGORY_DIR_NAMES[String(name || '').toLowerCase().replace(/[_.-]+/g, ' ').trim()] || null;
+}
+function inferFolderType(folder) {
+  if (!folder) return 'custom';
+  const t = String(folder.type || '').toLowerCase();
+  if (t && t !== 'custom') return t;
+  return categoryForName(folder.label) || categoryForName(path.basename(String(folder.path || ''))) || 'custom';
+}
+function hasSubdirectories(dirPath) {
+  try { return fs.readdirSync(dirPath, { withFileTypes: true }).some(d => d.isDirectory() && !d.name.startsWith('.')); }
+  catch (e) { return false; }
+}
+// Every series folder under a configured library folder, with its category.
+function listSeriesDirs(folder) {
+  const out = [];
+  if (!folder || !folder.path || !fs.existsSync(folder.path)) return out;
+  const folderCategory = inferFolderType(folder);
+  let dirs = [];
+  try { dirs = fs.readdirSync(folder.path, { withFileTypes: true }).filter(d => d.isDirectory() && !d.name.startsWith('.')); }
+  catch (e) { return out; }
+  for (const dir of dirs) {
+    const dirPath = path.join(folder.path, dir.name);
+    const containerCategory = categoryForName(dir.name);
+    if (containerCategory && hasSubdirectories(dirPath)) {
+      try {
+        for (const child of fs.readdirSync(dirPath, { withFileTypes: true })) {
+          if (child.isDirectory() && !child.name.startsWith('.')) out.push({ name: child.name, path: path.join(dirPath, child.name), category: containerCategory });
+        }
+      } catch (e) { /* unreadable container */ }
+      // Loose media directly in the container (e.g. movie files) still shows as one entry.
+      out.push({ name: dir.name, path: dirPath, category: containerCategory, containerOnly: true });
+      continue;
+    }
+    out.push({ name: dir.name, path: dirPath, category: folderCategory });
+  }
+  return out;
+}
+
 function getConfiguredAnimeSeriesNames() {
   const names = new Set();
-  for (const folder of config.folders || []) {
-    if (!folder || !folder.path || !fs.existsSync(folder.path)) continue;
-    try {
-      fs.readdirSync(folder.path, { withFileTypes: true }).forEach(entry => { if (entry.isDirectory()) names.add(entry.name); });
-    } catch (e) {}
-  }
+  for (const folder of config.folders || []) listSeriesDirs(folder).forEach(d => names.add(d.name));
   return names;
 }
 
@@ -1141,11 +1214,12 @@ function _doScanLibrary(force = false) {
   for (const folder of (activeFolders || [])) {
     if (!folder || !folder.path || !fs.existsSync(folder.path)) continue;
     try {
-      const dirs = fs.readdirSync(folder.path, { withFileTypes: true }).filter(d => d.isDirectory());
-      for (const dir of dirs) {
-        const seriesPath = path.join(folder.path, dir.name);
+      for (const dir of listSeriesDirs(folder)) {
+        const seriesPath = dir.path;
         liveIndexKeys.add(path.resolve(seriesPath).toLowerCase());
-        const files = getIndexedMediaFiles(seriesPath, scanner, mode, !!force).map(f => ({...f, episodeNum: parseMediaNumber(f.name)}));
+        // A category container only contributes its own loose files, never its
+        // series subfolders a second time.
+        const files = (dir.containerOnly ? scanner(seriesPath, false) : getIndexedMediaFiles(seriesPath, scanner, mode, !!force)).map(f => ({...f, episodeNum: parseMediaNumber(f.name)}));
         if (files.length === 0) continue;
 
         // Parse all episode numbers
@@ -1168,7 +1242,8 @@ function _doScanLibrary(force = false) {
         const malId = watchData.malId || null;
         const malData = watchData.malData || null;
         const tags = Array.isArray(watchData.tags) ? watchData.tags : [];
-        const category = watchData.category || folder.type || 'custom';
+        // A per-series category the user picked wins; "custom" is the old default, not a choice.
+        const category = (watchData.category && watchData.category !== 'custom' ? watchData.category : '') || dir.category || 'custom';
         const coverCached = getExistingCoverCachePath(dir.name);
 
         library.push({
@@ -1180,7 +1255,8 @@ function _doScanLibrary(force = false) {
           folder: folder.path,
           watchData: { episodesWatched, lastWatched, malId, malData, tags },
           category,
-          coverCached
+          coverCached,
+          coverVersion: coverFileVersion(coverCached)
         });
       }
     } catch (e) {
@@ -1862,25 +1938,105 @@ ipcMain.handle('anilist:userMalIds', async (_, userName) => {
   } catch (e) { return { error: e.message }; }
 });
 
+// ---- Sequel-aware AniList lookups --------------------------------------------
+// Library folders name sequels "Title S2" / "Title Season 2"; AniList titles them
+// "Title 2nd Season", "Title II" or "Title Season 2". Search those spellings
+// and prefer a result that carries the same season number.
+const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
+function ordinalSuffix(n) { const t = n % 100; if (t >= 11 && t <= 13) return n + 'th'; return n + (['th', 'st', 'nd', 'rd'][n % 10] || 'th'); }
+function parseSeasonSuffix(title) {
+  const t = String(title || '').trim();
+  const pats = [
+    /^(.*?)[\s._-]+S(?:eason)?[\s._-]*(\d{1,2})$/i,
+    /^(.*?)[\s._-]+(\d{1,2})(?:st|nd|rd|th)[\s._-]+Season$/i,
+    /^(.*?)[\s._-]+Season[\s._-]+(\d{1,2})$/i,
+    /^(.*?)[\s._-]+(II|III|IV|V|VI)$/,
+  ];
+  for (const re of pats) {
+    const m = t.match(re);
+    if (m && m[1].trim().length > 1) {
+      const n = /^\d+$/.test(m[2]) ? parseInt(m[2], 10) : ROMAN.indexOf(m[2].toUpperCase());
+      if (n >= 1 && n <= 20) return { base: m[1].trim(), season: n };
+    }
+  }
+  return { base: t, season: 1 };
+}
+function anilistTitleVariants(title) {
+  const t = String(title || '').trim();
+  const { base, season } = parseSeasonSuffix(t);
+  const noYear = s => s.replace(/\s*[([]?(19|20)\d{2}[)\]]?$/, '').trim();
+  const out = [];
+  if (season > 1) {
+    out.push(`${base} ${ordinalSuffix(season)} Season`, `${base} Season ${season}`);
+    if (ROMAN[season]) out.push(`${base} ${ROMAN[season]}`);
+    out.push(t, `${base} ${season}`);
+  } else {
+    out.push(t, noYear(t), base);
+  }
+  return out.filter((v, i, a) => v && a.indexOf(v) === i);
+}
+function mediaSeasonNumber(media) {
+  const titles = [media && media.title && media.title.romaji, media && media.title && media.title.english].filter(Boolean);
+  for (const title of titles) {
+    const p = parseSeasonSuffix(title.replace(/[:\-–]\s*(Part|Cour)\s*\d+$/i, '').trim());
+    if (p.season > 1) return p.season;
+    const m = title.match(/\b(\d{1,2})(?:st|nd|rd|th)\s+Season\b|\bSeason\s+(\d{1,2})\b/i);
+    if (m) return parseInt(m[1] || m[2], 10);
+    const r = title.match(/\s(II|III|IV|V|VI)(?:\s*[:\-–]|$)/);
+    if (r) return ROMAN.indexOf(r[1]);
+  }
+  return 1;
+}
+// Best media for a library title: same season number first, then AniList's order.
+function pickSeasonMatch(mediaList, season) {
+  const list = (mediaList || []).filter(m => m && m.coverImage);
+  if (!list.length) return null;
+  if (season > 1) return list.find(m => mediaSeasonNumber(m) === season) || null;
+  return list.find(m => mediaSeasonNumber(m) === 1) || list[0];
+}
+const ANILIST_MEDIA_FIELDS = 'id idMal title { romaji english native } coverImage { extraLarge large medium } episodes chapters seasonYear description';
+async function anilistSearchMedia(title, perPage, type) {
+  const data = await anilistQuery(`query($search: String, $perPage: Int, $type: MediaType) { Page(perPage: $perPage) { media(search: $search, type: $type) { ${ANILIST_MEDIA_FIELDS} } } }`, { search: title, perPage, type });
+  return (data.Page && data.Page.media) || [];
+}
+async function anilistByMalId(malId, type) {
+  const id = Number(malId);
+  if (!Number.isInteger(id) || id <= 0) return null;
+  const data = await anilistQuery(`query($id: Int, $type: MediaType) { Media(idMal: $id, type: $type) { ${ANILIST_MEDIA_FIELDS} } }`, { id, type });
+  return data && data.Media ? data.Media : null;
+}
+// Resolves the AniList entry for a library series: exact MAL id first, then
+// sequel-aware title search.
+async function resolveAnilistMedia(name, malId) {
+  const type = config.vaultMode === 'manga' ? 'MANGA' : 'ANIME';
+  try { const byId = await anilistByMalId(malId, type); if (byId && byId.coverImage) return byId; } catch (e) { /* fall back to search */ }
+  const title = getTitleAlias(name, 'anilist');
+  const { season } = parseSeasonSuffix(title);
+  for (const variant of anilistTitleVariants(title)) {
+    const media = pickSeasonMatch(await anilistSearchMedia(variant, 5, type), season);
+    if (media) return media;
+  }
+  return null;
+}
+
 ipcMain.handle('anilist:search', async (_, title, count = 1) => {
   try {
-    const isManga = config.vaultMode === 'manga';
-    const data = await anilistQuery(`
-      query($search: String, $perPage: Int, $type: MediaType) {
-        Page(perPage: $perPage) {
-          media(search: $search, type: $type) {
-            id
-            title { romaji english native }
-            coverImage { extraLarge large medium }
-            episodes
-            chapters
-            seasonYear
-            description
-          }
-        }
+    const type = config.vaultMode === 'manga' ? 'MANGA' : 'ANIME';
+    const n = Math.max(1, Math.min(25, Number(count) || 1));
+    const first = await anilistSearchMedia(title, Math.max(n, 5), type);
+    const { season } = parseSeasonSuffix(title);
+    // A sequel title that found nothing (or only other seasons) retries with
+    // AniList's spellings; the season match is moved to the front.
+    let list = first;
+    if (season > 1 && !pickSeasonMatch(first, season)) {
+      for (const variant of anilistTitleVariants(title).slice(0, 3)) {
+        const more = await anilistSearchMedia(variant, Math.max(n, 5), type);
+        if (pickSeasonMatch(more, season)) { list = more; break; }
       }
-    `, { search: title, perPage: count, type: isManga ? 'MANGA' : 'ANIME' });
-    return (data.Page && data.Page.media) || [];
+    }
+    const best = pickSeasonMatch(list, season);
+    if (best) list = [best].concat(list.filter(m => m !== best));
+    return list.slice(0, n);
   } catch (e) { return []; }
 });
 
@@ -1905,33 +2061,32 @@ ipcMain.handle('anilist:getCachedCover', (_, name) => {
   return getExistingCoverCachePath(name);
 });
 
+function coverFileVersion(p) {
+  try { return p ? Math.round(fs.statSync(p).mtimeMs) : 0; } catch (e) { return 0; }
+}
+
 ipcMain.handle('anilist:fetchAllCovers', async (_, seriesList) => {
   const results = [];
-  const isManga = config.vaultMode === 'manga';
-  for (const series of seriesList) {
+  if (!Array.isArray(seriesList)) return results;
+  for (const series of seriesList.slice(0, 2000)) {
+    if (!series || typeof series.name !== 'string') continue;
     const cacheFile = getCoverCachePath(series.name);
     const existing = getExistingCoverCachePath(series.name);
     if (existing) {
-      results.push({ name: series.name, path: existing, status: 'cached' });
+      results.push({ name: series.name, path: existing, version: coverFileVersion(existing), status: 'cached' });
       continue;
     }
+    // Linked series: the MAL id from the library wins over whatever the caller sent.
+    const history = getWatchHistoryStore()[safeHistoryKey(series.name)] || {};
+    const malId = history.malId || series.malId || null;
+    const malPicture = history.malData && history.malData.main_picture && (history.malData.main_picture.large || history.malData.main_picture.medium);
     try {
-      const data = await anilistQuery(`
-        query($search: String, $type: MediaType) {
-          Page(perPage: 1) {
-            media(search: $search, type: $type) {
-              id
-              title { romaji english native }
-              coverImage { large medium }
-            }
-          }
-        }
-      `, { search: getTitleAlias(series.name, 'anilist'), type: isManga ? 'MANGA' : 'ANIME' });
-      const media = data.Page && data.Page.media && data.Page.media[0];
-      if (media && media.coverImage && media.coverImage.large) {
-        const buf = await fetchImage(media.coverImage.large);
+      const media = await resolveAnilistMedia(series.name, malId);
+      const url = (media && media.coverImage && (media.coverImage.extraLarge || media.coverImage.large)) || malPicture || null;
+      if (url) {
+        const buf = await fetchImage(url);
         fs.writeFileSync(cacheFile, buf);
-        results.push({ name: series.name, path: cacheFile, status: 'fetched' });
+        results.push({ name: series.name, path: cacheFile, version: coverFileVersion(cacheFile), status: 'fetched' });
       } else {
         results.push({ name: series.name, path: null, status: 'no_image' });
       }
@@ -2518,6 +2673,68 @@ ipcMain.handle('mal:getStatusCounts', async () => {
   return { counts, total: items.length, source: items.length ? 'mal' : 'local' };
 });
 
+// Should a list status fetched from MAL replace the stored one?
+// - nothing usable stored → yes
+// - both timestamped → only if MAL's is newer
+// - stored one has no timestamp → yes (MAL is the source of truth; every app
+//   edit is a PATCH whose response carries updated_at)
+function shouldAdoptRemoteListStatus(local, remote) {
+  if (!remote || typeof remote !== 'object' || !remote.status) return false;
+  const usable = local && typeof local === 'object' && (local.status || local.score != null ||
+    local.num_episodes_watched != null || local.num_watched_episodes != null || local.num_chapters_read != null);
+  if (!usable) return true;
+  const tl = Date.parse(local.updated_at), tr = Date.parse(remote.updated_at);
+  if (tl && tr) return tr > tl;
+  return !tl;
+}
+
+// Pulls the whole MAL list and brings every linked series' status in line
+// with changes made on MAL itself (website, phone app, another device).
+let _malPullRunning = false;
+ipcMain.handle('mal:pullListStatuses', async () => {
+  if (_malPullRunning) return { skipped: true, updated: [] };
+  if (!config.malAccessToken) return { skipped: true, updated: [] };
+  _malPullRunning = true;
+  try {
+    const isManga = config.vaultMode === 'manga';
+    const remote = new Map();
+    let complete = false;
+    for (let page = 0, offset = 0; page < 20; page++) {
+      const endpoint = (isManga ? '/users/@me/mangalist' : '/users/@me/animelist') + `?limit=1000&offset=${offset}&fields=list_status&nsfw=true`;
+      const r = await malRequestWithRetry(endpoint);
+      const items = r.data && Array.isArray(r.data.data) ? r.data.data : null;
+      if (!items) break;
+      items.forEach(it => { if (it && it.node && it.node.id && it.list_status) remote.set(Number(it.node.id), it.list_status); });
+      if (!(r.data.paging && r.data.paging.next) || items.length < 1000) { complete = true; break; }
+      offset += 1000;
+    }
+    const history = getWatchHistoryStore();
+    const updated = [];
+    for (const name of Object.keys(history)) {
+      const entry = history[name];
+      const id = entry && Number(entry.malId);
+      if (!id) continue;
+      const local = entry.malData && entry.malData.my_list_status;
+      const rs = remote.get(id);
+      if (rs) {
+        if (shouldAdoptRemoteListStatus(local, rs)) {
+          entry.malData = { ...(entry.malData || {}), my_list_status: rs };
+          if (!local || local.status !== rs.status || local.score !== rs.score) updated.push({ name, from: local && local.status || null, to: rs.status, listStatus: rs });
+        }
+      } else if (complete && local && local.status) {
+        // Removed from the MAL list entirely: the series keeps its link, not a status.
+        const { my_list_status, ...rest } = entry.malData;
+        entry.malData = rest;
+        updated.push({ name, from: local.status, to: null, listStatus: null });
+      }
+    }
+    if (updated.length) saveConfig();
+    return { updated, checked: remote.size, complete };
+  } catch (e) {
+    return { error: e.message, updated: [] };
+  } finally { _malPullRunning = false; }
+});
+
 ipcMain.handle('mal:getSyncLog', () => {
   return (config.malSyncLog || []).slice(-100);
 });
@@ -2634,9 +2851,47 @@ ipcMain.handle('nyaa:search', async (_, query) => {
   return nyaaSearch(query);
 });
 
-async function nyaaAutoDownloadForIpc(seriesTitle, quality, preferredUploader, epNum, mode = 'ep', trackedEntry = null) {
+// Release picker: candidates offered to the UI are remembered here, and a
+// choice is only ever accepted by token + index — the renderer never hands a
+// URL or torrent id back to the main process.
+const _releaseOffers = new Map();
+function rememberReleaseOffer(offer) {
+  const token = crypto.randomBytes(12).toString('hex');
+  _releaseOffers.set(token, { ...offer, at: Date.now() });
+  for (const [k, v] of _releaseOffers) if (Date.now() - v.at > 30 * 60 * 1000) _releaseOffers.delete(k);
+  return token;
+}
+async function handOffRelease(chosen, meta) {
+  const dedupKey = [meta.seriesTitle, meta.epNum, meta.mode].join('|');
+  let method;
+  if (chosen.id) {
+    const torrentData = await downloadNyaaTorrentFile(chosen.id);
+    const tmpDir = path.join(app.getPath('temp'), 'animevault-torrents');
+    fs.mkdirSync(tmpDir, { recursive: true });
+    const safeName = chosen.title.replace(/[\\/:*?"<>|]/g, '_').substring(0, 80);
+    const tmpFile = path.join(tmpDir, safeName + '.torrent');
+    fs.writeFileSync(tmpFile, torrentData);
+    await shell.openPath(tmpFile);
+    method = 'external';
+  } else if (chosen.magnet && isSafeExternalUrl(chosen.magnet)) {
+    await shell.openExternal(chosen.magnet);
+    method = 'magnet';
+  } else {
+    return { success: false, error: 'Selected release has no safe download link' };
+  }
+  // History is written only after a successful OS handoff.
+  pushDownloadHistory({
+    timestamp: Date.now(), key: dedupKey, series: meta.seriesTitle, episode: meta.epNum, dlMode: meta.mode,
+    chosenTitle: chosen.title, seeders: chosen.seeders || 0, size: chosen.size || '', nyaaId: chosen.id || '',
+    preferredUploader: autoDownload.PREFERRED_GROUP, method
+  });
+  return { success: true, title: chosen.title, seeders: chosen.seeders, chosen };
+}
+
+async function nyaaAutoDownloadForIpc(seriesTitle, quality, preferredUploader, epNum, mode = 'ep', trackedEntry = null, options = {}) {
   try {
-    const uploader = preferredUploader || config.nyaaUploader || 'erai';
+    // 5.1: Erai-raws is the only preferred group; everything else competes on seeders.
+    const uploader = autoDownload.PREFERRED_GROUP;
     const q = quality || config.nyaaQuality || '1080p';
     const titleVariants = getSearchVariants(seriesTitle).slice(0, 3);
     const epRaw = epNum != null ? String(parseInt(epNum, 10)) : '';
@@ -2644,18 +2899,10 @@ async function nyaaAutoDownloadForIpc(seriesTitle, quality, preferredUploader, e
     const preferredQueries = [];
     const broadQueries = [];
     for (const title of titleVariants) {
-      if (uploader === 'erai') {
-        if (epNum != null) {
-          preferredQueries.push(`[Erai-raws] ${title} - ${epPadded} ${q}`);
-          preferredQueries.push(`[Erai-raws] ${title} - ${epRaw}`);
-        } else preferredQueries.push(`[Erai-raws] ${title} ${q}`);
-      } else if (uploader === 'subsplease') {
-        preferredQueries.push(`[SubsPlease] ${title}${epNum != null ? ` - ${epPadded}` : ''} (${q})`);
-      } else if (uploader === 'judas') {
-        preferredQueries.push(`[Judas] ${title}${epNum != null ? ` ${epPadded}` : ''} ${q}`);
-      } else if (uploader === 'varyg') {
-        preferredQueries.push(`${title}${epNum != null ? ` ${epPadded}` : ''} ${q} VARYG`);
-      }
+      if (epNum != null) {
+        preferredQueries.push(`[Erai-raws] ${title} - ${epPadded} ${q}`);
+        preferredQueries.push(`[Erai-raws] ${title} - ${epRaw}`);
+      } else preferredQueries.push(`[Erai-raws] ${title} ${q}`);
       if (epNum != null) {
         broadQueries.push(`${title} ${epPadded} ${q}`);
         broadQueries.push(`${title} ${epRaw}`);
@@ -2705,76 +2952,36 @@ async function nyaaAutoDownloadForIpc(seriesTitle, quality, preferredUploader, e
       : allResults;
     if (!matched.length) return { success: false, error: isEpisodeRequest ? 'No exact episode match' : 'No series releases found' };
 
-    // A configured uploader is authoritative whenever it supplied a valid
-    // candidate. Scoring chooses only within that tier; other uploaders are a
-    // fallback for genuine no-match cases.
-    matched = preferUploaderMatches(matched, uploader);
-
-    const scoreCtx = { h264Ceiling: computeH264Ceiling(matched) };
-    const chosen = matched.reduce((best, r) => {
-      const seriesScore = item => {
-        let value = scoreRelease(item, uploader, scoreCtx);
-        if (!isEpisodeRequest) {
-          if (/\b(?:batch|complete|全集|season\s*pack)\b/i.test(item.title)) value += 700;
-          if (parseNyaaEpisodeNumber(item.title) !== null) value -= 300;
-        }
-        return value;
-      };
-      const s = seriesScore(r);
-      const bs = best ? seriesScore(best) : -Infinity;
-      return s > bs ? r : best;
-    }, null);
-
-    if (!chosen) return { success: false, error: 'Scoring produced no winner' };
-
-    // Hand off to the OS first. History is recorded only on success so a
-    // failed fetch/open cannot poison the dedup window and silently block
-    // retries for an hour.
-    const dedupKey = [seriesTitle, epNum, mode].join('|');
-    const nowMs = Date.now();
-    let method;
-    if (chosen.id) {
-      const torrentData = await downloadNyaaTorrentFile(chosen.id);
-      const tmpDir = path.join(app.getPath('temp'), 'animevault-torrents');
-      fs.mkdirSync(tmpDir, { recursive: true });
-      const safeName = chosen.title.replace(/[\\/:*?"<>|]/g, '_').substring(0, 80);
-      const tmpFile = path.join(tmpDir, safeName + '.torrent');
-      fs.writeFileSync(tmpFile, torrentData);
-      await shell.openPath(tmpFile);
-      method = 'external';
-    } else if (chosen.magnet && isSafeExternalUrl(chosen.magnet)) {
-      await shell.openExternal(chosen.magnet);
-      method = 'magnet';
-    } else {
-      return { success: false, error: 'Selected release has no safe download link' };
+    // Erai-raws first, then the most-seeded release from any group; full-series
+    // requests put batches first (autoDownload.rankReleases).
+    const ranked = autoDownload.rankReleases(matched, { batch: !isEpisodeRequest });
+    if (!ranked.length) return { success: false, error: 'Scoring produced no winner' };
+    const meta = { seriesTitle, epNum, mode };
+    if (options && options.interactive && config.releasePicker === true) {
+      const offered = ranked.slice(0, 8);
+      return { needsChoice: true, token: rememberReleaseOffer({ list: offered, meta }), candidates: offered.map(autoDownload.describeRelease), seriesTitle, epNum, mode };
     }
-
-    pushDownloadHistory({
-      timestamp: nowMs,
-      key: dedupKey,
-      series: seriesTitle,
-      episode: epNum,
-      dlMode: mode,
-      chosenTitle: chosen.title,
-      seeders: chosen.seeders || 0,
-      size: chosen.size || '',
-      nyaaId: chosen.id || '',
-      preferredUploader: uploader,
-      method
-    });
-
-    return { success: true, title: chosen.title, seeders: chosen.seeders, chosen };
+    return await handOffRelease(ranked[0], meta);
   } catch (e) {
     console.error('[Nyaa:autoDownload] Error:', e.message);
     return { success: false, error: e.message };
   }
 }
 
-ipcMain.handle('nyaa:autoDownload', (_, seriesTitle, quality, preferredUploader, epNum, mode = 'ep') => {
+ipcMain.handle('nyaa:autoDownload', (_, seriesTitle, quality, preferredUploader, epNum, mode = 'ep', options = {}) => {
   const trackedEntry = (config.autoDownloadWatchlist || []).find(entry =>
     entry.seriesName === seriesTitle || entry.searchTitle === seriesTitle
   ) || null;
-  return nyaaAutoDownloadForIpc(seriesTitle, quality, preferredUploader, epNum, mode, trackedEntry);
+  return nyaaAutoDownloadForIpc(seriesTitle, quality, preferredUploader, epNum, mode, trackedEntry, { interactive: !!(options && options.interactive) });
+});
+
+ipcMain.handle('nyaa:downloadChoice', async (_, token, index) => {
+  const offer = typeof token === 'string' ? _releaseOffers.get(token) : null;
+  const i = Number(index);
+  if (!offer || !Number.isInteger(i) || i < 0 || i >= offer.list.length) return { success: false, error: 'That choice has expired — search again' };
+  _releaseOffers.delete(token);
+  try { return await handOffRelease(offer.list[i], offer.meta); }
+  catch (e) { return { success: false, error: e.message }; }
 });
 
 function pushDownloadHistory(entry) {
@@ -2800,45 +3007,46 @@ autoDownload.setDeps({
 });
 
 // ================================================================
-//  AI ASSISTANT (OpenRouter)
+//  AI ASSISTANT (Google Gemini, user's own AI Studio key)
 // ================================================================
-openrouter.setDeps({
+gemini.setDeps({
   config, saveConfig, mainWindow: () => mainWindow
 });
 
 ipcMain.handle('ai:getStatus', () => ({
-  hasKey: !!config.openrouterApiKey,
-  model: config.openrouterModel || ''
+  hasKey: !!config.geminiApiKey,
+  model: config.geminiModel || gemini.DEFAULT_MODEL,
+  keyPage: gemini.KEY_PAGE_URL
 }));
 
-ipcMain.handle('ai:setKey', (_, key) => {
+ipcMain.handle('ai:setKey', async (_, key) => {
   const k = typeof key === 'string' ? key.trim() : '';
-  if (!k || k.length > 200 || /\s/.test(k)) throw new Error('Invalid API key');
-  saveOpenrouterKey(k);
-  config.openrouterApiKey = k;
-  scrubOpenrouterKeyFromConfigFiles();
+  if (!gemini.isPlausibleKey(k)) throw new Error('That doesn’t look like a Google AI Studio key');
+  const check = await gemini.verifyKey(k, config.geminiModel);
+  if (check.ok === false) throw new Error('Google rejected this key: ' + check.message);
+  saveGeminiKey(k);
+  config.geminiApiKey = k;
+  scrubApiKeysFromConfigFiles();
   return true;
 });
 
 ipcMain.handle('ai:clearKey', () => {
-  config.openrouterApiKey = '';
-  try { if (fs.existsSync(OPENROUTER_KEY_PATH)) fs.unlinkSync(OPENROUTER_KEY_PATH); } catch (err) {
+  config.geminiApiKey = '';
+  try { if (fs.existsSync(GEMINI_KEY_PATH)) fs.unlinkSync(GEMINI_KEY_PATH); } catch (err) {
     throw new Error('Could not remove stored API key');
   }
-  scrubOpenrouterKeyFromConfigFiles();
+  scrubApiKeysFromConfigFiles();
   return true;
 });
 
 ipcMain.handle('ai:setModel', (_, model) => {
-  const m = typeof model === 'string' ? model.trim().replace(/[^\w.\-/:-]/g, '').slice(0, 120) : '';
-  if (!m) throw new Error('Invalid model id');
-  config.openrouterModel = m;
+  config.geminiModel = gemini.safeModelId(model);
   saveConfig();
   return true;
 });
 
 ipcMain.handle('ai:send', async (_, messages, model, options) => {
-  const r = await openrouter.chatStream(messages, model, options);
+  const r = await gemini.chatStream(messages, model, options);
   return { ok: r.ok, error: r.ok ? null : r.message };
 });
 
@@ -2872,7 +3080,7 @@ ipcMain.handle('ai:webSearch', async (_, query) => {
 });
 
 ipcMain.handle('ai:stop', () => {
-  openrouter.abortChat();
+  gemini.abortChat();
   return true;
 });
 
@@ -2968,7 +3176,7 @@ ipcMain.handle('autoDownload:catchupSeries', async (_, seriesName, malId) => {
   if (verifiedLatest <= highest) return { success: false, error: `Local library is already at verified episode ${verifiedLatest}` };
 
   const downloaded = [];
-  const uploader = entry.preferredUploader || config.nyaaUploader || 'erai';
+  const uploader = autoDownload.PREFERRED_GROUP;
   const quality = entry.preferredQuality || config.nyaaQuality || '1080p';
 
   for (let ep = highest + 1; ep <= verifiedLatest; ep++) {
@@ -3021,7 +3229,7 @@ ipcMain.handle('autoDownload:latestEpisode', async (_, seriesName, malId) => {
   if (!episode) return { success: false, error: 'No confidently matched episode release was found' };
   if (episode <= highest) return { success: false, error: `Local library is already at verified episode ${episode}` };
   if (watch) saveConfig();
-  const result = await nyaaAutoDownloadForIpc(entry.searchTitle || seriesName, config.nyaaQuality, config.nyaaUploader, episode, 'ep', entry);
+  const result = await nyaaAutoDownloadForIpc(entry.searchTitle || seriesName, config.nyaaQuality, null, episode, 'ep', entry);
   return { ...result, episode, highest };
 });
 
@@ -3427,7 +3635,7 @@ ipcMain.handle('library:importAniList', async (_, filePath) => {
 
 // Credentials never leave the machine in a backup: the zip often ends up in
 // cloud-synced folders. Restoring keeps whatever account is connected now.
-const BACKUP_SECRET_KEYS = ['malAccessToken', 'malRefreshToken', 'malTokenExpiry', 'malCodeVerifier', 'malAuthState', 'malClientSecret', 'openrouterApiKey', '_userDataPath'];
+const BACKUP_SECRET_KEYS = ['malAccessToken', 'malRefreshToken', 'malTokenExpiry', 'malCodeVerifier', 'malAuthState', 'malClientSecret', 'geminiApiKey', 'openrouterApiKey', '_userDataPath'];
 
 ipcMain.handle('library:backup', async (_, destPath) => {
   try {
@@ -3482,9 +3690,9 @@ ipcMain.handle('library:restore', async (_, zipPath) => {
     // Unknown keys are dropped; credentials always come from the current session.
     const next = {};
     for (const key of Object.keys(restored)) {
-      if (isSafeConfigKey(key) && !BACKUP_SECRET_KEYS.includes(key) && key !== 'hasMalClientSecret' && key !== 'hasOpenrouterApiKey') next[key] = restored[key];
+      if (isSafeConfigKey(key) && !BACKUP_SECRET_KEYS.includes(key) && key !== 'hasMalClientSecret' && key !== 'hasGeminiApiKey') next[key] = restored[key];
     }
-    for (const key of BACKUP_SECRET_KEYS) if (key !== '_userDataPath' && key !== 'openrouterApiKey' && config[key] !== undefined) next[key] = config[key];
+    for (const key of BACKUP_SECRET_KEYS) if (key !== '_userDataPath' && !API_KEY_CONFIG_FIELDS.includes(key) && config[key] !== undefined) next[key] = config[key];
     // Covers: files only, written straight into cover-cache (never elsewhere).
     fs.mkdirSync(CACHE_DIR, { recursive: true });
     for (const entry of entries) {
@@ -3498,12 +3706,12 @@ ipcMain.handle('library:restore', async (_, zipPath) => {
     // the normal safety chain (.bak rotation, shrink guard), then reload so
     // defaults fill anything an older backup lacks.
     flushSaveConfig();
-    const openrouterKey = config.openrouterApiKey;
+    const aiKey = config.geminiApiKey;
     for (const key of Object.keys(config)) delete config[key];
     Object.assign(config, next);
     writeConfigSafely();
     loadConfig();
-    config.openrouterApiKey = openrouterKey;
+    config.geminiApiKey = aiKey;
     clearLibraryIndex();
     return { success: true };
   } catch (e) {
@@ -3539,33 +3747,35 @@ function matchesWatcherIgnore(filename) {
 }
 
 // Find existing series folder across all library folders
+// Folder names compared without punctuation or case ("Appeared!" = "appeared").
+function seriesMatchKey(name) {
+  return String(name || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+}
 function findExistingSeriesFolder(seriesName) {
-  const safe = seriesName.replace(/[\\/:*?"<>|]/g, '_').toLowerCase().trim();
+  const wanted = parseSeasonSuffix(seriesName);
+  const safe = seriesMatchKey(wanted.base);
+  if (!safe) return null;
   const isManga = config.vaultMode === 'manga';
   const folders = isManga ? (config.mangaFolders || []) : (config.folders || []);
   for (const folder of folders) {
-    if (!fs.existsSync(folder.path)) continue;
-    try {
-      const dirs = fs.readdirSync(folder.path, { withFileTypes: true }).filter(d => d.isDirectory());
-      for (const dir of dirs) {
-        const dirClean = dir.name.replace(/[\\/:*?"<>|]/g, '_').toLowerCase().trim();
-        if (dirClean === safe) {
-          return path.join(folder.path, dir.name);
-        }
-        // Smarter prefix check: require significant token overlap OR
-        // one is a true word-boundary prefix of the other
-        const safeWords = new Set(safe.split(/\s+/).filter(w => w.length > 2));
-        const dirWords = new Set(dirClean.split(/\s+/).filter(w => w.length > 2));
-        let common = 0;
-        for (const w of safeWords) if (dirWords.has(w)) common++;
-        const tokenScore = safeWords.size && dirWords.size ? common / Math.max(safeWords.size, dirWords.size) : 0;
-        const isWordPrefix = dirClean.startsWith(safe) && (safe.length >= 6 || dirClean.length === safe.length);
-        const isWordSuffix = safe.startsWith(dirClean) && (dirClean.length >= 6 || dirClean.length === safe.length);
-        if (tokenScore >= 0.8 || isWordPrefix || isWordSuffix) {
-          return path.join(folder.path, dir.name);
-        }
-      }
-    } catch (e) {}
+    for (const dir of listSeriesDirs(folder)) {
+      if (dir.containerOnly) continue;
+      const have = parseSeasonSuffix(dir.name);
+      // Season 2 never lands in the season 1 folder, and vice versa.
+      if (have.season !== wanted.season) continue;
+      const dirClean = seriesMatchKey(have.base);
+      if (!dirClean) continue;
+      if (dirClean === safe) return dir.path;
+      // Significant token overlap, or one name is a word-boundary prefix of the other.
+      const safeWords = new Set(safe.split(/\s+/).filter(w => w.length > 2));
+      const dirWords = new Set(dirClean.split(/\s+/).filter(w => w.length > 2));
+      let common = 0;
+      for (const w of safeWords) if (dirWords.has(w)) common++;
+      const tokenScore = safeWords.size && dirWords.size ? common / Math.max(safeWords.size, dirWords.size) : 0;
+      const isWordPrefix = (dirClean + ' ').startsWith(safe + ' ') && safe.length >= 6;
+      const isWordSuffix = (safe + ' ').startsWith(dirClean + ' ') && dirClean.length >= 6;
+      if (tokenScore >= 0.8 || isWordPrefix || isWordSuffix) return dir.path;
+    }
   }
   return null;
 }
@@ -3636,8 +3846,14 @@ function watcherPoll() {
     // ── Phase 1.5: Root-level folders that are potential new series ──
     // Folders like "Monster 2004 S01 1080p BluRay..." should be renamed and
     // either merged into existing series or moved whole as a new series.
+    // Category folders ("movies", "series"…) and configured library folders
+    // that live inside the watch folder are the library itself, never new
+    // downloads to rename or move.
+    const libraryRoots = new Set([].concat(config.folders || [], config.mangaFolders || []).map(f => f && f.path && normalizeFsPath(f.path)).filter(Boolean).map(p => p.toLowerCase()));
+    if (config.watcherDest) libraryRoots.add(normalizeFsPath(config.watcherDest).toLowerCase());
     const rootDirs = fs.readdirSync(watchFolder, { withFileTypes: true })
-      .filter(d => d.isDirectory() && !d.name.startsWith('.') && d.name !== 'animevault-torrents');
+      .filter(d => d.isDirectory() && !d.name.startsWith('.') && d.name !== 'animevault-torrents')
+      .filter(d => !categoryForName(d.name) && !libraryRoots.has(normalizeFsPath(path.join(watchFolder, d.name)).toLowerCase()));
     console.log('[Watcher] Subdirectories to scan:', rootDirs.length);
 
     for (const dir of rootDirs) {
@@ -4163,7 +4379,11 @@ ipcMain.handle('window:setMinimizeToTray', (_, enabled) => {
 // image extensions only, and inside userData restricted to cover-cache/thumbnails.
 function handleCoverRequest(request) {
   try {
-    const fp = normalizeFsPath(decodeURIComponent(request.url.slice('cover://'.length)));
+    // The renderer appends ?v=<mtime> so a replaced cover gets a fresh URL
+    // (Chromium's image cache ignores #fragments). Paths are percent-encoded,
+    // so the first raw "?" or "#" always starts the cache-buster.
+    const raw = request.url.slice('cover://'.length).split(/[?#]/)[0];
+    const fp = normalizeFsPath(decodeURIComponent(raw));
     if (!fp || !fs.existsSync(fp)) return new Response(null, { status: 404 });
     const ext = path.extname(fp).toLowerCase();
     if (!['.jpg', '.jpeg', '.png', '.webp'].includes(ext)) return new Response(null, { status: 404 });
@@ -4198,7 +4418,7 @@ app.whenReady().then(() => {
   protocol.handle('cover', handleCoverRequest);
   appendAuthDebug('boot version=' + app.getVersion() + ' pid=' + process.pid);
   loadConfig();
-  loadOpenrouterKey();
+  loadGeminiKey();
   createWindow();
 
   // Resume file watcher if enabled

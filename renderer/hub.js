@@ -215,7 +215,7 @@ function vDownloadsInline(){
 act('toggleAutoDownloadGlobalSw',function(el){return toggleAutoDownloadGlobal(el.checked);});
 act('goSettingsSection',function(el,ev,sec){S.setSection=sec;S._scrollToSec=true;go('settings');});
 act('dlRetry',function(el,ev,i){
-  var e=(S._downloadLog||[])[i];if(!e)return;var quality=S.cfg.nyaaQuality||'1080p';var up=e.preferredUploader||S.cfg.nyaaUploader||'erai';
+  var e=(S._downloadLog||[])[i];if(!e)return;var quality=S.cfg.nyaaQuality||'1080p';var up=null;
   toast('Retrying '+e.series+'…','i');
   return api.nyaaAutoDownload(e.series,quality,up,e.episode,e.dlMode).then(function(r){if(r.error)toast('Retry failed: '+r.error,'e');else{toast('Opened: '+r.chosen.title,'s');refreshDownloadLog();}});
 });

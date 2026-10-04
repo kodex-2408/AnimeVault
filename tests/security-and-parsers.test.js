@@ -177,7 +177,7 @@ function mustExtract(fnCode, label) {
 // ---------------------------------------------------------------------------
 
 {
-  for (const f of ['main.js', 'preload.js', 'autoDownload.js', 'openrouter.js', 'index.html', 'theme-boot.js', 'package.json', 'icon.png']) {
+  for (const f of ['main.js', 'preload.js', 'autoDownload.js', 'gemini.js', 'index.html', 'theme-boot.js', 'package.json', 'icon.png']) {
     assert(fs.existsSync(path.join(root, f)), 'build.files literal missing from repo: ' + f); checks++;
     assert(pkg.build.files.includes(f), 'build.files must include ' + f); checks++;
   }
@@ -238,33 +238,48 @@ function mustExtract(fnCode, label) {
     'E() must escape apostrophes'); checks++;
 
   // AI assistant: the key stays main-side and all network stays main-side
-  assert(mainSrc.includes("'malAuthState', 'openrouterApiKey'"),
-    'config:get must strip the OpenRouter key'); checks++;
-  const orSrc = fs.readFileSync(path.join(root, 'openrouter.js'), 'utf8');
-  assert(orSrc.includes("hostname: 'openrouter.ai'"),
-    'OpenRouter requests must originate in the main process'); checks++;
-  assert(!htmlSrc.includes('api.openrouter.ai') && !htmlSrc.includes('openrouter.ai/api'),
-    'renderer must never construct OpenRouter network calls'); checks++;
-  assert(htmlSrc.includes('aiSetKey') && htmlSrc.includes('sk-or-'),
-    'assistant key entry UI missing'); checks++;
+  assert(mainSrc.includes("'malAuthState', 'geminiApiKey', 'openrouterApiKey'"),
+    'config:get must strip the AI key (and the legacy OpenRouter key)'); checks++;
+  const gmSrc = fs.readFileSync(path.join(root, 'gemini.js'), 'utf8');
+  assert(gmSrc.includes("hostname: 'generativelanguage.googleapis.com'") && gmSrc.includes("'x-goog-api-key'"),
+    'Gemini requests must originate in the main process with the key in a header'); checks++;
+  assert(!/generativelanguage\.googleapis\.com|openrouter\.ai\/api/.test(htmlSrc),
+    'renderer must never construct AI network calls'); checks++;
+  assert(htmlSrc.includes('aiSetKey') && htmlSrc.includes('aistudio.google.com/apikey'),
+    'assistant key entry UI with the AI Studio link is missing'); checks++;
+  assert(!fs.existsSync(path.join(root, 'openrouter.js')) && !htmlSrc.includes('sk-or-'),
+    'the OpenRouter integration must stay removed'); checks++;
+  assert(mainSrc.includes('LEGACY_OPENROUTER_KEY_PATH') && mainSrc.includes('fs.unlinkSync(LEGACY_OPENROUTER_KEY_PATH)'),
+    'the stored 5.0 OpenRouter key must be deleted on start'); checks++;
 }
 
 // Behavioral checks against the real Electron-free module
-const openrouter = require(path.join(root, 'openrouter.js'));
-openrouter.setDeps({ config: {}, mainWindow: () => null });
-assert.strictEqual(openrouter.validateMessages([{ role: 'user', content: 'hi' }]), true); checks++;
-assert.strictEqual(openrouter.validateMessages([{ role: 'tool', content: 'x' }]), false); checks++;
-assert.strictEqual(openrouter.validateMessages([{ role: 'user', content: '' }]), false); checks++;
-assert.strictEqual(openrouter.validateMessages('nope'), false); checks++;
-assert.strictEqual(openrouter.validateMessages(new Array(50).fill({ role: 'user', content: 'x' })), false); checks++;
+const gemini = require(path.join(root, 'gemini.js'));
+gemini.setDeps({ config: {}, mainWindow: () => null });
+assert.strictEqual(gemini.validateMessages([{ role: 'user', content: 'hi' }]), true); checks++;
+assert.strictEqual(gemini.validateMessages([{ role: 'tool', content: 'x' }]), false); checks++;
+assert.strictEqual(gemini.validateMessages([{ role: 'user', content: '' }]), false); checks++;
+assert.strictEqual(gemini.validateMessages('nope'), false); checks++;
+assert.strictEqual(gemini.validateMessages(new Array(50).fill({ role: 'user', content: 'x' })), false); checks++;
+assert.strictEqual(gemini.isPlausibleKey('AIzaSyD-abcdefghijklmnopqrstuvwxyz0123'), true); checks++;
+assert.strictEqual(gemini.isPlausibleKey('sk or v1 spaces'), false); checks++;
+// model ids become a URL path segment: anything odd falls back to the default
+assert.strictEqual(gemini.safeModelId('gemini-2.5-flash'), 'gemini-2.5-flash'); checks++;
+assert.strictEqual(gemini.safeModelId('models/gemini-flash-latest'), 'gemini-flash-latest'); checks++;
+assert.strictEqual(gemini.safeModelId('../../v1/files?x=1'), gemini.DEFAULT_MODEL); checks++;
+const gReq = gemini.toGeminiRequest([{ role: 'system', content: 'be nice' }, { role: 'user', content: 'hi' }, { role: 'assistant', content: 'hello' }], { webSearch: true });
+assert.deepStrictEqual(gReq.systemInstruction, { parts: [{ text: 'be nice' }] }); checks++;
+assert.deepStrictEqual(gReq.contents.map(c => c.role), ['user', 'model']); checks++;
+assert.deepStrictEqual(gReq.tools, [{ google_search: {} }]); checks++;
+assert.strictEqual(gemini.extractText({ candidates: [{ content: { parts: [{ text: 'thinking', thought: true }, { text: 'Hi!' }] } }] }), 'Hi!', 'thought parts are never shown'); checks++;
 
 (async () => {
-  const noKey = await openrouter.chatStream([{ role: 'user', content: 'hi' }], 'test/model');
+  const noKey = await gemini.chatStream([{ role: 'user', content: 'hi' }], 'gemini-flash-latest');
   assert.strictEqual(noKey.ok, false); checks++;
   assert(/key/i.test(noKey.message), 'expected missing-key failure, got: ' + noKey.message); checks++;
-  const badPayload = await openrouter.chatStream('nope', 'test/model');
+  const badPayload = await gemini.chatStream('nope', 'gemini-flash-latest');
   assert.strictEqual(badPayload.ok, false); checks++;
-  const webSearchCall = await openrouter.chatStream([{ role: 'user', content: 'hi' }], 'test/model', { webSearch: true });
+  const webSearchCall = await gemini.chatStream([{ role: 'user', content: 'hi' }], 'gemini-flash-latest', { webSearch: true });
   assert.strictEqual(webSearchCall.ok, false); checks++;
   assert(/key/i.test(webSearchCall.message), 'expected missing-key failure with webSearch option'); checks++;
 

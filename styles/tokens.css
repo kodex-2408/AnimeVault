@@ -82,6 +82,12 @@
   --teal: #64d2ff;
   --star: #ffcc4d;
 
+  /* Chart series (validated categorical palette, fixed order; never cycled).
+     Dark steps are selected for dark surfaces, light steps in :root.light. */
+  --viz-1: #3987e5; --viz-2: #d95926; --viz-3: #199e70; --viz-4: #c98500;
+  --viz-5: #d55181; --viz-6: #008300; --viz-7: #9085e9; --viz-8: #e66767;
+  --viz-other: #8a8a86;
+
   /* Status (MAL list states) */
   --st-watching: #30d158;
   --st-completed: #0a84ff;
@@ -95,7 +101,9 @@
   /* Motion (scaled by the Animation setting through --m) */
   --m: 1;
   --ease-out: cubic-bezier(.22, 1, .36, 1);
-  --ease-spring: cubic-bezier(.34, 1.56, .64, 1);
+  --ease-spring: cubic-bezier(.34, 1.3, .64, 1);
+  /* travel over long distances: settles with a ~2% overshoot, never a bounce */
+  --ease-glide: cubic-bezier(.22, 1.08, .36, 1);
   --ease-bounce: cubic-bezier(.3, 1.8, .5, 1);
   --ease-soft: cubic-bezier(.4, 0, .2, 1);
   --dur-1: calc(130ms * var(--m));
@@ -164,6 +172,9 @@
   --blue: #0a6fe0; --blue-rgb: 10, 111, 224;
   --purple: #9a3fd0; --purple-rgb: 154, 63, 208;
   --star: #c98a00;
+  --viz-1: #2a78d6; --viz-2: #eb6834; --viz-3: #1baf7a; --viz-4: #eda100;
+  --viz-5: #e87ba4; --viz-6: #008300; --viz-7: #4a3aa7; --viz-8: #e34948;
+  --viz-other: #9a978f;
   --st-watching: #1f9d3e; --st-completed: #0a6fe0; --st-plan: #7d7a74; --st-hold: #b7791f; --st-dropped: #e0352b;
 }
 

@@ -49,7 +49,7 @@ function positionNavIndicator(instant){
   if(instant){ind.style.transition='none';}
   // The lens stretches while it travels, then springs back into shape.
   var prevY=parseFloat(ind.style.getPropertyValue('--y'))||0;
-  if(!instant&&Math.abs(prevY-active.offsetTop)>4){ind.classList.add('moving');clearTimeout(ind._mv);ind._mv=setTimeout(function(){ind.classList.remove('moving');},170);}
+  if(!instant&&Math.abs(prevY-active.offsetTop)>4){ind.dataset.dir=active.offsetTop>prevY?'down':'up';ind.classList.add('moving');clearTimeout(ind._mv);ind._mv=setTimeout(function(){ind.classList.remove('moving');},170);}
   ind.style.setProperty('--y',active.offsetTop+'px');
   ind.style.height=active.offsetHeight+'px';
   if(instant){void ind.offsetWidth;ind.style.transition='';}

@@ -50,10 +50,10 @@ function sectionHtml(id){
     var langs=[['','Off'],['en','English'],['es','Spanish'],['pt','Portuguese'],['fr','French'],['de','German'],['it','Italian'],['ru','Russian'],['ar','Arabic'],['ja','Japanese']];
     h+=setRow({icon:'subtitles',color:'#ffcc4d',title:'Subtitles',desc:'Preferred and fallback subtitle tracks passed to the player.',ctrl:cfgSelect('subLangPrimary',langs,'')+cfgSelect('subLangFallback',langs,''),kw:'subtitle language slang'});
   }else if(id==='downloads'){
-    var ups=[['erai','Erai-raws — multi-sub CR WEB-DL'],['subsplease','SubsPlease — fastest, single sub'],['judas','Judas — HEVC, smaller files'],['varyg','VARYG — dual audio']];
-    h+=setRow({icon:'magnet',color:'#0a84ff',title:'Preferred release group',desc:'Used for latest-episode and auto-download searches.',ctrl:cfgSelect('nyaaUploader',ups,'erai'),kw:'nyaa uploader erai subsplease judas varyg'});
+    h+=setRow({icon:'magnet',color:'#0a84ff',title:'Release choice',desc:'Erai-raws first. When it has no matching release, the most-seeded release from any group (SubsPlease, Judas, ToonsHub…) is used.',ctrl:'<span class="tag accent">Erai-raws → most seeded</span>',kw:'nyaa uploader erai subsplease judas varyg release group seeders'});
+    h+=setRow({icon:'listCheck',color:'#0a84ff',title:'Let me pick the release',desc:'When you download from the app, show the best matches (group, seeders, size, codec) and choose one yourself. Automatic downloads still pick on their own.',ctrl:cfgSwitch('releasePicker'),kw:'choose pick release manual'});
     h+=setRow({icon:'monitor',color:'#0a84ff',title:'Quality',ctrl:seg('nyaaQ',[{v:'1080p',label:'1080p'},{v:'720p',label:'720p'},{v:'480p',label:'480p'}],S.cfg.nyaaQuality||'1080p','setNyaaQuality'),kw:'quality resolution'});
-    h+=setRow({icon:'box',color:'#0a84ff',title:'Prefer HEVC (x265)',desc:'Strongly favors HEVC releases even with fewer seeders.',ctrl:cfgSwitch('forceHevc',true),kw:'hevc x265 codec'});
+    h+=setRow({icon:'box',color:'#0a84ff',title:'Prefer HEVC (x265)',desc:'Puts a healthy HEVC release (3+ seeders) ahead of other codecs; otherwise the most-seeded release wins.',ctrl:cfgSwitch('forceHevc',true),kw:'hevc x265 codec'});
     h+=setRow({icon:'hardDrive',color:'#0a84ff',title:'Avoid oversized HEVC',desc:'When HEVC is over twice the size of the best H.264 release, let the smaller one win.',ctrl:cfgSwitch('avoidOversizedHevc'),kw:'size hevc'});
     if(!isManga()){
       h+=setRow({icon:'zap',color:'#ff9f0a',title:'Auto-download',desc:'Checks Nyaa for new episodes of series you explicitly track and hands torrents to your client.',ctrl:switchCtl(!!S.cfg.autoDownloadEnabled,'setAutoDownloadEnabled'),kw:'auto download airing'});
@@ -86,7 +86,8 @@ function sectionHtml(id){
     h+=setRow({icon:'sparkles',color:'#ffcc4d',title:'Sparkle trail',ctrl:cfgSwitch('lumaSparkles',true),kw:'sparkle trail'});
     h+=setRow({icon:'expand',color:'#ffcc4d',title:'Size & style',ctrl:seg('lumaSize',[{v:'small',label:'Small'},{v:'medium',label:'Medium'},{v:'big',label:'Big'},{v:'rainbow',label:'Rainbow'}],S.cfg.lumaSize||'medium','setLumaSize'),kw:'size rainbow'});
     h+=setRow({icon:'activity',color:'#ffcc4d',title:'Speed',ctrl:seg('lumaSpeed',[{v:'slow',label:'Slow'},{v:'normal',label:'Normal'},{v:'fast',label:'Fast'}],S.cfg.lumaSpeed||'normal','setLumaSpeed'),kw:'speed'});
-    h+=setRow({icon:'lock',color:'#ffcc4d',title:'OpenRouter key',desc:S.cfg.hasOpenrouterApiKey?'Stored encrypted with your Windows account and only used by the main process.':'Add a key from openrouter.ai/keys to chat with Luma.',ctrl:S.cfg.hasOpenrouterApiKey?'<span class="tag green">'+ic('check')+'Saved</span><button class="btn btn-ghost btn-sm"'+A('clearAiKey')+'>Remove</button>':'<button class="btn btn-secondary btn-sm"'+A('openLumaAssistant')+'>Add key</button>',kw:'openrouter api key ai assistant chat'});
+    if(S.cfg.hasGeminiApiKey)h+=setRow({icon:'lock',color:'#ffcc4d',title:'Google AI Studio key',desc:'Stored encrypted with your Windows account and only used by the main process. Luma runs on Gemini.',ctrl:'<span class="tag green">'+ic('check')+'Saved</span><button class="btn btn-ghost btn-sm"'+A('clearAiKey')+'>Remove</button>',kw:'gemini google ai studio api key ai assistant chat luma'});
+    else h+=setRow({icon:'lock',color:'#ffcc4d',title:'Google AI Studio key',desc:'Luma needs your own free key: open Google AI Studio, choose “Create API key”, then paste it here.',ctrl:aiKeyForm('settingsAiKey',true),kw:'gemini google ai studio api key ai assistant chat luma'});
   }else if(id==='system'){
     h+=setRow({icon:'cpu',color:'#8e8e93',title:'Performance mode',desc:'Turns off blur, glass and ambient effects and shortens motion — ideal for large libraries or older GPUs.',ctrl:switchCtl(!!S.cfg.performanceMode,'setPerformanceModeSw'),kw:'performance speed gpu blur'});
     h+=setRow({icon:'database',color:'#8e8e93',title:'Incremental library index',desc:'Only re-reads folders that changed since the last scan.',ctrl:'<button class="btn btn-ghost btn-sm"'+A('rebuildLibraryIndex')+'>Rebuild</button>'+cfgSwitch('incrementalScan',true),kw:'index cache scan incremental'});
@@ -104,7 +105,9 @@ function pathRow(label,id,key,ph){return setRow({block:'<div class="field"><labe
 function folderRows(key,types){
   var list=S.cfg[key]||[];var h='';
   list.forEach(function(f,i){
-    h+=setRow({block:'<div class="folder-row"><span class="tag accent cap">'+E(f.type)+'</span><div class="grow"><div class="row-title">'+E(f.label||f.type)+'</div><div class="row-sub mono ellipsis"'+Tip(f.path)+'>'+E(f.path)+'</div></div>'
+    // The category is editable in place; "Custom" folders are categorized by
+    // their name ("Movies", "Seasonal"…) when the library is scanned.
+    h+=setRow({block:'<div class="folder-row"><select class="select sm folder-type"'+On('change','setFolderType',key,i)+Tip('Category for the series in this folder')+'>'+types.map(function(t){return '<option value="'+t[0]+'"'+(t[0]===(f.type||'custom')?' selected':'')+'>'+t[1]+'</option>';}).join('')+'</select><div class="grow"><div class="row-title">'+E(f.label||f.type)+'</div><div class="row-sub mono ellipsis"'+Tip(f.path)+'>'+E(f.path)+'</div></div>'
       +'<button class="icon-btn sm plain"'+A('moveFolder',i,-1,key==='mangaFolders')+(i===0?' disabled':'')+Tip('Move up')+'>'+ic('arrowUp')+'</button><button class="icon-btn sm plain"'+A('moveFolder',i,1,key==='mangaFolders')+(i===list.length-1?' disabled':'')+Tip('Move down')+'>'+ic('arrowDown')+'</button>'
       +'<button class="icon-btn sm plain"'+A('openFolderPath',f.path)+Tip('Open')+'>'+ic('folderOpen')+'</button><button class="icon-btn sm danger"'+A('removeFolder',key,i)+Tip('Remove')+'>'+ic('trash')+'</button></div>',kw:'folder path library '+f.label+' '+f.path});
   });
@@ -177,6 +180,10 @@ act('addFolderFrom',function(el,ev,key,p){
   label=label||type.charAt(0).toUpperCase()+type.slice(1);
   S.cfg[key].push({path:path,label:label,type:type});
   return afterFoldersChanged(key,'Added '+label);
+});
+act('setFolderType',function(el,ev,key,i){
+  var f=(S.cfg[key]||[])[i];if(!f||!el||!el.value)return;
+  f.type=el.value;return afterFoldersChanged(key,'Category set to '+el.options[el.selectedIndex].text);
 });
 act('removeFolder',async function(el,ev,key,i){
   var f=(S.cfg[key]||[])[i];if(!f)return;

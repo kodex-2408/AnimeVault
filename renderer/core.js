@@ -371,13 +371,13 @@ function updateSegThumbs(root){
     var x=active.offsetLeft,w=active.offsetWidth,id=seg.getAttribute('data-seg');
     var prev=id?_segPos[id]:null;
     if(prev&&!seg._segInit&&(prev.x!==x||prev.w!==w)){
-      thumb.style.transition='none';thumb.style.transform='translateX('+prev.x+'px)';thumb.style.width=prev.w+'px';
+      thumb.style.transition='none';thumb.style.translate=prev.x+'px 0';thumb.style.width=prev.w+'px';
       void thumb.offsetWidth;thumb.style.transition='';
     }
     var from=prev?prev.x:x;
     seg._segInit=true;
     if(Math.abs(from-x)>4){thumb.classList.add('moving');clearTimeout(thumb._mv);thumb._mv=setTimeout(function(){thumb.classList.remove('moving');},150);}
-    thumb.style.transform='translateX('+x+'px)';thumb.style.width=w+'px';
+    thumb.style.translate=x+'px 0';thumb.style.width=w+'px';
     if(id)_segPos[id]={x:x,w:w};
   });
 }
@@ -426,7 +426,9 @@ function plural(n,word,pl){return n+' '+(n===1?word:(pl||word+'s'));}
 function nodeKey(s){return btoa(unescape(encodeURIComponent(String(s)))).replace(/[=+/]/g,'_');}
 function sleep(ms){return new Promise(function(r){setTimeout(r,ms);});}
 function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
-function coverSrc(p){return p?'cover://'+encodeURIComponent(p):'';}
+// cover:// URL for a cached image. The version (file mtime) makes a replaced
+// cover a new URL — Chromium's image cache ignores #fragments, not ?queries.
+function coverSrc(p,v){return p?'cover://'+encodeURIComponent(p)+(v?'?v='+encodeURIComponent(v):''):'';}
 function cssUrl(u){return String(u||'').replace(/["\\\n\r()]/g,function(c){return '\\'+c;});}
 
 // ------------------------------------------------------- symmetric grids --

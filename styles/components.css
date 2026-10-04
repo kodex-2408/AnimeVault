@@ -138,9 +138,9 @@
   background: linear-gradient(180deg, rgba(255,255,255,.2), rgba(255,255,255,.07)), color-mix(in srgb, var(--surface-3) 70%, transparent);
   box-shadow: var(--lens-glow), 0 2px 8px -2px rgba(0,0,0,.35);
   scale: 1 1;
-  transition: transform calc(480ms * var(--m)) var(--ease-spring), width calc(480ms * var(--m)) var(--ease-spring), scale calc(260ms * var(--m)) var(--ease-out);
+  transition: translate calc(440ms * var(--m)) var(--ease-glide), width calc(440ms * var(--m)) var(--ease-glide), scale calc(240ms * var(--m)) var(--ease-out);
 }
-.seg .seg-thumb.moving { scale: 1.1 .9; transition: transform calc(480ms * var(--m)) var(--ease-spring), width calc(480ms * var(--m)) var(--ease-spring), scale calc(140ms * var(--m)) var(--ease-soft); }
+.seg .seg-thumb.moving { scale: 1.06 .92; transition: translate calc(440ms * var(--m)) var(--ease-glide), width calc(440ms * var(--m)) var(--ease-glide), scale calc(130ms * var(--m)) var(--ease-soft); }
 :root.light .seg .seg-thumb { background: linear-gradient(180deg, #fff, rgba(255,255,255,.86)); box-shadow: var(--lens-glow), 0 2px 8px -2px rgba(40,30,10,.22), 0 0 0 .5px rgba(20,16,8,.06); }
 .seg.accent .seg-thumb { background: linear-gradient(180deg, rgba(255,255,255,.28), rgba(255,255,255,0) 55%), linear-gradient(180deg, var(--accent-strong), var(--accent)); box-shadow: 0 3px 12px -2px var(--accent-glow); }
 .seg.accent > button.active { color: var(--on-accent); }
@@ -434,6 +434,7 @@ input[type="color"].color::-webkit-color-swatch { border: 0; border-radius: 50%;
 .kpi-value { font-family: var(--font-display); font-size: 28px; font-weight: 750; letter-spacing: -.8px; margin-top: 8px; line-height: 1; }
 .kpi-sub { font-size: 11.5px; color: var(--text-3); margin-top: 6px; }
 .kpi .progress { margin-top: 10px; }
+.kpi .progress > i { background: linear-gradient(180deg, rgba(255,255,255,.3), rgba(255,255,255,0) 60%), var(--kc, var(--accent)); box-shadow: 0 0 8px -2px var(--kc, var(--accent)); }
 .kpi.clickable { cursor: pointer; transition: transform var(--dur-3) var(--ease-spring), box-shadow var(--dur-3); }
 .kpi.clickable:hover { transform: translateY(-2px); box-shadow: inset 0 0 0 1px var(--hairline-strong), var(--shadow-2); }
 .kpi.active { box-shadow: inset 0 0 0 1.5px var(--accent), 0 6px 22px -6px var(--accent-glow); }

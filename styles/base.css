@@ -176,10 +176,15 @@ body:has(.app.sidebar-collapsed) .titlebar::before { left: calc(var(--rail-w) + 
   position: absolute; left: 10px; right: 10px; height: 36px; top: 0; z-index: 0; border-radius: 12px; pointer-events: none;
   background: linear-gradient(180deg, rgba(var(--accent-rgb), .2), rgba(var(--accent-rgb), .12));
   box-shadow: var(--lens-glow), inset 0 0 0 1px rgba(var(--accent-rgb), .2), 0 4px 14px -6px rgba(var(--accent-rgb), .45);
-  transform: translateY(var(--y, 0)); scale: 1 1;
-  transition: transform calc(520ms * var(--m)) var(--ease-spring), scale calc(300ms * var(--m)) var(--ease-out), opacity var(--dur-2);
+  /* Position uses the translate property, not transform: individual
+     transform properties apply scale before translate, so the stretch stays
+     centered on the lens instead of multiplying its travel distance. */
+  translate: 0 var(--y, 0); scale: 1 1; transform-origin: 50% 50%;
+  transition: translate calc(460ms * var(--m)) var(--ease-glide), scale calc(280ms * var(--m)) var(--ease-out), opacity var(--dur-2);
 }
-.nav-indicator.moving { scale: .96 1.22; transition: transform calc(520ms * var(--m)) var(--ease-spring), scale calc(160ms * var(--m)) var(--ease-soft), opacity var(--dur-2); }
+.nav-indicator.moving { scale: .97 1.14; transition: translate calc(460ms * var(--m)) var(--ease-glide), scale calc(150ms * var(--m)) var(--ease-soft), opacity var(--dur-2); }
+.nav-indicator.moving[data-dir="down"] { transform-origin: 50% 0; }
+.nav-indicator.moving[data-dir="up"] { transform-origin: 50% 100%; }
 .nav-indicator::before { content: ''; position: absolute; left: -1px; top: 11px; bottom: 11px; width: 3px; border-radius: 3px; background: var(--accent); box-shadow: 0 0 10px var(--accent-glow); }
 :root.light .nav-indicator { background: linear-gradient(180deg, rgba(255,255,255,.85), rgba(255,255,255,.55)); box-shadow: var(--lens-glow), inset 0 0 0 1px rgba(var(--accent-rgb), .22), 0 6px 18px -8px rgba(var(--accent-rgb), .5), 0 1px 3px rgba(40,30,10,.08); }
 

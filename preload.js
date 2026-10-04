@@ -88,12 +88,14 @@ contextBridge.exposeInMainWorld('api', {
   malGetUserList: (status, limit, offset) => invoke('mal:getUserList', status, limit, offset),
   malGetStatusCounts: () => invoke('mal:getStatusCounts'),
   malGetSyncLog: () => invoke('mal:getSyncLog'),
+  malPullListStatuses: () => invoke('mal:pullListStatuses'),
   malClearSyncLog: () => invoke('mal:clearSyncLog'),
 
   // Nyaa
   nyaaSearch: (query) => invoke('nyaa:search', query),
-  nyaaAutoDownload: (seriesTitle, quality, preferredUploader, epNum, mode) =>
-    invoke('nyaa:autoDownload', seriesTitle, quality, preferredUploader, epNum, mode),
+  nyaaAutoDownload: (seriesTitle, quality, preferredUploader, epNum, mode, options) =>
+    invoke('nyaa:autoDownload', seriesTitle, quality, preferredUploader, epNum, mode, options),
+  nyaaDownloadChoice: (token, index) => invoke('nyaa:downloadChoice', token, index),
   autoDownloadLatestEpisode: (seriesName, malId) => invoke('autoDownload:latestEpisode', seriesName, malId),
 
   // Auto-download watchlist
@@ -150,7 +152,7 @@ contextBridge.exposeInMainWorld('api', {
   onDuplicateShowModal: (cb) => on('duplicate:showModal', cb),
   onDuplicateResolved: (cb) => on('duplicate:resolved', cb),
 
-  // AI assistant (OpenRouter)
+  // AI assistant (Google Gemini, user’s own AI Studio key)
   aiGetStatus: () => invoke('ai:getStatus'),
   aiSetKey: (key) => invoke('ai:setKey', key),
   aiClearKey: () => invoke('ai:clearKey'),

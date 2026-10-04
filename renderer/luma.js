@@ -1,6 +1,7 @@
-/* AnimeVault renderer — Luma: AI chat dock (OpenRouter via main process) and the floating mascot. */
+/* AnimeVault renderer — Luma: AI chat dock (Google Gemini with the user's own AI Studio key, via the main process) and the floating mascot. */
 
-var LUMA_MODEL='google/gemini-3.5-flash-lite';
+var LUMA_MODEL='gemini-flash-latest';
+var AI_KEY_PAGE='https://aistudio.google.com/apikey';
 function lumaActionButton(act2,tgt,ext){
   var label='Open',icon='arrowRight';
   if(act2==='nav'){
@@ -64,16 +65,15 @@ function renderLumaDock(){
     dock.addEventListener('mousedown',function(e){if(e.target.closest('.luma-head')&&!e.target.closest('button'))startLumaDockDrag(e);});
   }
   dock.classList.toggle('minimized',!!S.ai.dockMinimized);
-  var hasKey=S.cfg.hasOpenrouterApiKey;
+  var hasKey=S.cfg.hasGeminiApiKey;
   var h='<div class="luma-head"'+(S.ai.dockMinimized?A('minimizeLumaAssistant'):'')+'><img src="luma/luma-front.png" alt=""><div class="grow"><div class="luma-name">Luma</div><div class="luma-status">'+(S.ai.busy?'Thinking…':hasKey?'Ready to help':'Needs a key')+'</div></div>'
     +(hasKey&&!S.ai.dockMinimized?'<button class="icon-btn sm plain"'+A('clearAiConversation')+Tip('New conversation')+'>'+ic('refresh')+'</button>':'')
     +'<button class="icon-btn sm plain"'+A('minimizeLumaAssistant')+Tip(S.ai.dockMinimized?'Expand':'Minimize')+'>'+ic(S.ai.dockMinimized?'chevronUp':'minus')+'</button>'
     +'<button class="icon-btn sm plain"'+A('closeLumaAssistant')+Tip('Close')+'>'+ic('x')+'</button></div>';
   if(!S.ai.dockMinimized){
     if(!hasKey){
-      h+='<div class="luma-body luma-setup"><img src="luma/luma-front.png" alt="" class="luma-hero"><div class="empty-title">Wake Luma ✨</div><div class="empty-text">Add an OpenRouter key to chat about your library from anywhere in the app. It’s encrypted with your Windows account and never leaves the main process.</div>'
-        +'<input class="input mono" id="lumaDockKey" type="password" placeholder="sk-or-v1-…" autocomplete="off"'+On('enter','saveAiKey')+'><button class="btn btn-primary btn-block"'+A('saveAiKey')+'>Connect</button>'
-        +'<button class="btn btn-ghost btn-sm"'+A('openUrl','https://openrouter.ai/keys')+'>'+ic('external')+'Get a key</button></div>';
+      h+='<div class="luma-body luma-setup"><img src="luma/luma-front.png" alt="" class="luma-hero"><div class="empty-title">Wake Luma ✨</div><div class="empty-text">Luma runs on Google Gemini with your own free Google AI Studio key. It’s encrypted with your Windows account and never leaves the main process.</div>'
+        +aiKeyForm('lumaDockKey')+'</div>';
     }else{
       h+='<div class="luma-body" id="lumaDockMsgs"></div><div class="luma-foot"><div class="luma-input"><input id="lumaDockInput" placeholder="Ask Luma anything…" autocomplete="off"'+On('enter','sendAi')+'>'
         +'<button class="luma-send" id="lumaDockSendBtn"'+A('sendAi')+(S.ai.busy?' style="display:none"':'')+' aria-label="Send">'+ic('send')+'</button><button class="luma-stop" id="lumaDockStopBtn"'+A('stopAi')+(S.ai.busy?'':' style="display:none"')+' aria-label="Stop">'+ic('stop')+'</button></div></div>';
@@ -120,28 +120,35 @@ function stopLumaDockDrag(){_lumaDrag=null;var d=document.getElementById('lumaAs
 
 function setBusyUi(busy){var s=document.getElementById('lumaDockSendBtn'),t=document.getElementById('lumaDockStopBtn');if(s)s.style.display=busy?'none':'';if(t)t.style.display=busy?'':'none';var st=document.querySelector('.luma-status');if(st)st.textContent=busy?'Thinking…':'Ready to help';}
 function clearAiConversation(){if(S.ai.busy){try{api.aiStop();}catch(e){}S.ai.busy=false;}S.ai.msgs=[];S._aiPartial='';renderAiMsgs();setBusyUi(false);}
-function saveAiKey(){
-  var el=document.getElementById('lumaDockKey');var k=el?el.value.trim():'';
-  if(!k){toast('Paste your OpenRouter key first','e');return;}
-  if(k.indexOf('sk-or-')!==0){toast('OpenRouter keys start with sk-or-','e');return;}
+// Key entry used by the Luma dock, Settings and the setup wizard. The key is
+// free: Google AI Studio → "Create API key".
+function aiKeyForm(inputId,compact){
+  return '<div class="ai-key-form'+(compact?' compact':'')+'"><input class="input mono" id="'+inputId+'" type="password" placeholder="AIza…" autocomplete="off" spellcheck="false"'+On('enter','saveAiKey',inputId)+'>'
+    +'<button class="btn btn-primary'+(compact?'':' btn-block')+'"'+A('saveAiKey',inputId)+'>'+ic('sparkles')+'Save key</button>'
+    +'<button class="btn btn-ghost btn-sm"'+A('openUrl',AI_KEY_PAGE)+'>'+ic('external')+'Get a free key at Google AI Studio</button></div>';
+}
+function saveAiKey(inputId){
+  var el=document.getElementById(typeof inputId==='string'&&inputId?inputId:'lumaDockKey');var k=el?el.value.trim():'';
+  if(!k){toast('Paste your Google AI Studio key first','e');return;}
+  if(!/^[A-Za-z0-9_-]{20,128}$/.test(k)){toast('That doesn’t look like a Google AI Studio key (they usually start with AIza)','e');return;}
   api.aiSetKey(k).then(function(){return api.getConfig();}).then(function(c){S.cfg=c;toast('Key saved — Luma is ready ✨','s');renderLumaDock();if(S.view==='settings')render();}).catch(function(e){toast('Saving the key failed: '+(e.message||e),'e');});
 }
 async function clearAiKey(){
-  if(!await askConfirm({title:'Remove the OpenRouter key?',text:'Luma won’t be able to answer until you add a key again.',confirm:'Remove',danger:true,icon:'lock'}))return;
+  if(!await askConfirm({title:'Remove the Google AI Studio key?',text:'Luma won’t be able to answer until you add a key again.',confirm:'Remove',danger:true,icon:'lock'}))return;
   await api.aiClearKey();S.cfg=await api.getConfig();S.ai.msgs=[];toast('Key removed','i');if(S.ai.dockOpen)renderLumaDock();if(S.view==='settings')render();
 }
 function finishAiTurn(){var p=stripThinkingTags(S._aiPartial||'').trim();if(p)S.ai.msgs.push({role:'assistant',content:p});S._aiPartial='';S.ai.busy=false;renderAiMsgs();setBusyUi(false);}
 function handleAiError(msg){
   S.ai.busy=false;S._aiPartial='';
-  S.ai.msgs.push({role:'assistant',content:'Aw, stardust — I couldn’t get a response:\n`'+String(msg||'Unknown error').slice(0,300)+'`\n\nCheck your OpenRouter key and credits, then try again.'});
+  S.ai.msgs.push({role:'assistant',content:'Aw, stardust — I couldn’t get a response:\n`'+String(msg||'Unknown error').slice(0,300)+'`\n\nCheck your Google AI Studio key (and its free-tier limits), then try again.'});
   renderAiMsgs();setBusyUi(false);
 }
 async function sendAi(){
   if(S.ai.busy)return;
-  if(!S.cfg.hasOpenrouterApiKey){toast('Add your OpenRouter key first','e');openLumaAssistant();return;}
+  if(!S.cfg.hasGeminiApiKey){toast('Add your Google AI Studio key first','e');openLumaAssistant();return;}
   var inp=document.getElementById('lumaDockInput');var q=inp?inp.value.trim():'';if(!q)return;inp.value='';
   S.ai.msgs.push({role:'user',content:q});S.ai.busy=true;S._aiPartial='';renderAiMsgs();setBusyUi(true);
-  if(S.cfg.openrouterModel!==LUMA_MODEL){S.cfg.openrouterModel=LUMA_MODEL;api.aiSetModel(LUMA_MODEL);}
+  if(S.cfg.geminiModel!==LUMA_MODEL){S.cfg.geminiModel=LUMA_MODEL;api.aiSetModel(LUMA_MODEL);}
   var msgs=(S.ai.msgs||[]).filter(function(m){return m&&typeof m.content==='string'&&m.content.trim();}).slice(-16);
   var r=await api.aiSend([{role:'system',content:buildAiSystem()}].concat(msgs),LUMA_MODEL,{webSearch:!!S.ai.webSearch});
   if(r&&!r.ok)handleAiError(r.error||'Failed to get a response');

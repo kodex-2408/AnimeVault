@@ -91,4 +91,28 @@ const staleSameIdentity = {
 assert.strictEqual(search.reconcileTrackingCursor(staleSameIdentity, [1, 2], 3).nextEpisode, 3,
   'a stale same-identity counter above the verified ceiling must be clamped immediately');
 
+// ---- 5.1 release choice: Erai-raws first, otherwise the most-seeded release ----
+const rel = (title, seeders, size) => ({ title, seeders, size: size || '350 MiB', pubDate: '2026-10-01T00:00:00Z' });
+const pool = [
+  rel('[SubsPlease] Dandadan - 05 (1080p) [AB12CD34].mkv', 900),
+  rel('[ToonsHub] Dandadan S01E05 1080p WEB-DL AAC2.0 H.264.mkv', 1500),
+  rel('[Erai-raws] Dandadan - 05 [1080p][HEVC][Multiple Subtitle].mkv', 40),
+  rel('[Judas] Dandadan - 05 (1080p) [HEVC x265 10bit].mkv', 300),
+];
+const withCfg = (cfg, fn) => { search.setDeps({ config: cfg }); return fn(); };
+assert(/^\[Erai-raws\]/.test(withCfg({ forceHevc: true }, () => search.rankReleases(pool)[0].title)), 'Erai-raws always wins when it has a valid release');
+assert(/^\[ToonsHub\]/.test(withCfg({ forceHevc: false }, () => search.rankReleases(pool.filter(r => !/Erai/.test(r.title)))[0].title)), 'without Erai-raws, the most-seeded release from any group wins');
+assert(/^\[Judas\]/.test(withCfg({ forceHevc: true }, () => search.rankReleases(pool.filter(r => !/Erai/.test(r.title)))[0].title)), '"Prefer HEVC" puts a healthy HEVC release first');
+assert(/^\[ToonsHub\]/.test(withCfg({ forceHevc: true }, () => search.rankReleases([rel('[Judas] Dandadan - 05 [HEVC]', 1), pool[1]])[0].title)), 'an HEVC release with fewer than 3 seeders gets no preference');
+const bigHevc = [rel('[Judas] Dandadan - 05 [HEVC]', 150, '2.1 GiB'), rel('[ToonsHub] Dandadan S01E05 1080p H.264', 200, '700 MiB')];
+assert(/^\[Judas\]/.test(withCfg({ forceHevc: true }, () => search.rankReleases(bigHevc)[0].title)), 'HEVC preference applies regardless of size by default');
+assert(/^\[ToonsHub\]/.test(withCfg({ forceHevc: true, avoidOversizedHevc: true }, () => search.rankReleases(bigHevc)[0].title)), 'an oversized HEVC loses its codec preference, so seeders decide');
+const batches = [rel('[Erai-raws] Frieren - 28 [1080p][HEVC]', 50), rel('[Judas] Frieren (Season 1) [1080p][HEVC x265][Batch]', 800), rel('[SubsPlease] Frieren (01-28) (1080p) [Batch]', 400)];
+assert(/Batch/.test(withCfg({ forceHevc: false }, () => search.rankReleases(batches, { batch: true })[0].title)), 'full-series downloads rank batches ahead of single episodes');
+assert.strictEqual(withCfg({ forceHevc: false }, () => search.rankReleases(batches, { batch: true })[0].title), batches[1].title, 'among batches, the most seeded wins when Erai-raws has none');
+assert.strictEqual(search.isBatchRelease(rel('[SubsPlease] Show S2 - 05 (1080p)')), false, '"S2 - 05" is an episode, not a range');
+assert.strictEqual(search.isBatchRelease(rel('[Erai-raws] Show - 01 ~ 12 [1080p]')), true);
+const desc = withCfg({}, () => search.describeRelease(pool[2]));
+assert.deepStrictEqual([desc.group, desc.codec, desc.resolution, desc.preferred], ['Erai-raws', 'HEVC', '1080p', true]);
+
 console.log('search-matching regression tests passed');
