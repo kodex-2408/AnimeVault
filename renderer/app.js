@@ -169,9 +169,11 @@ function uMal(){
   }else{chip.dataset.state='off';t.textContent='Connect MAL';chip.setAttribute('data-tip','MyAnimeList isn’t connected — click to set it up');}
 }
 function uSyncBadge(){uMal();}
+Store.subscribe(['mal','cfg'],uMal);
+Store.subscribe(['pendingNewSeries','activities'],updateNavBadges);
 function toggleSync(){
   if(!S.mal){go('mal');return;}
-  S.cfg.syncPaused=!S.cfg.syncPaused;api.setConfig('syncPaused',S.cfg.syncPaused);uMal();
+  S.cfg.syncPaused=!S.cfg.syncPaused;api.setConfig('syncPaused',S.cfg.syncPaused);Store.notify('cfg');
   toast(S.cfg.syncPaused?'MAL sync paused':'MAL sync resumed','i');
   if(S.view==='mal')render();
 }

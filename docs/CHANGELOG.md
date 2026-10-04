@@ -45,6 +45,18 @@ posture, design decisions, open roadmap — lives in [DEVELOPMENT.md](DEVELOPMEN
 - Stats has color: fixed colors per format and category, a color per chart,
   colored KPI icons, and month labels that no longer collide.
 
+### Under the hood
+- `main.js` (4,470 lines) is split into focused modules under `main/` (config,
+  scanner, players, services, window, ipc). Behavior is unchanged; a packaging
+  test now checks every module ships with the app.
+- Renderer state `S` is a small reactive store (`Store.subscribe` /
+  `Store.notify`), so the MAL chip and sidebar badges always follow the state —
+  the Library Hub count now drops the moment an item is handled.
+- The build scripts no longer leave a stray `]` file in the project folder
+  (an unescaped `>>` in an `echo`).
+- Removed the `build-mobile` / `build-apk` scripts and `BUILD-APK.bat`: the
+  `mobile/` project they called is not part of 5.x.
+
 ## 5.1.0 — Refined glass, hardened core
 
 ### Design

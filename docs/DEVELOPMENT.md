@@ -10,23 +10,30 @@ User-facing release history lives in [CHANGELOG.md](CHANGELOG.md).
 
 | File | Role |
 |---|---|
-| `main.js` | Electron main process: IPC handlers, library scanning, watch history, MAL API client, Nyaa search/download handoff, file watcher, duplicates, cover:// protocol, config persistence |
+| `main.js` | Main-process entry only: startup log, sandbox, `cover://` registration, `registerHandlers()`, app lifecycle and the single-instance lock |
+| `main/state.js` | The settings object `config` (loaded in place, never reassigned) and `state` — runtime handles shared across modules (`mainWindow`, `tray`, `isQuitting`, library cache). Always `state.mainWindow`, never a local copy |
+| `main/config/` | `config.js` (config.json load/save, shrink guard, backups, Gemini key, watch-history helpers, `config:*`), `security.js` (path containment, validators), `backup.js` (export/import, backup/restore) |
+| `main/scanner/` | `parsers.js` (filenames), `library.js` (layout, scan, index, `library:*`), `history.js` (`watch:*`), `organizer.js` (`manager:*`), `watcher.js`, `duplicates.js` |
+| `main/players/` | `player.js` (launch, auto-mark poller, thumbnails, manga reader), `mpv.js`, `vlc.js` |
+| `main/services/` | `covers.js`, `anilist.js`, `mal.js`, `nyaa.js`, `downloads.js` (auto-download wiring), `ai.js` (Luma handlers) |
+| `main/window/` | `window.js` (window + `window:*`), `tray.js`, `protocol.js` (`cover://` handler) |
+| `main/ipc/` | `registerHandlers.js` calls every module's `register()` (where its `ipcMain.handle` calls live); `system.js` holds dialog/shell handlers |
 | `preload.js` | `contextBridge` API surface (`window.api`) — every renderer capability is an explicit channel here |
 | `autoDownload.js` | Electron-free module: Nyaa RSS/HTML search, release scoring, title matching, tracking-ledger reconciliation. Required directly by tests |
 | `gemini.js` | Electron-free module: streaming Google Gemini client for Luma, using the user's own free AI Studio key (SSE from main process; the renderer never sees the key or the network). Required directly by tests |
 | `index.html` | App shell only: titlebar, sidebar, overlay hosts, strict CSP, and the ordered `<script src>` list. No inline code |
 | `theme-boot.js` | Applies the cached theme before first paint (no flash of the wrong theme) |
 | `styles/` | `tokens.css` (colors, glass, shadows, radii, motion) → `base.css` (shell, sidebar, titlebar) → `components.css` (buttons, cards, menus, modals…) → `views.css` (per-page layouts) |
-| `renderer/core.js` | State `S`, escapers `E()`/`A()`/`On()`/`Tip()`, the delegated action dispatcher, icons, toasts, promise dialogs, menus, tooltips, segmented controls |
+| `renderer/core.js` | State `S` (a small reactive store: `Store.subscribe` / `Store.notify` / `Store.set`), escapers `E()`/`A()`/`On()`/`Tip()`, the delegated action dispatcher, icons, toasts, promise dialogs, menus, tooltips, segmented controls |
 | `renderer/helpers.js` | Pure logic: parsers, MAL/status helpers, title matching, schedule math, analyzers |
 | `renderer/data.js` | Library/MAL/download data layer and sync queues |
 | `renderer/app.js` | Navigation, sidebar, routing, shortcuts, command palette |
 | `renderer/<view>.js` | One file per area: `library`, `detail`, `explore`, `schedule`, `stats`, `hub`, `filemgmt`, `mal`, `settings`, `appearance`, `luma`, `setup`; `bootstrap.js` runs last |
-| `tests/` | Nine Node suites, no Electron or network needed (`npm test`); `source-extract.js` is the shared function extractor |
+| `tests/` | Ten Node suites, no Electron or network needed (`npm test`); `source-extract.js` is the shared function extractor, `main-source.js` concatenates `main.js` + `main/**` for extraction |
 
 Runtime split matters for testing: anything pure lives in `autoDownload.js` and is
 requireable; everything touching Electron/IPC/DOM is tested by *extracting real
-function source* out of `main.js` and the renderer scripts (loaded in order by `tests/renderer-source.js`) and running it in a `vm` sandbox
+function source* out of the main-process files and the renderer scripts (loaded in order by `tests/renderer-source.js`) and running it in a `vm` sandbox
 (see below) or via source-text invariant assertions.
 
 ---
@@ -59,11 +66,12 @@ Run everything with `npm test`; each file is standalone `node tests/<file>`.
 | `auto-download-state.test.js` | Requires `../autoDownload` | Handoff trust windows, cursor reconciliation/fallback, legacy baseline migration |
 | `security-and-parsers.test.js` | Generalized source-extraction + invariants | See next section |
 | `library-layout.test.js` | Real helpers from `main.js` in `vm` against a temp tree | Category inference, category containers, season-aware folder matching, scene-style names, sequel cover matching |
+| `renderer-store.test.js` | Real `Store`/`S` from `core.js` in `vm` | Plain reads/writes, batched per-key notifications, `Store.notify` for in-place changes, subscriber isolation, unsubscribe |
 | `filesystem-safety.test.js` | Real path helpers and File Management handlers from `main.js`, run in `vm` against a temp folder tree | Symlink/junction containment, forbidden roots, safe names, no-clobber moves, Ungroup scope, organizer result contract and undo, renderer config-write validation |
 
 ### How source extraction works
 
-Functions that cannot be `require()`d (they live in `main.js` / `renderer/*.js`
+Functions that cannot be `require()`d (they live in `main.js` / `main/**` / `renderer/*.js`
 behind Electron imports) are pulled out of the actual source text by a small
 lexer-aware brace scanner and executed inside a `vm.createContext` sandbox with
 stub dependencies (`path`, label helpers, mode flags). This tests the *shipped*
@@ -239,9 +247,30 @@ recorded loss event (2026-08-22) had an off-screen cause that was never identifi
   and sticky children use `top: 0` (Chromium measures sticky offsets from the
   scroller's padding edge). Use `chromeTop()` when comparing positions.
 
+## Main-process modules (5.2)
+
+- A module keeps declarations at the top level and its `ipcMain.handle` /
+  `app.on` calls inside `register()`. Nothing is wired until
+  `main/ipc/registerHandlers.js` runs, once, from `main.js`.
+- Dependencies point one way (config → scanner/services → window → entry); no
+  require cycles, so imports are plain destructuring. The packaging test fails if
+  a local `require` points at a file `build.files` would not ship.
+- Values several modules assign (`mainWindow`, `tray`, `isQuitting`, the library
+  cache) live on `state`; a module-private `let` stays in its module.
+- Paths to app files use `APP_ROOT` from `main/state.js`, not `__dirname`.
+
+## Renderer state (5.2)
+
+`S` is still one plain-looking object, but it is a proxy: assigning a top-level
+key publishes it to subscribers once per microtask. Use it for UI that must
+follow state wherever it changes (the MAL chip follows `mal`/`cfg`; nav badges
+follow `pendingNewSeries`/`activities`). Mutations inside a value
+(`S.lib.push`, `S.cfg.x = y`) are not seen — call `Store.notify('key')`.
+
 ## Open work (priority order)
 
 1. qBittorrent WebUI integration (true download-progress loop).
 2. Signed NSIS + `electron-updater` release channel.
-3. Mobile build (`mobile/scripts/build-www.js`) still expects the 4.x single-file
-   renderer; port it to copy `renderer/`, `styles/` and `theme-boot.js`.
+3. Mobile build: the 4.x `mobile/` project is not part of 5.x, so the
+   `build-mobile`/`build-apk` scripts and `BUILD-APK.bat` were removed. A port
+   would copy `renderer/`, `styles/` and `theme-boot.js` into a Capacitor shell.

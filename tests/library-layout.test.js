@@ -18,7 +18,7 @@ const path = require('path');
 const vm = require('vm');
 const { extractFunction } = require('./source-extract');
 
-const mainSrc = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8');
+const mainSrc = require('./main-source').readMainSource();
 let checks = 0;
 const fn = (name) => { const c = extractFunction(mainSrc, name); assert(c, 'could not extract ' + name); return c; };
 const constBlock = (name) => { const m = mainSrc.match(new RegExp('^const ' + name + ' = [\\s\\S]*?;$', 'm')); assert(m, 'could not extract const ' + name); return m[0]; };

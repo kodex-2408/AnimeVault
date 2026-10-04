@@ -7,7 +7,7 @@ const vm = require('vm');
 
 const root = path.join(__dirname, '..');
 const html = require('./renderer-source').combined;
-const main = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
+const main = require('./main-source').readMainSource();
 
 // 1. Startup backfill must be scheduled through the deferred maintenance pass
 // after the initial library scan and render have completed.

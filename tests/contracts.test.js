@@ -7,7 +7,7 @@ const vm = require('vm');
 
 const root = path.join(__dirname, '..');
 const preload = fs.readFileSync(path.join(root, 'preload.js'), 'utf8');
-const main = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
+const main = require('./main-source').readMainSource();
 const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 const lock = JSON.parse(fs.readFileSync(path.join(root, 'package-lock.json'), 'utf8'));

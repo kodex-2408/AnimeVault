@@ -18,12 +18,12 @@ const path = require('path');
 const vm = require('vm');
 const { extractFunction } = require('./source-extract');
 
-const mainSrc = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8');
+const mainSrc = require('./main-source').readMainSource();
 let checks = 0;
 
 function fn(name) {
   const code = extractFunction(mainSrc, name);
-  assert(code, 'could not extract ' + name + ' from main.js');
+  assert(code, 'could not extract ' + name + ' from the main process source');
   return code;
 }
 function constLine(name) {
@@ -62,7 +62,9 @@ const code = [
     'validateRendererConfigValue', 'assertPlayableMedia', 'getVideoFiles', 'getMangaFiles',
     'cleanTitle', 'cleanFolderName', 'detectResolution', 'stripReleaseMetadata', 'extractSeriesName',
     'parseVideoFilename', 'parseMangaFilename', 'parseEpisodeNumber', 'parseChapterNumber'].map(fn),
-  between('// ---- Organizer undo log', "ipcMain.handle('manager:hasUndo'"),
+  // main/scanner/organizer.js from its undo log helpers through register()
+  between('// ---- Organizer undo log', 'module.exports'),
+  'register();',
 ].join('\n\n');
 vm.runInContext(code, ctx, { filename: 'main.js (extracted)' });
 const run = (src) => vm.runInContext(src, ctx);
