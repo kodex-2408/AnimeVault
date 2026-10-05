@@ -275,6 +275,11 @@ assert.strictEqual(gemini.validateMessages('nope'), false); checks++;
 assert.strictEqual(gemini.validateMessages(new Array(50).fill({ role: 'user', content: 'x' })), false); checks++;
 assert.strictEqual(gemini.isPlausibleKey('AIzaSyD-abcdefghijklmnopqrstuvwxyz0123'), true); checks++;
 assert.strictEqual(gemini.isPlausibleKey('sk or v1 spaces'), false); checks++;
+assert.strictEqual(gemini.isPlausibleKey('AQ.Ab8RN6LxYz-abc_DEF.ghi0123456789jklmn'), true, 'newer AI Studio key formats are accepted'); checks++;
+assert.strictEqual(gemini.isPlausibleKey('short'), false); checks++;
+assert.strictEqual(gemini.isPlausibleKey('AIzaSyD-abc\r\nX-Evil: 1abcdefghijk'), false, 'no header injection'); checks++;
+assert.strictEqual(gemini.normalizeKey('  "AQ.Ab8RN6LxYz-abc_DEF.ghi0123456789"  '), 'AQ.Ab8RN6LxYz-abc_DEF.ghi0123456789'); checks++;
+assert.strictEqual(gemini.normalizeKey('GEMINI_API_KEY=AIzaSyD-abcdefghijklmnopqrstuvwxyz0123'), 'AIzaSyD-abcdefghijklmnopqrstuvwxyz0123'); checks++;
 // model ids become a URL path segment: anything odd falls back to the default
 assert.strictEqual(gemini.safeModelId('gemini-2.5-flash'), 'gemini-2.5-flash'); checks++;
 assert.strictEqual(gemini.safeModelId('models/gemini-flash-latest'), 'gemini-flash-latest'); checks++;

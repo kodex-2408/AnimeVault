@@ -41,9 +41,19 @@ function validateMessages(messages) {
   return true;
 }
 
-// AI Studio keys look like "AIza…" (39 chars); accept any plausible token.
+// AI Studio keys come in more than one format: classic "AIza…" keys and
+// newer ones with other prefixes and dots (e.g. "AQ.…"). Accept any single
+// token of printable ASCII; Google itself decides whether it works.
 function isPlausibleKey(key) {
-  return typeof key === 'string' && /^[A-Za-z0-9_-]{20,128}$/.test(key);
+  return typeof key === 'string' && /^[\x21-\x7e]{20,256}$/.test(key) && !/["'`]/.test(key);
+}
+
+// Pasted keys often carry quotes or a "NAME=" prefix from a .env line.
+function normalizeKey(raw) {
+  let k = String(raw || '').trim();
+  k = k.replace(/^(?:export\s+)?[A-Z_]*(?:API_?KEY|KEY)\s*[=:]\s*/i, '');
+  k = k.replace(/^["'`]+|["'`]+$/g, '').trim();
+  return k;
 }
 
 // Model ids are path segments of the API URL: keep them to a strict charset.
@@ -192,6 +202,7 @@ module.exports = {
   abortChat,
   validateMessages,
   isPlausibleKey,
+  normalizeKey,
   verifyKey,
   safeModelId,
   toGeminiRequest,

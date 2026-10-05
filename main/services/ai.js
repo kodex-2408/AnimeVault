@@ -21,7 +21,7 @@ function register() {
   }));
 
   ipcMain.handle('ai:setKey', async (_, key) => {
-    const k = typeof key === 'string' ? key.trim() : '';
+    const k = gemini.normalizeKey(key);
     if (!gemini.isPlausibleKey(k)) throw new Error('That doesn’t look like a Google AI Studio key');
     const check = await gemini.verifyKey(k, config.geminiModel);
     if (check.ok === false) throw new Error('Google rejected this key: ' + check.message);

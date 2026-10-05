@@ -123,14 +123,14 @@ function clearAiConversation(){if(S.ai.busy){try{api.aiStop();}catch(e){}S.ai.bu
 // Key entry used by the Luma dock, Settings and the setup wizard. The key is
 // free: Google AI Studio → "Create API key".
 function aiKeyForm(inputId,compact){
-  return '<div class="ai-key-form'+(compact?' compact':'')+'"><input class="input mono" id="'+inputId+'" type="password" placeholder="AIza…" autocomplete="off" spellcheck="false"'+On('enter','saveAiKey',inputId)+'>'
+  return '<div class="ai-key-form'+(compact?' compact':'')+'"><input class="input mono" id="'+inputId+'" type="password" placeholder="Paste your AI Studio key" autocomplete="off" spellcheck="false"'+On('enter','saveAiKey',inputId)+'>'
     +'<button class="btn btn-primary'+(compact?'':' btn-block')+'"'+A('saveAiKey',inputId)+'>'+ic('sparkles')+'Save key</button>'
     +'<button class="btn btn-ghost btn-sm"'+A('openUrl',AI_KEY_PAGE)+'>'+ic('external')+'Get a free key at Google AI Studio</button></div>';
 }
 function saveAiKey(inputId){
   var el=document.getElementById(typeof inputId==='string'&&inputId?inputId:'lumaDockKey');var k=el?el.value.trim():'';
   if(!k){toast('Paste your Google AI Studio key first','e');return;}
-  if(!/^[A-Za-z0-9_-]{20,128}$/.test(k)){toast('That doesn’t look like a Google AI Studio key (they usually start with AIza)','e');return;}
+  if(k.length<20||/\s/.test(k.replace(/^\S+\s*[=:]\s*/,''))){toast('That doesn’t look like a Google AI Studio key — copy the whole key from AI Studio','e');return;}
   api.aiSetKey(k).then(function(){return api.getConfig();}).then(function(c){S.cfg=c;toast('Key saved — Luma is ready ✨','s');renderLumaDock();if(S.view==='settings')render();}).catch(function(e){toast('Saving the key failed: '+(e.message||e),'e');});
 }
 async function clearAiKey(){
