@@ -44,6 +44,9 @@ function safeEpisodeNumber(n) {
   return Number.isInteger(num) && num > 0 && num <= 9999 ? num : null;
 }
 
+// Changed only through their own IPC handlers (autoDownload:*, downloads:*).
+const MAIN_OWNED_KEYS = new Set(['autoDownloadWatchlist', 'downloadHistory']);
+
 const STATIC_CONFIG_KEYS = new Set([
   'folders', 'mangaFolders', 'vlcPath', 'mpvPath', 'readerPath', 'playerType',
   'subLangPrimary', 'subLangFallback', 'malClientId', 'malClientSecret', 'hasMalClientSecret',
@@ -51,12 +54,12 @@ const STATIC_CONFIG_KEYS = new Set([
   'watchHistory', 'mangaWatchHistory', 'theme', 'accentColor', 'fontFamily', 'themePreset', 'fullTheme',
   'themeAccents', 'customThemeColors',
   'autoMarkEnabled', 'autoMarkPercent', 'vaultMode', 'mangaUploaders', 'forceHevc', 'avoidOversizedHevc',
-  'nyaaUploader', 'nyaaQuality', 'releasePicker', 'autoDownloadWatchlist', 'autoDownloadCriteria', 'autoDownloadPollMinutes',
+  'nyaaUploader', 'nyaaQuality', 'releasePicker', 'releasePickerScopes', 'autoDownloadWatchlist', 'autoDownloadCriteria', 'autoDownloadPollMinutes',
   'autoDownloadEnabled', 'autoDownloadNotify', 'autoDownloadBatchLimit', 'minimizeToTray', 'desktopNotifications', 'watchAndDelete',
   'watcherFolder', 'watcherDest', 'watcherIgnorePatterns', 'searchPresets', 'performanceMode', 'incrementalScan',
   'titleAliases', 'gapRules', 'animeImportInbox', 'mangaImportInbox', 'activityLog', 'downloadHistory',
   'animeKnownSeries', 'mangaKnownSeries', 'animeImportReviewDismissed', 'mangaImportReviewDismissed',
-  'notificationPrefs', 'syncPaused', 'hideDonghua', 'audioDelay', 'animSpeed', 'backgroundEffects',
+  'notificationPrefs', 'syncPaused', 'hideDonghua', 'audioDelay', 'audioDelayMs', 'animSpeed', 'backgroundEffects',
   'backgroundType', 'backgroundIntensity', 'maximized', 'setupDone', 'importAutoMatch', 'lumaMascot', 'lumaSparkles', 'lumaSize', 'lumaSpeed',
   'untrackOnDelete', 'mutedDupSeries', 'geminiApiKey', 'geminiModel', 'hasGeminiApiKey',
   // 5.0 UI preferences
@@ -194,6 +197,8 @@ function loadConfig() {
     if (!Array.isArray(config.animeImportInbox)) config.animeImportInbox = [];
     if (!Array.isArray(config.mangaImportInbox)) config.mangaImportInbox = [];
     if (!Array.isArray(config.activityLog)) config.activityLog = [];
+    // 5.x ships no bundled MPV: keep MPV if a path was set, otherwise use VLC.
+    if (config.playerType === 'bundled-mpv') config.playerType = config.mpvPath ? 'mpv' : 'vlc';
   } catch (err) {
     console.error('[Config] Fatal error during load, using defaults:', err.message);
   }
@@ -370,6 +375,7 @@ function register() {
   });
 
   ipcMain.handle('config:set', (_, key, value) => {
+    if (MAIN_OWNED_KEYS.has(key)) return true;
     if (!isSafeConfigKey(key) || key === 'geminiApiKey' || key === 'hasGeminiApiKey' || key === '_userDataPath' || key === '__proto__' || key === 'constructor' || key === 'prototype') {
       throw new Error('Invalid config key');
     }
@@ -395,6 +401,9 @@ function register() {
     delete incoming.prototype;
     // hasMalClientSecret is a read-only flag from config:get, never state.
     delete incoming.hasMalClientSecret;
+    // Lists the main process owns: the renderer's copy in S.cfg is a snapshot
+    // from startup, and writing it back resurrected untracked/deleted series.
+    for (const key of MAIN_OWNED_KEYS) delete incoming[key];
     for (const key of Object.keys(incoming)) {
       if (!configValueUnchanged(key, incoming[key])) validateRendererConfigValue(key, incoming[key]);
     }

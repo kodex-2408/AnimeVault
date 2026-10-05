@@ -168,7 +168,8 @@ function register() {
     if (!episode) return { success: false, error: 'No confidently matched episode release was found' };
     if (episode <= highest) return { success: false, error: `Local library is already at verified episode ${episode}` };
     if (watch) saveConfig();
-    const result = await nyaaAutoDownloadForIpc(entry.searchTitle || seriesName, config.nyaaQuality, null, episode, 'ep', entry);
+    // A user-pressed button: the release picker may apply ('latest' scope).
+    const result = await nyaaAutoDownloadForIpc(entry.searchTitle || seriesName, config.nyaaQuality, null, episode, 'ep', entry, { interactive: true, scope: 'latest' });
     return { ...result, episode, highest };
   });
 }

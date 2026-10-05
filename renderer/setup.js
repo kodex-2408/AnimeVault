@@ -15,17 +15,28 @@ var SETUP_STEPS=[
   }},
   {title:'Add your library',icon:'folderPlus',body:function(){
     var list=S.cfg.folders||[];
-    var h='<p class="setup-lead">Point AnimeVault at the folders that hold your anime. You can add more later in Settings.</p>';
+    var h='<p class="setup-lead">Point AnimeVault at the folders that hold your anime. You can add more later in Settings.</p>'
+      +'<p class="field-hint" style="text-align:center;margin:-4px 0 12px">One folder with <b>Seasonal</b>, <b>Series</b> and <b>Movies</b> subfolders inside? Add it as “Mixed” and each subfolder is sorted by its name.</p>';
     if(list.length){h+='<div class="list-group" style="margin-bottom:12px">';list.forEach(function(f){h+='<div class="lg-row"><span class="tag accent cap">'+E(f.type)+'</span><div class="lg-main mono ellipsis" style="font-size:12px">'+E(f.path)+'</div></div>';});h+='</div>';}
-    h+='<div class="row wrap" style="justify-content:center">'+seg('setupType',[{v:'seasonal',label:'Seasonal'},{v:'series',label:'Series'},{v:'movies',label:'Movies'}],S._setupType||'seasonal','setupType')+'<button class="btn btn-primary"'+A('setupAddFolder')+'>'+ic('folderPlus')+'Choose folder…</button></div>';
+    h+='<div class="row wrap" style="justify-content:center">'+seg('setupType',[{v:'seasonal',label:'Seasonal'},{v:'series',label:'Series'},{v:'movies',label:'Movies'},{v:'custom',label:'Mixed'}],S._setupType||'seasonal','setupType')+'<button class="btn btn-primary"'+A('setupAddFolder')+'>'+ic('folderPlus')+'Choose folder…</button></div>';
     return h;
   }},
   {title:'Playback',icon:'playCircle',body:function(){
-    var pt=S.cfg.playerType||'bundled-mpv';
-    return '<div class="list-group">'
-      +setRow({icon:'playCircle',color:'#30d158',title:'Video player',desc:'Bundled MPV needs no setup.',ctrl:cfgSelect('playerType',[['bundled-mpv','Bundled MPV (recommended)'],['vlc','VLC'],['mpv','MPV'],['system-default','System default']],'bundled-mpv')})
-      +setRow({icon:'subtitles',color:'#ffcc4d',title:'Subtitle language',ctrl:cfgSelect('subLangPrimary',[['','Off'],['en','English'],['es','Spanish'],['pt','Portuguese'],['fr','French'],['de','German'],['ja','Japanese']],'')})
-      +setRow({icon:'magnet',color:'#0a84ff',title:'Release choice',desc:'Erai-raws first, otherwise the most-seeded release.',ctrl:cfgSwitch('releasePicker')+'<span class="muted">Let me pick</span>'})
+    var pt=S.cfg.playerType||'vlc';
+    var h='<div class="list-group">'
+      +setRow({icon:'playCircle',color:'#30d158',title:'Video player',desc:pt==='system-default'?'Your default video app. Auto-mark, subtitles and the audio delay fix need VLC or MPV.':'VLC or MPV lets AnimeVault mark episodes as watched for you.',ctrl:cfgSelect('playerType',[['vlc','VLC'],['mpv','MPV'],['system-default','System default']],'vlc')});
+    if(pt==='vlc')h+=pathRow('VLC executable','setupVlc','vlcPath','C:\\Program Files\\VideoLAN\\VLC\\vlc.exe');
+    if(pt==='mpv')h+=pathRow('MPV executable','setupMpv','mpvPath','C:\\Tools\\mpv\\mpv.exe');
+    h+=setRow({icon:'subtitles',color:'#ffcc4d',title:'Subtitle language',ctrl:cfgSelect('subLangPrimary',[['','Player default'],['none','Off (no subtitles)'],['en','English'],['es','Spanish'],['pt','Portuguese'],['fr','French'],['de','German'],['it','Italian'],['ja','Japanese']],'')})
+      +setRow({icon:'volume',color:'#64d2ff',title:'Bluetooth headphones?',desc:'Plays audio '+audioDelayMsValue()+' ms earlier so voices match lips. Fine-tune it in Settings → Playback.',ctrl:cfgSwitch('audioDelay')})
+      +'</div>';
+    return h;
+  }},
+  {title:'Downloads',icon:'magnet',body:function(){
+    return '<p class="setup-lead">AnimeVault finds releases on Nyaa: Erai-raws first, otherwise the most-seeded release that matches the right season and episode.</p><div class="list-group">'
+      +setRow({icon:'listCheck',color:'#0a84ff',title:'Let me pick the release',desc:'Show the best matches and choose one yourself.',ctrl:cfgSwitch('releasePicker')})
+      +(S.cfg.releasePicker?releasePickerScopeRows():'')
+      +setRow({icon:'box',color:'#0a84ff',title:'Prefer HEVC (x265)',desc:'Smaller files at the same quality.',ctrl:cfgSwitch('forceHevc',true)})
       +'</div>';
   }},
   {title:'Connect MyAnimeList',icon:'layers',body:function(){
@@ -46,12 +57,13 @@ var SETUP_STEPS=[
       +'<button class="row-card choice'+(del?' selected':'')+'"'+A('setupWatchDelete',true)+'><div class="lg-icon" style="--ic:var(--red)">'+ic('trash')+'</div><div class="grow"><div class="row-title">Watch & delete</div><div class="row-sub">Episodes are deleted after they’re marked as watched.</div></div><span class="match-check">'+ic('check')+'</span></button></div>';
   }},
   {title:'You’re all set',icon:'checkCircle',body:function(){
-    return '<div class="setup-feats">'+feat('inbox','Library Hub','New series land in the Import Inbox for a quick review.')+feat('calendarClock','Schedule','A week-at-a-glance TV guide in your time zone.')+feat('command','Command palette','Press Ctrl K to jump anywhere.')+'</div>';
+    return '<div class="setup-feats">'+feat('inbox','Library Hub','New series land in the Import Inbox for a quick review.')+feat('calendarClock','Schedule','A week-at-a-glance TV guide in your time zone.')+feat('command','Command palette','Press Ctrl K to jump anywhere.')+feat('wand','Setup guide','Open this guide again any time from Settings → Performance & window.')+'</div>';
   }}
 ];
 function feat(icon,title,text){return '<div class="setup-feat"><div class="lg-icon">'+ic(icon)+'</div><div><div class="row-title">'+E(title)+'</div><div class="row-sub">'+E(text)+'</div></div></div>';}
 S._setupStep=0;
 function showSetupWizard(){S._setupStep=0;renderSetupStep();}
+expose('showSetupWizard');
 function renderSetupStep(){
   var step=SETUP_STEPS[S._setupStep],n=SETUP_STEPS.length,first=S._setupStep===0,last=S._setupStep===n-1;
   var host=document.getElementById('setupWizard');
@@ -69,7 +81,7 @@ async function setupAddFolder(){
   var type=S._setupType||'seasonal';var f=await api.browseFolder();if(!f)return;
   if(!S.cfg.folders)S.cfg.folders=[];
   if(S.cfg.folders.some(function(x){return String(x.path).toLowerCase()===f.toLowerCase();})){toast('That folder is already added','i');return;}
-  S.cfg.folders.push({path:f,label:type.charAt(0).toUpperCase()+type.slice(1),type:type});
+  S.cfg.folders.push({path:f,label:type==='custom'?'Anime':type.charAt(0).toUpperCase()+type.slice(1),type:type});
   await api.setConfig('folders',S.cfg.folders);loadLib(true);renderSetupStep();toast('Folder added','s');
 }
 async function setupConnectMal(){

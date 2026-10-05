@@ -3,6 +3,42 @@
 All notable changes, newest first. Engineering context — test guide, security
 posture, design decisions, open roadmap — lives in [DEVELOPMENT.md](DEVELOPMENT.md).
 
+## 5.3.0 — Playback, imports and release matching
+
+### Downloads
+- **Sequels get sequel episodes.** A season 2 download no longer picks season
+  1's releases. An untagged release (e.g. `Koori no Jouheki - 14`) counts for a
+  sequel only when it was published after the sequel started airing. Back-to-back
+  seasons used to slip through a 3-week grace period, and enough seeders made
+  season 1's finale win. Season 1 folders likewise ignore "S2" releases, and
+  "latest episode" ignores episode numbers past the season's length.
+- **Full-series downloads match the title.** Batches are filtered by series and
+  season before seeders count.
+- **Choose where "Let me pick the release" applies:** the latest-episode
+  button (which now supports it), chosen episodes, and full series / batches.
+
+### Playback
+- **The bundled MPV option is gone.** It shipped without a player. Existing
+  setups move to VLC (or MPV if you set a path).
+- **Bluetooth audio delay** takes an exact value in milliseconds (300 ms
+  recommended). MPV used to get "-300" in seconds.
+- **Subtitles:** the preferred language actually wins now. Before, the fallback
+  replaced it. 2- and 3-letter track tags both match, and "Off" turns subtitles
+  off.
+
+### Library & MyAnimeList
+- **Untracking on delete works.** Deleted series are removed from auto-download
+  even when tracked under their MAL title. Old settings saved from other screens
+  can no longer put them back.
+- **AniList import** keeps each entry's status, progress and score, follows
+  anime/manga mode, and never overwrites titles already on your MAL list.
+
+### Setup & Luma
+- **Setup guide:** updated player, subtitle, audio-delay and download steps; a
+  "Mixed" folder type. Reopen it any time from Settings or the command palette.
+- **Luma** moves on to another free model when Google is overloaded (HTTP 503)
+  or out of quota. Errors only point at your key when the key is the problem.
+
 ## 5.2.0 — Smarter library, Luma on Gemini
 
 ### Library & downloads

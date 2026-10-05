@@ -125,22 +125,35 @@ function coverFileVersion(p) {
 }
 
 function register() {
-  ipcMain.handle('anilist:userMalIds', async (_, userName) => {
+  // A user's AniList list (anime or manga, following the vault mode) with the
+  // MAL id, list status, progress and 0-10 score of every entry.
+  ipcMain.handle('anilist:userList', async (_, userName) => {
     try {
       const user = String(userName || '').trim();
       if (!/^[A-Za-z0-9_-]{2,40}$/.test(user)) return { error: 'Invalid AniList username' };
+      const type = config.vaultMode === 'manga' ? 'MANGA' : 'ANIME';
       const data = await anilistQuery(`
-      query ($user: String) {
-        MediaListCollection(userName: $user, type: ANIME) {
-          lists { entries { media { idMal } } }
+      query ($user: String, $type: MediaType) {
+        MediaListCollection(userName: $user, type: $type) {
+          lists { entries { status progress score(format: POINT_10) media { idMal title { romaji english } } } }
         }
       }
-    `, { user });
+    `, { user, type });
       const coll = data && data.MediaListCollection;
       if (!coll) return { error: 'User not found or list is private' };
-      const ids = new Set();
-      (coll.lists || []).forEach(l => (l.entries || []).forEach(e => { const id = e && e.media && e.media.idMal; if (Number.isInteger(id) && id > 0) ids.add(id); }));
-      return Array.from(ids).slice(0, 5000);
+      const byId = new Map();
+      (coll.lists || []).forEach(l => (l.entries || []).forEach(e => {
+        const id = e && e.media && e.media.idMal;
+        if (!Number.isInteger(id) || id <= 0 || byId.has(id)) return;
+        byId.set(id, {
+          idMal: id,
+          status: String(e.status || ''),
+          progress: Math.max(0, Number(e.progress) || 0),
+          score: Math.min(10, Math.max(0, Math.round(Number(e.score) || 0))),
+          title: (e.media.title && (e.media.title.english || e.media.title.romaji)) || '',
+        });
+      }));
+      return { type, entries: Array.from(byId.values()).slice(0, 5000) };
     } catch (e) { return { error: e.message }; }
   });
 

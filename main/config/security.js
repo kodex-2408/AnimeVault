@@ -160,6 +160,19 @@ function validateRendererConfigValue(key, value) {
     }
     return;
   }
+  if (key === 'playerType') {
+    if (value != null && value !== '' && !['vlc', 'mpv', 'system-default'].includes(value)) throw new Error('Unknown player: ' + value);
+    return;
+  }
+  if (key === 'releasePickerScopes') {
+    if (value == null) return;
+    if (typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(k => !['latest', 'episode', 'series'].includes(k) || typeof value[k] !== 'boolean')) throw new Error('Invalid release picker scopes');
+    return;
+  }
+  if (key === 'audioDelayMs') {
+    if (value != null && (!Number.isInteger(value) || value < 0 || value > 5000)) throw new Error('Audio delay must be 0-5000 ms');
+    return;
+  }
   if (key === 'watcherFolder' || key === 'watcherDest') {
     if (value && (typeof value !== 'string' || !path.isAbsolute(value) || isForbiddenRoot(value))) throw new Error('That folder can’t be watched: ' + value);
   }

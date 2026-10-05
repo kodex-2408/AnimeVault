@@ -11,7 +11,7 @@ const autoDownload = require('../../autoDownload');
 const { downloadNyaaTorrentFile, getSearchVariants, buildEpisodeSearchQueries, parseNyaaEpisodeNumber, releaseMatchesUploader, releaseMatchesTrackedSeason, releaseMatchesSeriesTitle, releaseMatchesQuality } = require('../../autoDownload');
 const { config } = require('../state');
 const { isSafeExternalUrl } = require('../config/security');
-const { saveConfig } = require('../config/config');
+const { getWatchHistoryStore, safeHistoryKey, saveConfig } = require('../config/config');
 
 function nyaaSearchHtml(searchQuery) {
   return new Promise((resolve) => {
@@ -149,6 +149,18 @@ async function handOffRelease(chosen, meta) {
   return { success: true, title: chosen.title, seeders: chosen.seeders, chosen };
 }
 
+// "Let me pick the release" can be limited to some kinds of manual download:
+// 'latest' (latest-episode button), 'episode' (a chosen episode) and 'series'
+// (full series / batches). Automatic downloads never ask.
+const RELEASE_PICKER_SCOPES = ['latest', 'episode', 'series'];
+function releasePickerApplies(scope) {
+  if (config.releasePicker !== true) return false;
+  const kind = RELEASE_PICKER_SCOPES.includes(scope) ? scope : 'episode';
+  const scopes = config.releasePickerScopes;
+  if (!scopes || typeof scopes !== 'object') return true;
+  return scopes[kind] !== false;
+}
+
 async function nyaaAutoDownloadForIpc(seriesTitle, quality, preferredUploader, epNum, mode = 'ep', trackedEntry = null, options = {}) {
   try {
     // 5.1: Erai-raws is the only preferred group; everything else competes on seeders.
@@ -204,13 +216,12 @@ async function nyaaAutoDownloadForIpc(seriesTitle, quality, preferredUploader, e
     // broad result set instead of comparing every result against NaN.
     const isEpisodeRequest = epNum !== null && epNum !== undefined && mode === 'ep';
     const targetEp = isEpisodeRequest ? parseInt(epNum, 10) : null;
+    const fitsSeries = (r) => (trackedEntry ? releaseMatchesTrackedSeason(r, trackedEntry, seriesTitle) : releaseMatchesSeriesTitle(r, seriesTitle));
     let matched = isEpisodeRequest
-      ? allResults.map(r => ({ ...r, ep: parseNyaaEpisodeNumber(r.title) })).filter(r => {
-          return r.ep === targetEp &&
-            (trackedEntry ? releaseMatchesTrackedSeason(r, trackedEntry, seriesTitle) : releaseMatchesSeriesTitle(r, seriesTitle)) &&
-            releaseMatchesQuality(r, q);
-        })
-      : allResults;
+      ? allResults.map(r => ({ ...r, ep: parseNyaaEpisodeNumber(r.title) })).filter(r => r.ep === targetEp && fitsSeries(r) && releaseMatchesQuality(r, q))
+      // Full series: the right title and season only - a popular batch of a
+      // different series (or season) must never win on seeders.
+      : allResults.filter(fitsSeries);
     if (!matched.length) return { success: false, error: isEpisodeRequest ? 'No exact episode match' : 'No series releases found' };
 
     // Erai-raws first, then the most-seeded release from any group; full-series
@@ -218,7 +229,7 @@ async function nyaaAutoDownloadForIpc(seriesTitle, quality, preferredUploader, e
     const ranked = autoDownload.rankReleases(matched, { batch: !isEpisodeRequest });
     if (!ranked.length) return { success: false, error: 'Scoring produced no winner' };
     const meta = { seriesTitle, epNum, mode };
-    if (options && options.interactive && config.releasePicker === true) {
+    if (options && options.interactive && releasePickerApplies(options.scope)) {
       const offered = ranked.slice(0, 8);
       return { needsChoice: true, token: rememberReleaseOffer({ list: offered, meta }), candidates: offered.map(autoDownload.describeRelease), seriesTitle, epNum, mode };
     }
@@ -227,6 +238,15 @@ async function nyaaAutoDownloadForIpc(seriesTitle, quality, preferredUploader, e
     console.error('[Nyaa:autoDownload] Error:', e.message);
     return { success: false, error: e.message };
   }
+}
+
+// Untracked series still have MAL data (start date, episode count) in the
+// watch history; it lets season checks tell S2 releases from S1's.
+function seasonEntryFromHistory(seriesTitle) {
+  const wd = getWatchHistoryStore()[safeHistoryKey(seriesTitle)];
+  const md = wd && wd.malData;
+  if (!md || !md.start_date) return null;
+  return { seriesName: seriesTitle, malId: wd.malId || null, airingStartDate: md.start_date, totalEps: Number(md.num_episodes) || 0, episodeOffset: 0 };
 }
 
 function pushDownloadHistory(entry) {
@@ -245,8 +265,9 @@ function register() {
   ipcMain.handle('nyaa:autoDownload', (_, seriesTitle, quality, preferredUploader, epNum, mode = 'ep', options = {}) => {
     const trackedEntry = (config.autoDownloadWatchlist || []).find(entry =>
       entry.seriesName === seriesTitle || entry.searchTitle === seriesTitle
-    ) || null;
-    return nyaaAutoDownloadForIpc(seriesTitle, quality, preferredUploader, epNum, mode, trackedEntry, { interactive: !!(options && options.interactive) });
+    ) || seasonEntryFromHistory(seriesTitle);
+    const scope = mode === 'full' || epNum == null ? 'series' : (options && options.scope === 'latest' ? 'latest' : 'episode');
+    return nyaaAutoDownloadForIpc(seriesTitle, quality, preferredUploader, epNum, mode, trackedEntry, { interactive: !!(options && options.interactive), scope });
   });
 
   ipcMain.handle('nyaa:downloadChoice', async (_, token, index) => {

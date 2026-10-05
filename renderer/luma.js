@@ -138,9 +138,14 @@ async function clearAiKey(){
   await api.aiClearKey();S.cfg=await api.getConfig();S.ai.msgs=[];toast('Key removed','i');if(S.ai.dockOpen)renderLumaDock();if(S.view==='settings')render();
 }
 function finishAiTurn(){var p=stripThinkingTags(S._aiPartial||'').trim();if(p)S.ai.msgs.push({role:'assistant',content:p});S._aiPartial='';S.ai.busy=false;renderAiMsgs();setBusyUi(false);}
-function handleAiError(msg){
+// One bubble per failed turn (the error arrives as an event and as the
+// result); the hint depends on whether the key, the quota or Google failed.
+var AI_ERROR_HINTS={key:'Check your Google AI Studio key in Settings → Companion, then try again.',quota:'',busy:'',other:'Please try again in a moment.'};
+function handleAiError(msg,kind){
+  if(!S.ai.busy)return;
   S.ai.busy=false;S._aiPartial='';
-  S.ai.msgs.push({role:'assistant',content:'Aw, stardust — I couldn’t get a response:\n`'+String(msg||'Unknown error').slice(0,300)+'`\n\nCheck your Google AI Studio key (and its free-tier limits), then try again.'});
+  var hint=AI_ERROR_HINTS[kind]!=null?AI_ERROR_HINTS[kind]:AI_ERROR_HINTS.other;
+  S.ai.msgs.push({role:'assistant',error:true,content:'Aw, stardust — I couldn’t get a response:\n`'+String(msg||'Unknown error').slice(0,300)+'`'+(hint?'\n\n'+hint:'')});
   renderAiMsgs();setBusyUi(false);
 }
 async function sendAi(){
@@ -149,9 +154,9 @@ async function sendAi(){
   var inp=document.getElementById('lumaDockInput');var q=inp?inp.value.trim():'';if(!q)return;inp.value='';
   S.ai.msgs.push({role:'user',content:q});S.ai.busy=true;S._aiPartial='';renderAiMsgs();setBusyUi(true);
   if(S.cfg.geminiModel!==LUMA_MODEL){S.cfg.geminiModel=LUMA_MODEL;api.aiSetModel(LUMA_MODEL);}
-  var msgs=(S.ai.msgs||[]).filter(function(m){return m&&typeof m.content==='string'&&m.content.trim();}).slice(-16);
+  var msgs=(S.ai.msgs||[]).filter(function(m){return m&&!m.error&&typeof m.content==='string'&&m.content.trim();}).slice(-16).map(function(m){return {role:m.role,content:m.content};});
   var r=await api.aiSend([{role:'system',content:buildAiSystem()}].concat(msgs),LUMA_MODEL,{webSearch:!!S.ai.webSearch});
-  if(r&&!r.ok)handleAiError(r.error||'Failed to get a response');
+  if(r&&!r.ok)handleAiError(r.message||r.error||'Failed to get a response',r.kind);
 }
 function stopAi(){api.aiStop();finishAiTurn();}
 expose('toggleLumaAssistant','openLumaAssistant','closeLumaAssistant','minimizeLumaAssistant','clearAiConversation','saveAiKey','sendAi','stopAi','quickAiPrompt');

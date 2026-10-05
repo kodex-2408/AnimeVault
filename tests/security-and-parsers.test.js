@@ -329,6 +329,15 @@ assert.strictEqual(gemini.extractText({ candidates: [{ content: { parts: [{ text
     assert(/daily limit/.test(gemini.quotaMessage(quota('GenerateRequestsPerDayPerProjectPerModel-FreeTier'))), 'daily quota message'); checks++;
     const pe = gemini.parseApiError(429, JSON.stringify({ error: { message: 'quota', details: [{ '@type': 'type.googleapis.com/google.rpc.QuotaFailure', violations: [{ quotaId: 'X-PerDay' }] }, { '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '37s' }] } }));
     assert.deepStrictEqual([pe.retryDelay, pe.quotaIds], [37, ['X-PerDay']]); checks++;
+    t = await runWith((m) => (m === 'gemini-flash-latest' ? { ok: false, status: 503, message: 'HTTP 503: This model is currently experiencing high demand.' } : { ok: true, gotText: true }));
+    assert.deepStrictEqual([t.res.ok, t.calls], [true, ['gemini-flash-latest+search', 'gemini-flash-lite-latest+search']], '503 high demand -> next model'); checks++;
+    t = await runWith(() => ({ ok: false, status: 503, message: 'HTTP 503: high demand' }));
+    assert.deepStrictEqual([t.res.ok, t.res.kind], [false, 'busy']); checks++;
+    assert(/overloaded/.test(t.res.message) && /isn.t a problem with your key/.test(t.res.message), 'busy message does not blame the key'); checks++;
+    t = await runWith(() => ({ ok: false, status: 401, message: 'HTTP 401: API key not valid' }));
+    assert.strictEqual(t.res.kind, 'key'); checks++;
+    const merged = gemini.toGeminiRequest([{ role: 'user', content: 'a' }, { role: 'user', content: 'b' }, { role: 'assistant', content: 'c' }]);
+    assert.deepStrictEqual(merged.contents.map(c => c.role), ['user', 'model'], 'consecutive turns are merged'); checks++;
     gemini._resetQuota();
   }
 
