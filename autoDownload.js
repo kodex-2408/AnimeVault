@@ -19,6 +19,26 @@ function d() {
 //  NYAA SEARCH HELPERS
 // ================================================================
 
+// HTML/XML entities in Nyaa titles ("Kaguya-sama: Love Is War &amp; ...",
+// "Frieren&#39;s"), named, decimal and hex.
+function decodeEntities(text) {
+  return String(text || '')
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(parseInt(n, 10)))
+    .replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&');
+}
+
+// Nyaa rate-limits bursts with HTTP 429; back off instead of hammering it.
+let _nyaaBackoffUntil = 0;
+function noteNyaaStatus(res) {
+  if (res.statusCode !== 429) return false;
+  const retry = parseInt(res.headers && res.headers['retry-after'], 10);
+  _nyaaBackoffUntil = Date.now() + (Number.isFinite(retry) && retry > 0 ? Math.min(retry, 600) : 60) * 1000;
+  console.warn('[Nyaa] Rate limited (429); pausing searches until', new Date(_nyaaBackoffUntil).toISOString());
+  return true;
+}
+
 function normalizeMagnet(url) {
   if (!url) return url;
   return url
@@ -33,7 +53,9 @@ function nyaaSearch(query) {
   return new Promise((resolve) => {
     const cat = d().config.vaultMode === 'manga' ? '3_1' : '1_2';
     const url = 'https://nyaa.si/?page=rss&f=0&c=' + cat + '&q=' + encodeURIComponent(query);
+    if (Date.now() < _nyaaBackoffUntil) { resolve([]); return; }
     const req = https.get(url, { timeout: 15000, headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' } }, (res) => {
+      if (noteNyaaStatus(res) || res.statusCode !== 200) { res.resume(); resolve([]); return; }
       let data = '';
       res.on('data', (chunk) => data += chunk);
       res.on('end', () => {
@@ -46,12 +68,7 @@ function nyaaSearch(query) {
               const item = m[1];
               const titleMatch = item.match(/<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>/) || item.match(/<title>([\s\S]*?)<\/title>/);
               if (!titleMatch) continue;
-              let title = titleMatch[1].trim()
-                .replace(/&amp;/g, '&')
-                .replace(/&lt;/g, '<')
-                .replace(/&gt;/g, '>')
-                .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(n))
-                .replace(/&quot;/g, '"');
+              const title = decodeEntities(titleMatch[1].trim());
               if (/\bRAW\b/i.test(title) && !/multi/i.test(title) && !/sub/i.test(title)) continue;
               const linkMatch = item.match(/<guid[^>]*>([\s\S]*?)<\/guid>/) || item.match(/<link>([\s\S]*?)<\/link>/);
               const idMatch = linkMatch ? linkMatch[1].match(/\/view\/(\d+)/) : null;
@@ -97,7 +114,9 @@ function nyaaSearchHtml(query) {
     const cat = d().config.vaultMode === 'manga' ? '3_1' : '1_2';
     const doSearch = (q) => new Promise((res) => {
       const url = 'https://nyaa.si/?f=0&c=' + cat + '&q=' + encodeURIComponent(q) + '&s=seeders&o=desc';
+      if (Date.now() < _nyaaBackoffUntil) { res([]); return; }
       const req = https.get(url, { timeout: 15000, headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' } }, (response) => {
+        if (noteNyaaStatus(response) || response.statusCode !== 200) { response.resume(); res([]); return; }
         let data = '';
         response.on('data', (chunk) => data += chunk);
         response.on('end', () => {
@@ -126,7 +145,7 @@ function nyaaSearchHtml(query) {
                 const id = idMatch ? parseInt(idMatch[1], 10) : null;
                 results.push({
                   id,
-                  title: titleMatch[1],
+                  title: decodeEntities(titleMatch[1]),
                   link,
                   magnet: normalizeMagnet(magnetMatch ? magnetMatch[1] : ''),
                   size: sizeMatch ? sizeMatch[1].trim() : '',
@@ -196,14 +215,49 @@ function downloadNyaaTorrentFile(nyaaId) {
     const id = String(nyaaId || '').trim();
     if (!/^\d{1,10}$/.test(id)) { reject(new Error('Invalid Nyaa id')); return; }
     const url = 'https://nyaa.si/download/' + id + '.torrent';
-    https.get(url, { timeout: 20000, headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' } }, (res) => {
+    const req = https.get(url, { timeout: 20000, headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' } }, (res) => {
       if (res.statusCode !== 200) { res.resume(); reject(new Error('HTTP ' + res.statusCode)); return; }
       const chunks = [];
       let size = 0;
-      res.on('data', (c) => { size += c.length; if (size > 10 * 1024 * 1024) { res.destroy(); reject(new Error('Torrent file too large')); return; } chunks.push(c); });
+      res.on('data', (c) => { size += c.length; if (size > 10 * 1024 * 1024) { req.destroy(new Error('Torrent file too large')); return; } chunks.push(c); });
       res.on('end', () => resolve(Buffer.concat(chunks)));
-    }).on('error', (e) => reject(e)).setTimeout(20000);
+      res.on('aborted', () => reject(new Error('Torrent download interrupted')));
+      res.on('error', (e) => reject(e));
+    });
+    req.on('error', (e) => reject(e));
+    // A stalled server must not hold the poller forever: abort, which rejects.
+    req.setTimeout(20000, () => req.destroy(new Error('Torrent download timed out')));
   });
+}
+
+// Hands a chosen release to the user's torrent client: the .torrent file
+// (opened with whatever app handles .torrent) or, failing that, the magnet
+// link. shell.openPath reports failure as a returned string, not a throw.
+// Resolves {ok, method} or {ok:false, error}.
+async function handOffToClient(chosen) {
+  const magnet = chosen && chosen.magnet && /^magnet:\?/i.test(chosen.magnet) ? chosen.magnet : '';
+  const viaMagnet = async (why) => {
+    if (!magnet) return { ok: false, error: why || 'This release has no download link' };
+    try { await d().shell.openExternal(magnet); return { ok: true, method: 'magnet' }; }
+    catch (e) { return { ok: false, error: 'No torrent client opened the magnet link' + (why ? ' (' + why + ')' : '') + '. Install one (qBittorrent, for example) and try again.' }; }
+  };
+  if (chosen && chosen.id) {
+    let tmpFile;
+    try {
+      const torrentData = await downloadNyaaTorrentFile(chosen.id);
+      const tmpDir = path.join(d().app.getPath('temp'), 'animevault-torrents');
+      fs.mkdirSync(tmpDir, { recursive: true });
+      const safeName = String(chosen.title || 'release').replace(/[\\/:*?"<>|]/g, '_').substring(0, 80);
+      tmpFile = path.join(tmpDir, safeName + '.torrent');
+      fs.writeFileSync(tmpFile, torrentData);
+    } catch (e) {
+      return viaMagnet('the .torrent download failed: ' + e.message);
+    }
+    const openErr = await d().shell.openPath(tmpFile);
+    if (!openErr) return { ok: true, method: 'external' };
+    return viaMagnet('no app opens .torrent files: ' + openErr);
+  }
+  return viaMagnet('');
 }
 
 // ================================================================
@@ -571,7 +625,7 @@ function releaseMatchesTrackedSeason(release, entry, seriesTitle) {
 function normalizeEpisodeList(values) {
   return [...new Set((values || [])
     .map(Number)
-    .filter(n => Number.isInteger(n) && n > 0 && n <= 999))]
+    .filter(n => Number.isInteger(n) && n > 0 && n <= 9999))]
     .sort((a, b) => a - b);
 }
 
@@ -647,50 +701,52 @@ function parseNyaaEpisodeNumber(title) {
   // Helper: reject 4-digit numbers (years) and validate range
   const validate = (n) => {
     const num = parseInt(n, 10);
-    if (isNaN(num) || num < 1 || num > 999) return null;
+    // Long runners reach 4 digits (One Piece 1100); 4-digit years are not episodes.
+    if (isNaN(num) || num < 1 || num > 9999) return null;
+    if (String(n).length === 4 && num >= 1900 && num <= 2099) return null;
     return num;
   };
 
   // Pattern 1: "Series - 12 (" or "Series - 12 [" or "Series - 12v2 ("
-  let m = t.match(/\s-\s(\d{1,3})(?:v\d+)?\s*[\[(]/);
+  let m = t.match(/\s-\s(\d{1,4})(?:v\d+)?\s*[\[(]/);
   if (m) return validate(m[1]);
 
   // Pattern 1b: "Series - 12 " (space after, no paren/bracket)
-  m = t.match(/\s-\s(\d{1,3})(?:v\d+)?\s+(?!\d{4}p?\b)/);
+  m = t.match(/\s-\s(\d{1,4})(?:v\d+)?\s+(?!\d{4}p?\b)/);
   if (m) return validate(m[1]);
 
   // Pattern 2: "Series 12 (1080p)" with no dash — require quality paren immediately after
-  m = t.match(/\s(\d{1,3})(?:v\d+)?\s*\(\d{3,4}p\)/);
+  m = t.match(/\s(\d{1,4})(?:v\d+)?\s*\(\d{3,4}p\)/);
   if (m) return validate(m[1]);
 
   // Pattern 3: "Series 12 [1080p]" — bracket instead of paren
-  m = t.match(/\s(\d{1,3})(?:v\d+)?\s*\[\d{3,4}p\]/);
+  m = t.match(/\s(\d{1,4})(?:v\d+)?\s*\[\d{3,4}p\]/);
   if (m) return validate(m[1]);
 
   // Pattern 4: standalone " - 12 " surrounded by spaces
-  m = t.match(/\s-(\d{1,3})(?:v\d+)?\s/);
+  m = t.match(/\s-(\d{1,4})(?:v\d+)?\s/);
   if (m) return validate(m[1]);
 
   // Pattern 5: S01E12
-  m = t.match(/S\d{1,2}E(\d{1,3})/i);
+  m = t.match(/S\d{1,2}E(\d{1,4})/i);
   if (m) return validate(m[1]);
 
   // Pattern 6: loose " 12 " before quality marker without parens/brackets
   // Must be followed by known codec/audio markers, not just any word
-  m = t.match(/\s(\d{1,3})(?:v\d+)?\s+(?:\d{3,4}p|HEVC|x265|x264|AV1|AAC|FLAC|MP3|MKV|MP4|AVI)\b/i);
+  m = t.match(/\s(\d{1,4})(?:v\d+)?\s+(?:\d{3,4}p|HEVC|x265|x264|AV1|AAC|FLAC|MP3|MKV|MP4|AVI)\b/i);
   if (m) return validate(m[1]);
 
   // Pattern 7: episode number at end of base title before extension
-  m = t.match(/\s(\d{1,3})(?:v\d+)?\s*(?:\.mkv|\.mp4|\.avi|\.m4v|\.webm|\.ts|$)/i);
+  m = t.match(/\s(\d{1,4})(?:v\d+)?\s*(?:\.mkv|\.mp4|\.avi|\.m4v|\.webm|\.ts|$)/i);
   if (m) return validate(m[1]);
 
   // Pattern 8: "EP12" or "Episode 12"
-  m = t.match(/\bEP(?:isode)?\s*(\d{1,3})\b/i);
+  m = t.match(/\bEP(?:isode)?\s*(\d{1,4})\b/i);
   if (m) return validate(m[1]);
 
   // Pattern 9: "12 - " at start of filename base (after series name removed)
   // e.g. "Series 12 - 1080p.mkv"
-  m = t.match(/\s(\d{1,3})(?:v\d+)?\s*[-–—]\s*\d{3,4}p/i);
+  m = t.match(/\s(\d{1,4})(?:v\d+)?\s*[-–—]\s*\d{3,4}p/i);
   if (m) return validate(m[1]);
 
   return null;
@@ -767,6 +823,9 @@ async function runAutoDownloadPoller(force = false) {
   results.polled = true;
 
   for (const entry of watchlist) {
+    // Toasts below report only this series' results, not earlier series'.
+    const downloadedFrom = results.downloaded.length;
+    const dedupFrom = results.dedup.length;
     try {
       if (!entry.seriesName) continue;
       const uploader = PREFERRED_GROUP;
@@ -924,26 +983,15 @@ async function runAutoDownloadPoller(force = false) {
         }
         console.log('[AutoDL] Chosen release:', chosen.title, '| seeds:', chosen.seeders, '| size:', chosen.size);
 
-        // Download trigger
-        let method = 'magnet';
-        if (chosen.id) {
-          console.log('[AutoDL] Downloading .torrent for Nyaa id', chosen.id);
-          const torrentData = await downloadNyaaTorrentFile(chosen.id);
-          const tmpDir = path.join(d().app.getPath('temp'), 'animevault-torrents');
-          fs.mkdirSync(tmpDir, { recursive: true });
-          const safeName = chosen.title.replace(/[\/:*?"<>|]/g, '_').substring(0, 80);
-          const tmpFile = path.join(tmpDir, safeName + '.torrent');
-          fs.writeFileSync(tmpFile, torrentData);
-          await d().shell.openPath(tmpFile);
-          method = 'external';
-        } else if (chosen.magnet && /^magnet:\?/i.test(chosen.magnet)) {
-          console.log('[AutoDL] Opening magnet link');
-          await d().shell.openExternal(chosen.magnet);
-        } else {
-          console.warn('[AutoDL] Release has no safe download link — skipping', chosen.title);
-          results.no_exact_match.push({ series: entry.seriesName, episode: cursorEp, reason: 'no safe download link' });
+        // Download trigger. A failed hand-off (no torrent client) is an error:
+        // no history entry, no cursor advance, nothing blocking a retry.
+        const handoff = await handOffToClient(chosen);
+        if (!handoff.ok) {
+          console.warn('[AutoDL] Hand-off failed for', chosen.title, '-', handoff.error);
+          results.error.push({ series: entry.seriesName, episode: cursorEp, error: handoff.error });
           break;
         }
+        const method = handoff.method;
 
         // Log to history
         const logEntry = {
@@ -978,9 +1026,11 @@ async function runAutoDownloadPoller(force = false) {
         entry.lastChecked = nowMs;
         d().saveConfig();
       }
-// Legacy per-download toast
-      if (results.downloaded.length > 0) {
-        const latest = results.downloaded[results.downloaded.length - 1];
+      // Per-download toast for this series
+      const mineDownloaded = results.downloaded.slice(downloadedFrom);
+      const mineDedup = results.dedup.slice(dedupFrom);
+      if (mineDownloaded.length > 0) {
+        const latest = mineDownloaded[mineDownloaded.length - 1];
         if (d().mainWindow && !d().mainWindow().isDestroyed()) {
           d().mainWindow().webContents.send('autoDownload:toast', {
             series: entry.seriesName,
@@ -989,8 +1039,8 @@ async function runAutoDownloadPoller(force = false) {
           });
         }
       }
-      if (results.dedup.length > 0 && !results.downloaded.length) {
-        const lastDedup = results.dedup[results.dedup.length - 1];
+      if (mineDedup.length > 0 && !mineDownloaded.length) {
+        const lastDedup = mineDedup[mineDedup.length - 1];
         if (d().mainWindow && !d().mainWindow().isDestroyed()) {
           d().mainWindow().webContents.send('autoDownload:toast', {
             series: entry.seriesName,
@@ -1069,6 +1119,8 @@ module.exports = {
   nyaaSearch,
   nyaaSearchHtml,
   nyaaSearchCached,
+  handOffToClient,
+  decodeEntities,
   downloadNyaaTorrentFile,
   parseReleaseSize,
   scoreRelease,

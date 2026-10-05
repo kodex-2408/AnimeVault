@@ -126,11 +126,12 @@ function watcherPoll() {
         continue;
       }
       try {
-        fs.renameSync(f.path, newPath);
+        moveNoClobber(f.path, newPath);
         formatResult.push({ file: f.name, newName: p.newName, series: path.basename(seriesDir) });
         console.log('[Watcher] Moved loose:', f.name, '->', seriesDir);
       } catch (e) {
         console.error('[Watcher] Move error:', f.name, e.message);
+        formatResult.push({ file: f.name, series: path.basename(seriesDir), error: e.message });
       }
     }
 
@@ -173,7 +174,7 @@ function watcherPoll() {
         const newDirPath = path.join(watchFolder, safeName);
         if (!fs.existsSync(newDirPath)) {
           try {
-            fs.renameSync(dirPath, newDirPath);
+            moveNoClobber(dirPath, newDirPath);
             console.log('[Watcher] Renamed folder:', folderName, '->', safeName);
             folderName = safeName;
             dirPath = newDirPath;
@@ -214,7 +215,7 @@ function watcherPoll() {
             const newFilePath = path.join(dirPath, p.newName);
             if (f.path !== newFilePath && !fs.existsSync(newFilePath)) {
               try {
-                fs.renameSync(f.path, newFilePath);
+                moveNoClobber(f.path, newFilePath);
               } catch (e) {
                 console.error('[Watcher] File rename error in folder:', e.message);
                 allRenamed = false;
@@ -276,11 +277,12 @@ function watcherPoll() {
           continue;
         }
         try {
-          fs.renameSync(f.path, newPath);
+          moveNoClobber(f.path, newPath);
           formatResult.push({ file: f.name, newName: p.newName, series: path.basename(seriesDir) });
           movedCount++;
         } catch (e) {
           console.error('[Watcher] Move error:', f.name, e.message);
+          formatResult.push({ file: f.name, series: path.basename(seriesDir), error: e.message });
         }
       }
       // Clean up empty subdir after moving files out
@@ -362,38 +364,30 @@ function register() {
       if (!isSafeFileName(item.series)) throw new Error('Invalid series name');
       if (!item.isFolder && !isSafeFileName(item.newName)) throw new Error('Invalid file name');
       const targetDir = path.join(baseDest, item.series);
-      fs.mkdirSync(targetDir, { recursive: true });
 
-      // If placing an entire folder, move it into the destination
+      // A whole folder: moved as is, or merged into an existing series folder
+      // with everything in it (subtitles, extras), never overwriting a file.
       if (item.isFolder) {
-        // When moving a folder, place it inside the targetDir
-        // The folder name should already be the clean series name
-        const targetPath = targetDir;
-        if (fs.existsSync(targetPath)) {
-          // Destination already exists: move files inside individually
-          const files = (config.vaultMode === 'manga' ? getMangaFiles : getVideoFiles)(item.originalPath, false);
-          let moved = 0;
-          for (const f of files) {
-            const destFile = path.join(targetPath, path.basename(f.path));
-            if (!fs.existsSync(destFile)) {
-              moveNoClobber(f.path, destFile);
-              moved++;
-            }
-          }
-          // Clean up source if empty
-          try {
-            const remaining = fs.readdirSync(item.originalPath);
-            if (!remaining.length) fs.rmdirSync(item.originalPath);
-          } catch (e) {}
-          return { success: true, moved, path: targetPath, merged: true };
+        if (!fs.existsSync(item.originalPath)) return { success: false, error: 'Source folder not found' };
+        if (!fs.existsSync(targetDir)) {
+          fs.mkdirSync(baseDest, { recursive: true });
+          moveNoClobber(item.originalPath, targetDir);
+          return { success: true, path: targetDir };
         }
-        if (fs.existsSync(item.originalPath)) {
-          moveNoClobber(item.originalPath, targetPath);
-          return { success: true, path: targetPath };
+        let moved = 0;
+        const skipped = [];
+        for (const name of fs.readdirSync(item.originalPath)) {
+          const from = path.join(item.originalPath, name);
+          const to = path.join(targetDir, name);
+          if (fs.existsSync(to)) { skipped.push(name); continue; }
+          moveNoClobber(from, to);
+          moved++;
         }
-        return { success: false, error: 'Source folder not found' };
+        try { if (!fs.readdirSync(item.originalPath).length) fs.rmdirSync(item.originalPath); } catch (e) {}
+        return { success: true, moved, skipped, path: targetDir, merged: true };
       }
 
+      fs.mkdirSync(targetDir, { recursive: true });
       // Placing a single file
       const targetPath = path.join(targetDir, item.newName);
       if (fs.existsSync(item.originalPath)) {

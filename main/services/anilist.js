@@ -5,13 +5,19 @@
 
 const { ipcMain } = require('electron');
 const fs = require('fs');
+const path = require('path');
 const https = require('https');
 const { config } = require('../state');
 const { CACHE_DIR, getTitleAlias, getWatchHistoryStore, safeHistoryKey } = require('../config/config');
 const { fetchImage, getCoverCachePath, getExistingCoverCachePath } = require('./covers');
 
+// AniList allows ~90 requests a minute and answers bursts with 429 + Retry-After.
+let _anilistBackoffUntil = 0;
+function anilistRateLimited() { return Date.now() < _anilistBackoffUntil; }
+
 function anilistQuery(query, variables) {
   return new Promise((resolve, reject) => {
+    if (anilistRateLimited()) { reject(Object.assign(new Error('AniList rate limit - try again shortly'), { rateLimited: true })); return; }
     const postData = JSON.stringify({ query, variables });
     const req = https.request({
       hostname: 'graphql.anilist.co',
@@ -23,6 +29,13 @@ function anilistQuery(query, variables) {
         'Accept': 'application/json'
       }
     }, (res) => {
+      if (res.statusCode === 429) {
+        const retry = parseInt(res.headers['retry-after'], 10);
+        _anilistBackoffUntil = Date.now() + (Number.isFinite(retry) && retry > 0 ? Math.min(retry, 300) : 60) * 1000;
+        res.resume();
+        reject(Object.assign(new Error('AniList rate limit - try again shortly'), { rateLimited: true }));
+        return;
+      }
       let data = '';
       res.on('data', chunk => data += chunk);
       res.on('end', () => {
@@ -124,6 +137,21 @@ function coverFileVersion(p) {
   try { return p ? Math.round(fs.statSync(p).mtimeMs) : 0; } catch (e) { return 0; }
 }
 
+// Negative cache for covers: series name -> time AniList/MAL had no image.
+const COVER_MISS_TTL = 7 * 24 * 60 * 60 * 1000;
+const coverMissesPath = () => path.join(CACHE_DIR, 'misses.json');
+function readCoverMisses() {
+  try { const j = JSON.parse(fs.readFileSync(coverMissesPath(), 'utf8')); return j && typeof j === 'object' && !Array.isArray(j) ? j : {}; } catch (e) { return {}; }
+}
+function writeCoverMisses(misses) {
+  try {
+    const now = Date.now();
+    for (const k of Object.keys(misses)) if (now - misses[k] > COVER_MISS_TTL) delete misses[k];
+    fs.mkdirSync(CACHE_DIR, { recursive: true });
+    fs.writeFileSync(coverMissesPath(), JSON.stringify(misses));
+  } catch (e) { /* a lost negative cache only costs a retry */ }
+}
+
 function register() {
   // A user's AniList list (anime or manga, following the vault mode) with the
   // MAL id, list status, progress and 0-10 score of every entry.
@@ -202,8 +230,16 @@ function register() {
   ipcMain.handle('anilist:fetchAllCovers', async (_, seriesList) => {
     const results = [];
     if (!Array.isArray(seriesList)) return results;
+    const misses = readCoverMisses();
+    let rateLimited = false;
     for (const series of seriesList.slice(0, 2000)) {
       if (!series || typeof series.name !== 'string') continue;
+      // Titles AniList had no art for are retried after a week, not on every start.
+      const missKey = config.vaultMode + ':' + series.name;
+      if (rateLimited || (misses[missKey] && Date.now() - misses[missKey] < COVER_MISS_TTL)) {
+        results.push({ name: series.name, path: null, status: rateLimited ? 'deferred' : 'no_image' });
+        continue;
+      }
       const cacheFile = getCoverCachePath(series.name);
       const existing = getExistingCoverCachePath(series.name);
       if (existing) {
@@ -222,13 +258,16 @@ function register() {
           fs.writeFileSync(cacheFile, buf);
           results.push({ name: series.name, path: cacheFile, version: coverFileVersion(cacheFile), status: 'fetched' });
         } else {
+          misses[missKey] = Date.now();
           results.push({ name: series.name, path: null, status: 'no_image' });
         }
       } catch (e) {
+        if (e && e.rateLimited) rateLimited = true;
         console.error('[AniList] fetchAllCovers error for', series.name, e.message);
-        results.push({ name: series.name, path: null, status: 'error' });
+        results.push({ name: series.name, path: null, status: rateLimited ? 'deferred' : 'error' });
       }
     }
+    writeCoverMisses(misses);
     return results;
   });
 }

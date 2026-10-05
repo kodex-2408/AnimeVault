@@ -12,7 +12,7 @@ const { assertPlayableMedia, getMangaFiles, getVideoFiles, parseChapterNumber, p
 const { getExistingCoverCachePath } = require('../services/covers');
 const { coverFileVersion } = require('../services/anilist');
 const { scheduleDuplicateCheck } = require('./duplicates');
-const { assertAllowedChildFileActionPath, assertAllowedFileActionPath, isAllowedFileActionPath } = require('../config/security');
+const { assertAllowedChildFileActionPath, assertAllowedFileActionPath, isAllowedFileActionPath, trashOrDelete } = require('../config/security');
 
 let _libraryIndex = null;
 let _libraryIndexSaveTimer = null;
@@ -21,9 +21,9 @@ function readLibraryIndex() {
   if (_libraryIndex) return _libraryIndex;
   try {
     const parsed = JSON.parse(fs.readFileSync(LIBRARY_INDEX_PATH, 'utf-8'));
-    if (parsed && parsed.version === 1) _libraryIndex = parsed;
+    if (parsed && parsed.version === 2) _libraryIndex = parsed;
   } catch (e) {}
-  if (!_libraryIndex) _libraryIndex = { version: 1, anime: {}, manga: {} };
+  if (!_libraryIndex) _libraryIndex = { version: 2, anime: {}, manga: {} };
   return _libraryIndex;
 }
 
@@ -42,7 +42,7 @@ function scheduleLibraryIndexSave() {
 }
 
 function clearLibraryIndex() {
-  _libraryIndex = { version: 1, anime: {}, manga: {} };
+  _libraryIndex = { version: 2, anime: {}, manga: {} };
   if (fs.existsSync(LIBRARY_INDEX_PATH)) {
     try { fs.unlinkSync(LIBRARY_INDEX_PATH); } catch (e) {}
   }
@@ -92,19 +92,34 @@ function getLocalEpisodes(seriesName, malId, seriesPath) {
 
 let lastScanStats = { cacheHits: 0, cacheMisses: 0, durationMs: 0, series: 0 };
 
+// Newest modification time of a folder and its subfolders (a few levels deep):
+// adding a file to "Season 2/" doesn't touch the series folder's own mtime.
+function folderTreeMtime(dir, depth = 3) {
+  let newest = 0;
+  try { newest = fs.statSync(dir).mtimeMs; } catch (e) { return 0; }
+  if (depth <= 0) return newest;
+  try {
+    for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (ent.isDirectory() && !ent.name.startsWith('.')) newest = Math.max(newest, folderTreeMtime(path.join(dir, ent.name), depth - 1));
+    }
+  } catch (e) {}
+  return newest;
+}
+
+// A series folder is read with its subfolders ("Season 1/", "Season 2/"), the
+// same way the detail view lists episodes, so counts always agree.
 function getIndexedMediaFiles(seriesPath, scanner, mode, force) {
   const index = readLibraryIndex();
   const bucket = index[mode] || (index[mode] = {});
   const key = path.resolve(seriesPath).toLowerCase();
-  let mtimeMs = 0;
-  try { mtimeMs = fs.statSync(seriesPath).mtimeMs; } catch (e) {}
+  const mtimeMs = folderTreeMtime(seriesPath);
   const cached = bucket[key];
   if (!force && config.incrementalScan !== false && cached && cached.mtimeMs === mtimeMs && Array.isArray(cached.files)) {
     lastScanStats.cacheHits++;
     return cached.files.map(file => ({ ...file }));
   }
   lastScanStats.cacheMisses++;
-  const files = scanner(seriesPath);
+  const files = scanner(seriesPath, true);
   bucket[key] = { path: seriesPath, mtimeMs, files };
   return files;
 }
@@ -315,14 +330,11 @@ function register() {
       });
   });
 
-  ipcMain.handle('library:deleteSeries', (_, seriesPath) => {
+  ipcMain.handle('library:deleteSeries', async (_, seriesPath) => {
     try {
       assertAllowedChildFileActionPath(seriesPath);
-      // Remove the series folder recursively; flat unlink+rmdir failed on any
-      // series containing subfolders (extras/, subs/, season packs).
-      if (fs.existsSync(seriesPath)) {
-        fs.rmSync(seriesPath, { recursive: true, force: true });
-      }
+      // The whole folder (subfolders included) goes to the Recycle Bin.
+      const how = await trashOrDelete(seriesPath);
       // Untrack first: it reads the MAL id from the watch history entry.
       const dirName = path.basename(seriesPath);
       const untracked = untrackDeletedSeries(dirName, seriesPath);
@@ -331,24 +343,24 @@ function register() {
         delete history[dirName];
         saveConfig();
       }
-      return { success: true, untracked };
+      return { success: true, untracked, recycled: how === 'trash' };
     } catch (e) {
       return { success: false, error: e.message };
     }
   });
 
-  ipcMain.handle('library:batchDeleteSeries', (_, paths) => {
+  ipcMain.handle('library:batchDeleteSeries', async (_, paths) => {
     if (!Array.isArray(paths) || paths.length > 500) return [];
     const results = [];
     for (const p of paths) {
       try {
         assertAllowedChildFileActionPath(p);
-        if (fs.existsSync(p)) fs.rmSync(p, { recursive: true, force: true });
+        const how = await trashOrDelete(p);
         const dirName = path.basename(p);
         const untracked = untrackDeletedSeries(dirName, p);
         const history = getWatchHistoryStore();
         if (history[dirName]) delete history[dirName];
-        results.push({ path: p, success: true, untracked });
+        results.push({ path: p, success: true, untracked, recycled: how === 'trash' });
       } catch (e) {
         results.push({ path: p, success: false, error: e.message });
       }
@@ -357,12 +369,12 @@ function register() {
     return results;
   });
 
-  ipcMain.handle('library:deleteEpisodeFile', (_, filePath) => {
+  ipcMain.handle('library:deleteEpisodeFile', async (_, filePath) => {
     try {
       assertAllowedFileActionPath(filePath);
       assertPlayableMedia(filePath);
-      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-      return { success: true };
+      const how = await trashOrDelete(filePath);
+      return { success: true, recycled: how === 'trash' };
     } catch (e) {
       return { success: false, error: e.message };
     }

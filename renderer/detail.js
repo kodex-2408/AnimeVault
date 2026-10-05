@@ -230,7 +230,7 @@ async function openExploreDetail(malId){
   h+=linkChips(a.title,a.id);
   if(local&&local.episodes&&local.episodes.length){
     var ws=new Set((local.watchData&&local.watchData.episodesWatched)||[]);
-    local.episodes.forEach(function(ep){var n=ep.episodeNum!=null?ep.episodeNum:parseEpisodeNumber(ep.name);if(n!==null&&n<=watched)ws.add(n);});
+    local.episodes.forEach(function(ep){var n=ep.episodeNum;if(n!=null&&n<=watched)ws.add(n);});
     h+='<div class="sec-head"><div class="sec-title">'+VM('Downloaded episodes','Downloaded chapters')+'</div><span class="sec-count">'+local.episodes.length+'</span></div>';
     h+=renderDetailEpisodes(local.episodes,local,ws);
   }

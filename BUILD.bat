@@ -25,7 +25,7 @@ echo.
 echo  [ ? ]    Select target architecture:
 echo.
 echo           1   x64     Intel / AMD  (most common)
-echo           2   ARM64   Snapdragon / ARM laptops
+echo           2   ARM64   Snapdragon / ARM laptops  (native, no emulation)
 echo           3   Both    x64 + ARM64
 echo.
 set /p arch="          Your choice (1/2/3): "
@@ -58,7 +58,7 @@ echo  [ OK ]   Dependencies ready
 echo.
 
 :: Build
-echo  [ 2/2 ]  Compiling portable .exe...
+if "%arch%"=="2" (echo  [ 2/2 ]  Compiling native ARM64 app...) else (echo  [ 2/2 ]  Compiling portable .exe...)
 if "%arch%"=="1" (call npm run build-x64) else if "%arch%"=="2" (call npm run build-arm64) else (call npm run build)
 
 if %errorlevel% neq 0 (
@@ -66,7 +66,7 @@ if %errorlevel% neq 0 (
     echo  [ERROR]  Build failed.
     echo           Fixes:
     echo             - Review the build error above
-    echo             - Confirm bin\mpv.exe and required DLLs are present
+    echo             - Close any running AnimeVault, then retry
     echo.
     pause & exit /b 1
 )
@@ -77,12 +77,17 @@ echo  +--------------------------------------------------+
 echo  ^|  DONE!   Output is in the  dist\  folder         ^|
 echo  +--------------------------------------------------+
 echo.
-if "%arch%"=="3" (
-    echo  Files:   dist\AnimeVault-x64.exe
-    echo           dist\AnimeVault-arm64.exe
-) else (
-    echo  File:    dist\AnimeVault-%ARCH_LABEL%.exe
+if "%arch%"=="1" (
+    echo  File:    dist\AnimeVault-x64.exe
+    echo  Usage:   No install required. Share or run directly.
 )
-echo  Usage:   No install required. Share or run directly.
+if not "%arch%"=="1" (
+    if "%arch%"=="3" echo  x64:     dist\AnimeVault-x64.exe   ^(portable, run directly^)
+    echo  ARM64:   dist\win-arm64-unpacked\AnimeVault.exe   ^(run this^)
+    echo           dist\AnimeVault-arm64.zip   ^(same app - extract anywhere and run AnimeVault.exe^)
+    echo.
+    echo  Why no single ARM64 .exe: the one-file portable format starts through an
+    echo  x86 launcher that Windows runs emulated. The folder / zip app is native ARM64.
+)
 echo.
 pause

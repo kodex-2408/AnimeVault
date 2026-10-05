@@ -142,4 +142,35 @@ assert.deepStrictEqual([desc.group, desc.codec, desc.resolution, desc.preferred]
   assert.strictEqual(search.releaseMatchesTrackedSeason(rel('[Erai-raws] Koori no Jouheki Season 1 - 05 [1080p]', 30, 50), entry, 'Koori no Jouheki'), false, 'explicit other season');
 }
 
-console.log('search-matching regression tests passed');
+// 4-digit episodes (long runners), never years
+assert.strictEqual(search.parseNyaaEpisodeNumber('[SubsPlease] One Piece - 1100 (1080p) [ABCD1234].mkv'), 1100);
+assert.strictEqual(search.parseNyaaEpisodeNumber('[Erai-raws] Detective Conan - 1150 [1080p]'), 1150);
+assert.strictEqual(search.parseNyaaEpisodeNumber('Some Show 2024 [1080p].mkv'), null, 'a year is not an episode');
+
+assert.strictEqual(search.decodeEntities('Kaguya-sama &amp; Friends&#39; Day &#x2764; &quot;x&quot;'), 'Kaguya-sama & Friends\' Day \u2764 "x"');
+
+// Hand-off: shell.openPath reports failure as a string; that is not a success.
+(async () => {
+  const os = require('os');
+  const opened = [];
+  const deps = (openPathResult, externalFails) => ({
+    config: {}, app: { getPath: () => os.tmpdir() },
+    shell: {
+      openPath: async () => openPathResult,
+      openExternal: async (u) => { if (externalFails) throw new Error('no handler'); opened.push(u); },
+    },
+  });
+  const realDownload = search.downloadNyaaTorrentFile;
+  const release = { id: '', title: 'Show - 01', magnet: 'magnet:?xt=urn:btih:' + 'a'.repeat(40) };
+  search.setDeps(deps('', false));
+  let r = await search.handOffToClient(release);
+  assert.deepStrictEqual([r.ok, r.method, opened.length], [true, 'magnet', 1]);
+  search.setDeps(deps('', true));
+  r = await search.handOffToClient(release);
+  assert.strictEqual(r.ok, false, 'no magnet handler is a failure');
+  assert(/torrent client/i.test(r.error));
+  search.setDeps(deps('', false));
+  r = await search.handOffToClient({ id: '', title: 'x', magnet: '' });
+  assert.strictEqual(r.ok, false, 'no link at all');
+  console.log('search-matching regression tests passed');
+})().catch((e) => { console.error(e); process.exit(1); });

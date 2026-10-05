@@ -80,8 +80,8 @@ function register() {
     try {
       assertAllowedChildFileActionPath(seriesPath);
       const cleanName = String(newName || '').trim();
-      if (!cleanName || cleanName === '.' || cleanName === '..' || /[<>:"/\\|?*\x00-\x1f]/.test(cleanName) || /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i.test(cleanName)) {
-        return { success: false, error: 'The new name contains invalid Windows filename characters' };
+      if (!isSafeFileName(cleanName)) {
+        return { success: false, error: 'That isn’t a valid Windows folder name (no \\ / : * ? " < > |, and it can’t end with a dot or space)' };
       }
       if (!fs.existsSync(seriesPath) || !fs.statSync(seriesPath).isDirectory()) {
         return { success: false, error: 'Series folder not found' };
@@ -89,7 +89,8 @@ function register() {
       const currentName = String(oldName || path.basename(seriesPath));
       const destination = path.join(path.dirname(seriesPath), cleanName);
       assertAllowedChildFileActionPath(destination);
-      if (destination !== seriesPath && fs.existsSync(destination)) {
+      // A case-only rename ("one piece" -> "One Piece") targets the same folder.
+      if (destination.toLowerCase() !== seriesPath.toLowerCase() && fs.existsSync(destination)) {
         return { success: false, error: 'A folder with that name already exists' };
       }
 
@@ -142,8 +143,16 @@ function register() {
           delete modeMap[currentName];
         }
       }
+      const samePath = (a, b) => { try { return !!a && path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase(); } catch (e) { return false; } };
       for (const entry of config.autoDownloadWatchlist || []) {
         if (entry.seriesName === currentName) entry.seriesName = cleanName;
+        if (samePath(entry.seriesPath, seriesPath)) entry.seriesPath = destination;
+      }
+      // Name lists the UI keeps (muted duplicate warnings, known series, import
+      // review choices) follow the new name too.
+      const mode = config.vaultMode === 'manga' ? 'manga' : 'anime';
+      for (const key of ['mutedDupSeries', mode + 'KnownSeries', mode + 'ImportReviewDismissed']) {
+        if (Array.isArray(config[key])) config[key] = config[key].map(n => (n === currentName ? cleanName : n)).filter((n, i, all) => all.indexOf(n) === i);
       }
       const oldCover = getExistingCoverCachePath(currentName);
       const newCover = getCoverCachePath(cleanName);

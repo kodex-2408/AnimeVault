@@ -390,13 +390,22 @@ async function toggleMinimizeToTray(enabled){
   await api.setMinimizeToTray(enabled);
   toast(enabled?'Minimize to tray enabled':'Minimize to tray disabled','i');
 }
+// Episode numbering of this folder relative to MAL's entry. A season whose
+// files continue the previous season's numbers (S2 as 13-24) is offset by 12,
+// so "watched up to 24" is 12 episodes on MAL. Recaps (12.5) never count.
+function malEpisodeOffset(s,totalEps){
+  var nums=(s.episodes||[]).map(function(e){return e.episodeNum;}).filter(function(n){return n!=null&&n===Math.floor(n)&&n>0;});
+  if(!nums.length||!totalEps)return 0;
+  var lo=Math.min.apply(null,nums),hi=Math.max.apply(null,nums);
+  return lo>1&&hi>totalEps&&hi-(lo-1)<=totalEps?lo-1:0;
+}
 async function autoSyncSeries(name, uncheckedEp){
   var s=S.lib.find(function(x){return x.name===name});if(!s)return;
   if(!S.mal)return;
   // Check if real-time sync is paused
   if(S.cfg.syncPaused){console.log('[Sync] Paused, skipping '+name);return;}
   var w=s.watchData;if(!w||!w.malId)return;
-  var watched=w.episodesWatched||[];
+  var watched=(w.episodesWatched||[]).filter(function(n){return n===Math.floor(n);});
   var highestEp=watched.length?Math.max.apply(null,watched):0;
   // If we just unchecked an episode and local list is empty or highest is below unchecked-1,
   // use uncheckedEp-1 as the true progress (episodes before our local files were already watched)
@@ -405,6 +414,9 @@ async function autoSyncSeries(name, uncheckedEp){
     if(trueProgress>highestEp)highestEp=trueProgress;
   }
   var totalEps=w.malData&&(w.malData.num_episodes||w.malData.num_chapters)?(w.malData.num_episodes||w.malData.num_chapters):0;
+  var epOffset=malEpisodeOffset(s,totalEps);
+  highestEp=Math.max(0,highestEp-epOffset);
+  if(totalEps>0)highestEp=Math.min(highestEp,totalEps);
   // 3.2: Smart conflict detection. If MAL has MORE progress than local, don't
   // silently overwrite — ask the user. This protects progress made on another
   // device (mobile MAL app, web, another machine). Only triggers for real
@@ -417,7 +429,7 @@ async function autoSyncSeries(name, uncheckedEp){
     if(resolution==='mal'){
       // Adopt MAL's count locally — expand watched list to include 1..malHighest.
       var allEpNums=s.episodes.filter(function(e){return e.episodeNum!==null}).map(function(e){return e.episodeNum}).sort(function(a,b){return a-b});
-      var newList=allEpNums.filter(function(n){return n<=malHighest});
+      var newList=allEpNums.filter(function(n){return n<=malHighest+epOffset});
       var wd=await api.setEpisodesWatched(name,newList);_patchLibWatchData(name,wd);
       toast('Adopted MAL progress: '+malHighest,'s');
       return;
@@ -570,7 +582,7 @@ async function startMal(){var cid=document.getElementById('malCid');var csec=doc
     S.mal=true;S.cfg=await api.getConfig();toast('Connected!','s');queuePendingMalMatches();await loadLib(true);render();scheduleMalBackfill(800);
   }catch(e){toast('Connect error: '+(e.message||e),'e');}
 }
-async function disconnMal(){await api.setAllConfig(Object.assign({},S.cfg,{malAccessToken:'',malRefreshToken:'',malTokenExpiry:0}));S.mal=false;S.cfg=await api.getConfig();toast('Disconnected','i');render();}
+async function disconnMal(){await api.malDisconnect();S.mal=false;S.cfg=await api.getConfig();toast('Disconnected','i');render();}
 async function placeNewSeries(idx,destFolder,malId){
   if(!S.pendingNewSeries||!S.pendingNewSeries[idx])return;
   var item=S.pendingNewSeries[idx];
@@ -579,17 +591,20 @@ async function placeNewSeries(idx,destFolder,malId){
   // Build the backend payload from the grouped item:
   // originalPath and isFolder are stored on the first file entry
   var firstFile=item.files&&item.files[0]?item.files[0]:{};
-  var payload={
-    series:item.series,
-    newName:firstFile.newName||item.series,
-    originalPath:firstFile.originalPath||'',
-    isFolder:!!firstFile.isFolder,
-    isNewSeries:true
-  };
+  // A folder moves as one unit; loose episodes are each moved (all of them,
+  // not only the first one).
+  var units=firstFile.isFolder?[firstFile]:(item.files||[]).filter(function(f){return f&&f.originalPath;});
+  if(!units.length)units=[firstFile];
   var activityId=activityStart('import','Place '+item.series,'Moving files into the library');
   toast('Moving "'+item.series+'" to selected folder...','i');
-  var r=await api.watcherPlaceNewSeries(payload,destFolder);
-  if(r.error){activityFinish(activityId,'error',r.error);toast('Failed: '+r.error,'e');return;}
+  var errors=[],placed=0;
+  for(var u=0;u<units.length;u++){
+    var f=units[u];
+    var r=await api.watcherPlaceNewSeries({series:item.series,newName:f.newName||item.series,originalPath:f.originalPath||'',isFolder:!!f.isFolder,isNewSeries:true},destFolder);
+    if(!r||r.error||r.success===false)errors.push((f.file||f.newName||'file')+': '+((r&&r.error)||'unknown error'));else placed++;
+  }
+  if(!placed){activityFinish(activityId,'error',errors.join('\n'));toast('Failed: '+(errors[0]||'nothing was moved'),'e');return;}
+  if(errors.length)toast('Moved '+placed+', '+errors.length+' failed: '+errors[0],'e');
   if(malId&&S.mal){
     try{
       await api.setMalId(item.series,malId);
@@ -749,7 +764,7 @@ async function deleteSeries(name,seriesPath){
   toast('Deleting...','i');var r=await api.deleteSeries(seriesPath);
   if(r.error){toast('Failed: '+r.error,'e');return;}
   if(S.cfg.untrackOnDelete!==false){S._autoDownloadWatchlist=await api.autoDownloadGetWatchlist();S.cfg.autoDownloadWatchlist=S._autoDownloadWatchlist;}
-  toast('Deleted: '+name,'s');cdtl();await loadLib();render();
+  toast((r.recycled?'Moved to the Recycle Bin: ':'Deleted: ')+name,'s');cdtl();await loadLib();render();
 }
 async function fetchAll(){var m=S.lib.filter(function(s){return !s.name.startsWith('__unsorted')&&!S.covers[s.name]});
   if(!m.length){if(notifEnabled('rescan'))toast('All covers fetched!','s');return;}if(notifEnabled('rescan'))toast('Fetching '+m.length+' covers...','i');
@@ -781,7 +796,7 @@ async function bulkSetTracking(enabled){
 async function bulkDelete(){
   var targets=S.selectedSeries.map(function(n){return S.lib.find(function(x){return x.name===n})}).filter(Boolean);
   if(!targets.length)return;
-  var ok=await askConfirm({title:'Delete '+plural(targets.length,'series','series')+'?',danger:true,confirm:'Delete permanently',text:'These folders and every file inside them will be removed from disk. This cannot be undone.',body:'<div class="path-list">'+targets.map(function(s){return '<div class="mono">'+E(s.path)+'</div>';}).join('')+'</div>'});
+  var ok=await askConfirm({title:'Delete '+plural(targets.length,'series','series')+'?',danger:true,confirm:'Move to Recycle Bin',text:'These folders and every file inside them go to the Recycle Bin. (Drives without one delete them permanently.)',body:'<div class="path-list">'+targets.map(function(s){return '<div class="mono">'+E(s.path)+'</div>';}).join('')+'</div>'});
   if(!ok)return;
   var failed=[];
   for(var i=0;i<S.selectedSeries.length;i++){

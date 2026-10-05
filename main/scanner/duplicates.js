@@ -6,7 +6,7 @@ const { ipcMain } = require('electron');
 const fs = require('fs');
 const { state } = require('../state');
 const { MANGA_EXTS, VIDEO_EXTS, assertPlayableMedia, detectResolution, parseMediaNumber } = require('./parsers');
-const { assertAllowedFileActionPath } = require('../config/security');
+const { assertAllowedFileActionPath, trashOrDelete } = require('../config/security');
 
 function fmtBytes(b) {
   if (!b || b === 0) return '0 B';
@@ -62,7 +62,7 @@ function scheduleDuplicateCheck(library) {
 }
 
 function register() {
-  ipcMain.handle('duplicate:resolve', (_, data) => {
+  ipcMain.handle('duplicate:resolve', async (_, data) => {
     try {
       if (!data || typeof data !== 'object') return { success: false, error: 'Invalid payload' };
       const { keep } = data;
@@ -74,7 +74,7 @@ function register() {
         assertAllowedFileActionPath(p);
         assertPlayableMedia(p, VIDEO_EXTS.concat(MANGA_EXTS));
         if (fs.existsSync(p)) {
-          fs.unlinkSync(p);
+          await trashOrDelete(p);
           deleted++;
         }
       }

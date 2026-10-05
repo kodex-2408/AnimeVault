@@ -7,7 +7,7 @@ const { app, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { state, config } = require('../state');
-const { isAllowedFileActionPath, isInsidePath, isSafeFileName, normalizeFsPath } = require('./security');
+const { isAllowedFileActionPath, isInsidePath, isSafeFileName, normalizeFsPath, validateRendererConfigValue } = require('./security');
 const { API_KEY_CONFIG_FIELDS, CACHE_DIR, flushSaveConfig, getWatchHistoryStore, isSafeConfigKey, loadConfig, safeHistoryKey, saveConfig, writeConfigSafely } = require('./config');
 const { clearLibraryIndex } = require('../scanner/library');
 
@@ -28,8 +28,9 @@ const RESTORE_MAX_CONFIG_BYTES = 64 * 1024 * 1024;
 function register() {
   // Batch C F9: Import/Export & Backup
   ipcMain.handle('library:exportMetadata', async () => {
+    // Same exclusions as a backup: no tokens, secrets, API keys or flow state.
     const safeConfig = { ...config };
-    ['malAccessToken','malRefreshToken','malClientSecret','malCodeVerifier'].forEach(key => delete safeConfig[key]);
+    BACKUP_SECRET_KEYS.forEach(key => delete safeConfig[key]);
     return { version: 1, exportedAt: new Date().toISOString(), config: safeConfig, library: state.lastLibraryScan };
   });
 
@@ -41,7 +42,10 @@ function register() {
       const ls = m.my_list_status || {};
       rows.push([s.name, s.category || '', s.episodeCount, w.episodesWatched ? w.episodesWatched.length : 0, w.malId || '', m.mean || '', ls.status || '']);
     }
-    return rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+    // A cell starting with = + - @ (or a tab/CR) runs as a formula in Excel;
+    // a leading apostrophe keeps it text.
+    const cell = (c) => { let v = String(c); if (/^[=+\-@\t\r]/.test(v)) v = "'" + v; return `"${v.replace(/"/g, '""')}"`; };
+    return rows.map(r => r.map(cell).join(',')).join('\n');
   });
 
   ipcMain.handle('library:importAniList', async (_, filePath) => {
@@ -121,9 +125,15 @@ function register() {
       try { restored = JSON.parse(cfgEntry.getData().toString('utf-8')); } catch (e) { return { success: false, error: 'Backup config.json is not valid JSON' }; }
       if (!restored || typeof restored !== 'object' || Array.isArray(restored)) return { success: false, error: 'Backup config.json is not a settings file' };
       // Unknown keys are dropped; credentials always come from the current session.
+      // Values get the same checks as a change made in Settings, so a crafted
+      // backup can't point the player at an arbitrary program or add a system
+      // folder as a library; such values are dropped.
       const next = {};
+      const rejected = [];
       for (const key of Object.keys(restored)) {
-        if (isSafeConfigKey(key) && !BACKUP_SECRET_KEYS.includes(key) && key !== 'hasMalClientSecret' && key !== 'hasGeminiApiKey') next[key] = restored[key];
+        if (!isSafeConfigKey(key) || BACKUP_SECRET_KEYS.includes(key) || key === 'hasMalClientSecret' || key === 'hasGeminiApiKey') continue;
+        try { validateRendererConfigValue(key, restored[key]); next[key] = restored[key]; }
+        catch (e) { rejected.push(key); }
       }
       for (const key of BACKUP_SECRET_KEYS) if (key !== '_userDataPath' && !API_KEY_CONFIG_FIELDS.includes(key) && config[key] !== undefined) next[key] = config[key];
       // Covers: files only, written straight into cover-cache (never elsewhere).
@@ -146,7 +156,7 @@ function register() {
       loadConfig();
       config.geminiApiKey = aiKey;
       clearLibraryIndex();
-      return { success: true };
+      return { success: true, rejected };
     } catch (e) {
       return { success: false, error: e.message };
     }
