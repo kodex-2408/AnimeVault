@@ -7,10 +7,15 @@
 const https = require('https');
 
 const DEFAULT_MODEL = 'gemini-flash-latest';
+// Tried in order when a model's free-tier quota is used up (each model has its
+// own quota) or the model isn't available to the key.
+const FALLBACK_MODELS = ['gemini-flash-lite-latest', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'];
 const KEY_PAGE_URL = 'https://aistudio.google.com/apikey';
 
 let _deps = null;
 let _activeReq = null;
+// model -> timestamp until which it is skipped after a quota error
+const _quotaBlocked = new Map();
 
 function setDeps(deps) {
   _deps = deps;
@@ -82,6 +87,36 @@ function extractText(json) {
   return parts.filter(p => p && typeof p.text === 'string' && !p.thought).map(p => p.text).join('');
 }
 
+// Google error body -> {message, retryDelay (seconds), quotaIds}. Quota errors
+// carry QuotaFailure (which quota) and RetryInfo (how long to wait) details.
+function parseApiError(status, raw) {
+  let message = 'HTTP ' + status;
+  let retryDelay = 0;
+  const quotaIds = [];
+  try {
+    const j = JSON.parse(raw);
+    const e = Array.isArray(j) ? j[0] && j[0].error : j.error;
+    if (e && e.message) message += ': ' + e.message;
+    for (const det of (e && Array.isArray(e.details) ? e.details : [])) {
+      const type = String(det && det['@type'] || '');
+      if (/RetryInfo$/.test(type)) retryDelay = parseFloat(det.retryDelay) || 0;
+      if (/QuotaFailure$/.test(type) && Array.isArray(det.violations)) det.violations.forEach(v => v && v.quotaId && quotaIds.push(String(v.quotaId)));
+    }
+  } catch (e) {}
+  return { message, retryDelay, quotaIds };
+}
+
+function quotaIsDaily(r) {
+  return (r.quotaIds || []).some(q => /PerDay/i.test(q)) || /limit: 0\b/.test(r.message || '');
+}
+
+// What Luma says when every model is out of quota.
+function quotaMessage(r) {
+  if (quotaIsDaily(r)) return 'Google\u2019s free daily limit for your AI Studio key is used up. It resets at midnight Pacific time \u2014 or enable billing on the key for more.';
+  const wait = Math.max(5, Math.ceil(r.retryDelay || 60));
+  return 'Google\u2019s free per-minute limit for your AI Studio key is used up. Try again in about ' + (wait >= 90 ? Math.round(wait / 60) + ' minutes' : wait + ' seconds') + '.';
+}
+
 function requestStream(apiKey, model, body, onText) {
   return new Promise((resolve) => {
     const postData = JSON.stringify(body);
@@ -98,11 +133,7 @@ function requestStream(apiKey, model, body, onText) {
       if (res.statusCode !== 200) {
         let raw = '';
         res.on('data', c => { if (raw.length < 4000) raw += c; });
-        res.on('end', () => {
-          let msg = 'HTTP ' + res.statusCode;
-          try { const j = JSON.parse(raw); const e = Array.isArray(j) ? j[0] && j[0].error : j.error; if (e && e.message) msg += ': ' + e.message; } catch (e) {}
-          resolve({ ok: false, status: res.statusCode, message: msg });
-        });
+        res.on('end', () => resolve(Object.assign({ ok: false, status: res.statusCode }, parseApiError(res.statusCode, raw))));
         res.on('error', (e) => resolve({ ok: false, message: e.message }));
         return;
       }
@@ -146,13 +177,33 @@ async function chatStream(messages, model, options = {}) {
     if (!apiKey) return fail('No Google AI Studio key configured');
     if (!validateMessages(messages)) return fail('Invalid conversation payload');
     const safeModel = safeModelId(model || cfg.geminiModel);
-    const webSearch = !options || options.webSearch !== false;
+    let webSearch = !options || options.webSearch !== false;
     const onText = (text) => pushToRenderer('ai:chunk', { text });
-    let r = await requestStream(apiKey, safeModel, toGeminiRequest(messages, { webSearch }), onText);
-    // Google Search grounding isn't available on every key/tier: answer without it.
-    if (!r.ok && webSearch && r.status === 400 && /search|tool|ground/i.test(r.message || '')) {
-      r = await requestStream(apiKey, safeModel, toGeminiRequest(messages, { webSearch: false }), onText);
+    const send = d().request || requestStream;
+    const now = Date.now();
+    const all = [safeModel].concat(FALLBACK_MODELS.filter(m => m !== safeModel));
+    const ready = all.filter(m => !(_quotaBlocked.get(m) > now));
+    let r = null;
+    let lastQuota = null;
+    for (const m of (ready.length ? ready : all)) {
+      r = await send(apiKey, m, toGeminiRequest(messages, { webSearch }), onText);
+      // Google Search grounding has its own (often zero) free quota and isn't on
+      // every key/tier: answer without it.
+      if (!r.ok && !r.gotText && webSearch && (r.status === 429 || (r.status === 400 && /search|tool|ground/i.test(r.message || '')))) {
+        webSearch = false;
+        r = await send(apiKey, m, toGeminiRequest(messages, { webSearch }), onText);
+      }
+      if (r.ok || r.gotText) break;
+      if (r.status === 429) {
+        lastQuota = r;
+        _quotaBlocked.set(m, Date.now() + (quotaIsDaily(r) ? 3600000 : Math.max(30, r.retryDelay || 60) * 1000));
+        continue;
+      }
+      if (r.status === 404) continue; // model retired or not offered to this key
+      break;
     }
+    if (r && !r.ok && r.status === 404 && lastQuota) r = lastQuota;
+    if (r && !r.ok && r.status === 429) r = { ok: false, message: quotaMessage(r) };
     _activeReq = null;
     if (!r.ok) return fail(r.message || 'Gemini request failed');
     pushToRenderer('ai:done', {});
@@ -203,6 +254,10 @@ module.exports = {
   validateMessages,
   isPlausibleKey,
   normalizeKey,
+  parseApiError,
+  quotaMessage,
+  FALLBACK_MODELS,
+  _resetQuota: () => _quotaBlocked.clear(),
   verifyKey,
   safeModelId,
   toGeminiRequest,
