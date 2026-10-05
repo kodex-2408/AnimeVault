@@ -70,10 +70,15 @@ function safeModelId(model) {
 // OpenAI-style messages -> Gemini request body.
 function toGeminiRequest(messages, options = {}) {
   const system = messages.filter(m => m.role === 'system').map(m => m.content).join('\n\n');
-  const contents = messages.filter(m => m.role !== 'system').map(m => ({
-    role: m.role === 'assistant' ? 'model' : 'user',
-    parts: [{ text: m.content }],
-  }));
+  // Turns must alternate; a failed reply leaves two user turns in a row.
+  const contents = [];
+  for (const m of messages) {
+    if (m.role === 'system') continue;
+    const role = m.role === 'assistant' ? 'model' : 'user';
+    const last = contents[contents.length - 1];
+    if (last && last.role === role) last.parts[0].text += '\n\n' + m.content;
+    else contents.push({ role, parts: [{ text: m.content }] });
+  }
   const body = { contents, generationConfig: { temperature: 0.7 } };
   if (system) body.systemInstruction = { parts: [{ text: system }] };
   if (options.webSearch) body.tools = [{ google_search: {} }];
@@ -105,6 +110,9 @@ function parseApiError(status, raw) {
   } catch (e) {}
   return { message, retryDelay, quotaIds };
 }
+
+// 500 / 503 / 504: Google is overloaded or had a hiccup.
+function isBusyStatus(status) { return status === 500 || status === 503 || status === 504; }
 
 function quotaIsDaily(r) {
   return (r.quotaIds || []).some(q => /PerDay/i.test(q)) || /limit: 0\b/.test(r.message || '');
@@ -170,11 +178,11 @@ function requestStream(apiKey, model, body, onText) {
 // Resolves {ok, message} so callers can surface failures in UI.
 async function chatStream(messages, model, options = {}) {
   abortChat();
-  const fail = (msg) => { pushToRenderer('ai:error', { message: msg }); return { ok: false, message: msg }; };
+  const fail = (msg, kind = 'other') => { pushToRenderer('ai:error', { message: msg, kind }); return { ok: false, message: msg, kind }; };
   try {
     const cfg = d().config;
     const apiKey = String(cfg.geminiApiKey || '');
-    if (!apiKey) return fail('No Google AI Studio key configured');
+    if (!apiKey) return fail('No Google AI Studio key configured', 'key');
     if (!validateMessages(messages)) return fail('Invalid conversation payload');
     const safeModel = safeModelId(model || cfg.geminiModel);
     let webSearch = !options || options.webSearch !== false;
@@ -185,6 +193,7 @@ async function chatStream(messages, model, options = {}) {
     const ready = all.filter(m => !(_quotaBlocked.get(m) > now));
     let r = null;
     let lastQuota = null;
+    let lastBusy = null;
     for (const m of (ready.length ? ready : all)) {
       r = await send(apiKey, m, toGeminiRequest(messages, { webSearch }), onText);
       // Google Search grounding has its own (often zero) free quota and isn't on
@@ -199,13 +208,24 @@ async function chatStream(messages, model, options = {}) {
         _quotaBlocked.set(m, Date.now() + (quotaIsDaily(r) ? 3600000 : Math.max(30, r.retryDelay || 60) * 1000));
         continue;
       }
+      if (isBusyStatus(r.status)) {
+        // "This model is currently experiencing high demand": Google-side
+        // overload, usually brief and per model - try the next one.
+        lastBusy = r;
+        _quotaBlocked.set(m, Date.now() + 120000);
+        continue;
+      }
       if (r.status === 404) continue; // model retired or not offered to this key
       break;
     }
-    if (r && !r.ok && r.status === 404 && lastQuota) r = lastQuota;
-    if (r && !r.ok && r.status === 429) r = { ok: false, message: quotaMessage(r) };
+    if (r && !r.ok && r.status === 404 && (lastQuota || lastBusy)) r = lastQuota || lastBusy;
+    if (r && !r.ok && r.status === 429) r = { ok: false, kind: 'quota', message: quotaMessage(r) };
+    else if (r && !r.ok && isBusyStatus(r.status)) {
+      r = lastQuota ? { ok: false, kind: 'quota', message: quotaMessage(lastQuota) }
+        : { ok: false, kind: 'busy', message: 'Google\u2019s Gemini servers are overloaded right now (HTTP ' + r.status + '). This isn\u2019t a problem with your key \u2014 try again in a minute.' };
+    }
     _activeReq = null;
-    if (!r.ok) return fail(r.message || 'Gemini request failed');
+    if (!r.ok) return fail(r.message || 'Gemini request failed', r.kind || (r.status === 400 || r.status === 401 || r.status === 403 ? 'key' : 'other'));
     pushToRenderer('ai:done', {});
     return { ok: true };
   } catch (err) {

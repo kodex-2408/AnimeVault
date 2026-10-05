@@ -829,3 +829,5 @@ body:has(.toolbar.stuck) .titlebar::before { opacity: 0; }
 .theme-grid.compact .theme-mini { aspect-ratio: 2 / 1; }
 .score-picker { display: grid !important; grid-template-columns: repeat(11, minmax(0, 1fr)); }
 .score-picker > button { width: 100% !important; min-width: 0; }
+.lg-row.set-row.sub .lg-main{padding-left:44px}
+.lg-row.set-row.sub .lg-title{font-weight:500}

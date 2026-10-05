@@ -52,7 +52,6 @@ contextBridge.exposeInMainWorld('api', {
 
   // Player
   play: (filePath, seriesName, episodeNum) => invoke('player:play', filePath, seriesName, episodeNum),
-  getBundledInfo: () => invoke('player:getBundledInfo'),
 
   // Shell
   openExternal: (url) => invoke('shell:openExternal', url),
@@ -66,7 +65,7 @@ contextBridge.exposeInMainWorld('api', {
   anilistFetchCover: (seriesName, url, force) => invoke('anilist:fetchCover', seriesName, url, force),
   anilistGetCachedCover: (name) => invoke('anilist:getCachedCover', name),
   anilistFetchAllCovers: (seriesList) => invoke('anilist:fetchAllCovers', seriesList),
-  anilistUserMalIds: (userName) => invoke('anilist:userMalIds', userName),
+  anilistUserList: (userName) => invoke('anilist:userList', userName),
 
   // MAL
   malIsAuthenticated: () => invoke('mal:isAuthenticated'),

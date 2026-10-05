@@ -108,6 +108,46 @@ function stopAutoMarkPoller() {
   _amConsecutiveFailures = 0;
 }
 
+// Subtitle preference -> language codes. Track tags are 2- or 3-letter ISO
+// codes depending on the release, so both spellings are passed; 'none' turns
+// subtitles off.
+const SUB_LANG_CODES = {
+  en: ['en', 'eng'], es: ['es', 'spa'], pt: ['pt', 'por'], fr: ['fr', 'fre', 'fra'], de: ['de', 'ger', 'deu'],
+  it: ['it', 'ita'], ru: ['ru', 'rus'], ar: ['ar', 'ara'], ja: ['ja', 'jpn'],
+};
+function subtitleLangList(primary, fallback) {
+  const out = [];
+  for (const l of [primary, fallback]) for (const c of (SUB_LANG_CODES[l] || [])) if (!out.includes(c)) out.push(c);
+  return out;
+}
+
+// Bluetooth headphones play audio late, so audio is moved earlier by the
+// configured amount (default 300 ms). 0 = off.
+function audioAdvanceMs(cfg) {
+  if (!cfg.audioDelay) return 0;
+  const ms = Math.round(Number(cfg.audioDelayMs));
+  if (!Number.isFinite(ms) || ms <= 0) return 300;
+  return Math.min(ms, 5000);
+}
+
+// Command-line options for the subtitle and audio-delay preferences.
+function playerPrefArgs(player, cfg) {
+  const args = [];
+  const subsOff = cfg.subLangPrimary === 'none';
+  const langs = subsOff ? [] : subtitleLangList(cfg.subLangPrimary, cfg.subLangFallback);
+  const advance = audioAdvanceMs(cfg);
+  if (player === 'vlc') {
+    if (subsOff) args.push('--no-spu');
+    else if (langs.length) args.push('--sub-language=' + langs.join(','));
+    if (advance) args.push('--audio-desync=' + (-advance)); // milliseconds
+  } else {
+    if (subsOff) args.push('--sid=no');
+    else if (langs.length) args.push('--slang=' + langs.join(','));
+    if (advance) args.push('--audio-delay=' + (-advance / 1000)); // seconds
+  }
+  return args;
+}
+
 function register() {
   ipcMain.handle('player:play', async (_, filePath, seriesName, episodeNum) => {
     try {
@@ -128,9 +168,6 @@ function register() {
       }
 
       const playerType = config.playerType || 'vlc';
-      const subPrimary = config.subLangPrimary || '';
-      const subFallback = config.subLangFallback || '';
-      const audioDelay = config.audioDelay ? '-300' : '0';
 
       if (playerType === 'vlc') {
         const resolvedEpNum = episodeNum ?? parseEpisodeNumber(path.basename(filePath));
@@ -143,9 +180,7 @@ function register() {
           args.push(`--http-port=${VLC_HTTP_PORT}`);
           args.push(`--http-password=${VLC_HTTP_PASSWORD}`);
         }
-        if (subPrimary) args.push(`--sub-language=${subPrimary}`);
-        if (subFallback) args.push(`--sub-language=${subFallback}`);
-        if (audioDelay !== '0') args.push(`--audio-desync=${audioDelay}`);
+        args.push(...playerPrefArgs('vlc', config));
         args.push('--fullscreen');
         // Resolve VLC: configured path first, then common install locations. A
         // missing executable must degrade to the OS default player, never crash
@@ -165,7 +200,7 @@ function register() {
           // Give VLC a moment to start the HTTP server
           setTimeout(() => startAutoMarkPoller('vlc', seriesName, resolvedEpNum), 2000);
         }
-      } else if (playerType === 'mpv' || playerType === 'bundled-mpv') {
+      } else if (playerType === 'mpv') {
         const mpvPath = resolveMpvPath();
         const args = [];
         // Resolve episodeNum from filename if the renderer passed null
@@ -176,9 +211,7 @@ function register() {
         if (config.autoMarkEnabled !== false && resolvedEpNum !== null) {
           args.push(`--input-ipc-server=${MPV_IPC_PIPE}`);
         }
-        if (subPrimary) args.push(`--slang=${subPrimary}`);
-        if (subFallback) args.push(`--slang=${subFallback}`);
-        if (audioDelay !== '0') args.push(`--audio-delay=${audioDelay}`);
+        args.push(...playerPrefArgs('mpv', config));
         args.push('--fullscreen');
         args.push('--', filePath);
         // Clean up old socket if it exists (non-Windows)
@@ -200,8 +233,6 @@ function register() {
       return { error: e.message };
     }
   });
-
-  ipcMain.handle('player:getBundledInfo', () => ({ bundledMpvPath: resolveMpvPath() }));
 
   // Clean up on quit
   app.on('before-quit', () => { stopAutoMarkPoller(); killExistingPlayer(); });

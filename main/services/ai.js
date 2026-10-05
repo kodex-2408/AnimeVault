@@ -48,7 +48,7 @@ function register() {
 
   ipcMain.handle('ai:send', async (_, messages, model, options) => {
     const r = await gemini.chatStream(messages, model, options);
-    return { ok: r.ok, error: r.ok ? null : r.message };
+    return { ok: r.ok, error: r.ok ? null : r.message, kind: r.ok ? null : (r.kind || 'other') };
   });
 
   ipcMain.handle('ai:webSearch', async (_, query) => {

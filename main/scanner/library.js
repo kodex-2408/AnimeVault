@@ -7,7 +7,7 @@ const { ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { state, config } = require('../state');
-const { LIBRARY_INDEX_PATH, getWatchHistoryStore, saveConfig } = require('../config/config');
+const { LIBRARY_INDEX_PATH, getWatchHistoryStore, safeHistoryKey, saveConfig } = require('../config/config');
 const { assertPlayableMedia, getMangaFiles, getVideoFiles, parseChapterNumber, parseEpisodeNumber, parseMediaNumber } = require('./parsers');
 const { getExistingCoverCachePath } = require('../services/covers');
 const { coverFileVersion } = require('../services/anilist');
@@ -262,20 +262,30 @@ function _doScanLibrary(force = false) {
 // the Nyaa poller never produces new-episode notifications for a removed series.
 // Controlled by the "untrackOnDelete" setting (default on).
 function untrackDeletedSeries(dirName, seriesPath) {
-  if (config.untrackOnDelete === false) return;
+  if (config.untrackOnDelete === false) return 0;
   const watchlist = config.autoDownloadWatchlist;
-  if (!Array.isArray(watchlist) || !watchlist.length) return;
+  if (!Array.isArray(watchlist) || !watchlist.length) return 0;
+  // A tracked entry may be stored under its MAL title rather than the folder
+  // name, so match by MAL id and by loosely compared names as well as path.
+  const watchData = getWatchHistoryStore()[safeHistoryKey(dirName)] || {};
+  const malId = Number(watchData.malId) || 0;
+  const loose = (n) => String(n || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+  const names = new Set([loose(dirName), loose(watchData.malData && watchData.malData.title)].filter(Boolean));
+  let target = '';
+  try { target = seriesPath ? path.resolve(seriesPath).toLowerCase() : ''; } catch (e) {}
   const before = watchlist.length;
   config.autoDownloadWatchlist = watchlist.filter(w => {
-    if (w && w.seriesName && w.seriesName === dirName) return false;
-    if (w && w.seriesPath && seriesPath) {
-      try {
-        if (path.resolve(w.seriesPath).toLowerCase() === path.resolve(seriesPath).toLowerCase()) return false;
-      } catch (e) { /* ignore malformed paths */ }
+    if (!w) return false;
+    if (malId && Number(w.malId) === malId) return false;
+    if (names.has(loose(w.seriesName))) return false;
+    if (target && w.seriesPath) {
+      try { if (path.resolve(w.seriesPath).toLowerCase() === target) return false; } catch (e) { /* malformed path */ }
     }
     return true;
   });
-  if (config.autoDownloadWatchlist.length !== before) saveConfig();
+  const removed = before - config.autoDownloadWatchlist.length;
+  if (removed) saveConfig();
+  return removed;
 }
 
 function register() {
@@ -313,15 +323,15 @@ function register() {
       if (fs.existsSync(seriesPath)) {
         fs.rmSync(seriesPath, { recursive: true, force: true });
       }
-      // Remove from watch history
+      // Untrack first: it reads the MAL id from the watch history entry.
       const dirName = path.basename(seriesPath);
+      const untracked = untrackDeletedSeries(dirName, seriesPath);
       const history = getWatchHistoryStore();
       if (history[dirName]) {
         delete history[dirName];
         saveConfig();
       }
-      untrackDeletedSeries(dirName, seriesPath);
-      return { success: true };
+      return { success: true, untracked };
     } catch (e) {
       return { success: false, error: e.message };
     }
@@ -335,10 +345,10 @@ function register() {
         assertAllowedChildFileActionPath(p);
         if (fs.existsSync(p)) fs.rmSync(p, { recursive: true, force: true });
         const dirName = path.basename(p);
+        const untracked = untrackDeletedSeries(dirName, p);
         const history = getWatchHistoryStore();
         if (history[dirName]) delete history[dirName];
-        untrackDeletedSeries(dirName, p);
-        results.push({ path: p, success: true });
+        results.push({ path: p, success: true, untracked });
       } catch (e) {
         results.push({ path: p, success: false, error: e.message });
       }

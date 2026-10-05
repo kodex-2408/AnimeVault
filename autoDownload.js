@@ -436,8 +436,22 @@ function seriesTitleMatchConfidence(seriesTitle, releaseOrTitle) {
   return 0;
 }
 
+// How a release's season tag fits the wanted season:
+//   'yes'      same season (or both season 1 / untagged)
+//   'no'       a different season
+//   'unmarked' a sequel is wanted but the release has no season tag; season 1
+//              releases look exactly like this, so it needs more proof (date)
+function releaseSeasonFit(release, seriesTitle, entry) {
+  const wanted = detectTitleSeason(seriesTitle) || detectTitleSeason(entry && entry.seriesName) || 0;
+  const candidate = detectTitleSeason(getReleaseSeriesTitle(release && release.title));
+  if (wanted >= 2) return candidate === wanted ? 'yes' : (candidate ? 'no' : 'unmarked');
+  return candidate >= 2 ? 'no' : 'yes';
+}
+
+// Without tracking data there is no season start date, so an untagged release
+// never stands in for a sequel ("Koori no Jouheki - 01" is season 1).
 function releaseMatchesSeriesTitle(release, seriesTitle) {
-  return seriesTitleMatchConfidence(seriesTitle, release) >= 0.72;
+  return seriesTitleMatchConfidence(seriesTitle, release) >= 0.72 && releaseSeasonFit(release, seriesTitle, null) === 'yes';
 }
 
 function releaseMatchesQuality(release, quality) {
@@ -535,16 +549,20 @@ function getEntrySeasonStartMs(entry) {
 }
 
 function releaseMatchesTrackedSeason(release, entry, seriesTitle) {
-  if (!releaseMatchesSeriesTitle(release, seriesTitle)) return false;
+  if (seriesTitleMatchConfidence(seriesTitle, release) < 0.72) return false;
+  const fit = releaseSeasonFit(release, seriesTitle, entry);
+  if (fit === 'no') return false;
 
   // MAL season entries have distinct IDs and start dates even when a release
   // group reuses the same short franchise title. Reject releases published
   // before this entry's season began so an S2/S3 folder cannot inherit S1's
-  // episode range merely because the release omitted an explicit season tag.
+  // episodes (back-to-back cours made a 3-week grace let S1's finale through).
+  // An untagged release for a sequel is only accepted with that date proof.
   const seasonStart = getEntrySeasonStartMs(entry);
   const published = getReleasePublishedMs(release);
+  if (fit === 'unmarked' && !(seasonStart && published)) return false;
   if (seasonStart && published) {
-    const graceMs = 21 * 24 * 60 * 60 * 1000;
+    const graceMs = (fit === 'unmarked' ? 2 : 7) * 24 * 60 * 60 * 1000;
     if (published < seasonStart - graceMs) return false;
   }
   return true;
@@ -701,6 +719,10 @@ async function verifyLatestAvailableEpisode(entry) {
       entry.airingStartDate = watchData.malData.start_date;
     }
   }
+  if (!entry.totalEps && d().getWatchDataSync) {
+    const md = (d().getWatchDataSync(entry.seriesName) || {}).malData || {};
+    if (Number(md.num_episodes) > 0) entry.totalEps = Number(md.num_episodes);
+  }
   const quality = entry.preferredQuality || entry.quality || d().config.nyaaQuality || '1080p';
   const uploader = PREFERRED_GROUP;
   const compact = getCompactSearchQuery(title, uploader, null, d().config.forceHevc !== false);
@@ -713,6 +735,8 @@ async function verifyLatestAvailableEpisode(entry) {
       const episode = parseNyaaEpisodeNumber(release.title);
       if (!episode || episode < 1) continue;
       if (!releaseMatchesTrackedSeason(release, entry, title) || !releaseMatchesQuality(release, quality)) continue;
+      // An episode past this season's length belongs to another season.
+      if (Number(entry.totalEps) > 0 && episode + (Number(entry.episodeOffset) || 0) > Number(entry.totalEps)) continue;
       const old = seen.get(episode);
       if (!old || (release.seeders || 0) > (old.seeders || 0)) seen.set(episode, release);
     }
@@ -1071,6 +1095,7 @@ module.exports = {
   getReleasePublishedMs,
   getEntrySeasonStartMs,
   releaseMatchesTrackedSeason,
+  releaseSeasonFit,
   normalizeEpisodeList,
   handoffAgeMs,
   isHandoffTrustworthy,

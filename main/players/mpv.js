@@ -1,20 +1,15 @@
 'use strict';
 
-// main/players/mpv.js - bundled/installed MPV discovery and its JSON IPC.
+// main/players/mpv.js - MPV discovery and its JSON IPC.
 
 const { app } = require('electron');
 const path = require('path');
-const fs = require('fs');
 const net = require('net');
-const { APP_ROOT, config } = require('../state');
+const { config } = require('../state');
 
+// The configured mpv.exe, else "mpv" from PATH. (The bundled MPV build was
+// dropped in 5.x; old "bundled-mpv" settings are migrated in loadConfig.)
 function resolveMpvPath() {
-  if (config.playerType === 'bundled-mpv') {
-    const bundled = path.join(process.resourcesPath, 'bin', 'mpv.exe');
-    if (fs.existsSync(bundled)) return bundled;
-    const dev = path.join(APP_ROOT, 'bin', 'mpv.exe');
-    if (fs.existsSync(dev)) return dev;
-  }
   return config.mpvPath || 'mpv';
 }
 

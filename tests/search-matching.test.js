@@ -115,4 +115,31 @@ assert.strictEqual(search.isBatchRelease(rel('[Erai-raws] Show - 01 ~ 12 [1080p]
 const desc = withCfg({}, () => search.describeRelease(pool[2]));
 assert.deepStrictEqual([desc.group, desc.codec, desc.resolution, desc.preferred], ['Erai-raws', 'HEVC', '1080p', true]);
 
+// ---- Sequels never inherit season 1 releases (Koori no Jouheki, back-to-back cours)
+{
+  const day = 86400000;
+  const s2Start = '2026-01-08';
+  const rel = (title, daysFromS2Start, seeders) => ({ title, seeders, publishedAt: new Date(Date.parse(s2Start) + daysFromS2Start * day).toUTCString() });
+  const s1Finale = rel('[SubsPlease] Koori no Jouheki - 14 (1080p) [AB12CD34].mkv', -6, 2400);
+  const s1Ep1 = rel('[SubsPlease] Koori no Jouheki - 01 (1080p) [11112222].mkv', -98, 5100);
+  const s2Ep1Tagged = rel('[Erai-raws] Koori no Jouheki 2nd Season - 01 [1080p CR WEB-DL AVC AAC][MultiSub][ABCDEF12]', 0, 310);
+  const s2Ep1Untagged = rel('[ToonsHub] Koori no Jouheki - 01 (1080p) [99990000].mkv', 1, 120);
+  const entry = { seriesName: 'Koori no Jouheki S2', searchTitle: 'Koori no Jouheki', airingStartDate: s2Start, totalEps: 12 };
+
+  assert.strictEqual(search.releaseSeasonFit(s1Finale, 'Koori no Jouheki', entry), 'unmarked');
+  assert.strictEqual(search.releaseMatchesTrackedSeason(s1Finale, entry, 'Koori no Jouheki'), false, 'S1 finale published 6 days before S2 must not match S2');
+  assert.strictEqual(search.releaseMatchesTrackedSeason(s1Ep1, entry, 'Koori no Jouheki'), false, 'S1 episode 1 must not match S2 episode 1');
+  assert.strictEqual(search.releaseMatchesTrackedSeason(s2Ep1Tagged, entry, 'Koori no Jouheki'), true, 'tagged S2 release matches');
+  assert.strictEqual(search.releaseMatchesTrackedSeason(s2Ep1Untagged, entry, 'Koori no Jouheki'), true, 'untagged release published after S2 began matches');
+  assert.strictEqual(search.releaseMatchesTrackedSeason(s2Ep1Untagged, { seriesName: 'Koori no Jouheki S2' }, 'Koori no Jouheki'), false, 'untagged + no start date = no proof');
+
+  // Untracked manual download of "Koori no Jouheki S2": only tagged releases.
+  assert.strictEqual(search.releaseMatchesSeriesTitle(s1Ep1, 'Koori no Jouheki S2'), false, 'seeders never let S1 stand in for S2');
+  assert.strictEqual(search.releaseMatchesSeriesTitle(s2Ep1Tagged, 'Koori no Jouheki S2'), true);
+  // ...and a season 1 folder never takes season 2 releases.
+  assert.strictEqual(search.releaseMatchesSeriesTitle(s2Ep1Tagged, 'Koori no Jouheki'), false, 'S1 folder rejects S2 releases');
+  assert.strictEqual(search.releaseMatchesSeriesTitle(s1Ep1, 'Koori no Jouheki'), true);
+  assert.strictEqual(search.releaseMatchesTrackedSeason(rel('[Erai-raws] Koori no Jouheki Season 1 - 05 [1080p]', 30, 50), entry, 'Koori no Jouheki'), false, 'explicit other season');
+}
+
 console.log('search-matching regression tests passed');

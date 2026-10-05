@@ -63,7 +63,7 @@ assert(/player:play[\s\S]{0,200}assertPlayableMedia\(filePath\)/.test(main), 'pl
 assert(/manga:openFile[\s\S]{0,200}assertPlayableMedia\(filePath, MANGA_EXTS\)/.test(main), 'reader must only open manga files');
 assert(main.includes("args.push('--', filePath)"), 'mpv file argument must follow the -- separator');
 assert(main.includes('function isPrivateHost') && main.includes('if (isPrivateHost(parsed.hostname))'), 'image fetches must refuse private hosts');
-assert(main.includes("ipcMain.handle('anilist:userMalIds'") && preload.includes('anilistUserMalIds'), 'AniList import runs in main with GraphQL variables');
+assert(main.includes("ipcMain.handle('anilist:userList'") && preload.includes('anilistUserList') && main.includes('MediaListCollection(userName: $user, type: $type)'), 'AniList import runs in main with GraphQL variables and follows the vault mode');
 ['glassLevel', 'lastDarkTheme', 'lastLightTheme', 'sidebarCollapsed', 'schedView'].forEach(k => assert(main.includes("'" + k + "'"), k + ' must be a whitelisted config key'));
 
 console.log('state-integrity regression checks passed');

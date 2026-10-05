@@ -30,7 +30,10 @@ act('cfgText',function(el,ev,key){var v=el.value.trim();S.cfg[key]=v;api.setConf
 function afterCfgChange(key){
   if(key==='hideDonghua'){S.exploreTop=[];S.exploreSeasonal=[];}
   if(key==='lumaMascot'||key==='lumaSparkles')initLuma();
-  if(key==='playerType'&&S.view==='settings')render();
+  if(key==='playerType'||key==='audioDelay'||key==='subLangPrimary'||key==='releasePicker'){
+    if(document.querySelector('.setup-layer'))renderSetupStep();
+    else if(S.view==='settings')render();
+  }
 }
 
 function sectionHtml(id){
@@ -42,16 +45,18 @@ function sectionHtml(id){
     h+=setRow({block:'<div class="field"><label class="field-label">Reader application</label><div class="input-row"><input class="input mono" id="sReaderPath" value="'+E(S.cfg.readerPath||'')+'" placeholder="Leave empty to use the system default"'+On('change','cfgText','readerPath')+'><button class="btn btn-secondary btn-sm"'+A('brsReader')+'>Browse…</button><button class="btn btn-ghost btn-sm"'+A('detectReader')+'>'+ic('search')+'Detect</button></div><div class="field-hint" id="readerDetectHint">Opens .cbz / .cbr / .pdf files in MangaVault mode — OpenComic, CDisplayEx, SumatraPDF and Honeyview are detected automatically.</div></div>',kw:'reader cbz cbr opencomic sumatra'});
   }else if(id==='playback'){
     var pt=S.cfg.playerType||'vlc';
-    h+=setRow({icon:'playCircle',color:'#30d158',title:'Video player',desc:pt==='bundled-mpv'?'Bundled MPV needs no setup and supports auto-mark.':pt==='system-default'?'Uses your default video app. Auto-mark is not available.':'Set the executable path below.',ctrl:cfgSelect('playerType',[['bundled-mpv','Bundled MPV (recommended)'],['mpv','MPV — custom path'],['vlc','VLC — custom path'],['system-default','System default']],'vlc'),kw:'vlc mpv bundled player'});
+    h+=setRow({icon:'playCircle',color:'#30d158',title:'Video player',desc:pt==='system-default'?'Uses your default video app. Auto-mark, subtitle and audio-delay options need VLC or MPV.':'Set the executable path below.',ctrl:cfgSelect('playerType',[['vlc','VLC'],['mpv','MPV'],['system-default','System default']],'vlc'),kw:'player vlc mpv default'});
     if(pt==='vlc')h+=pathRow('VLC executable','sVlc','vlcPath','C:\\Program Files\\VideoLAN\\VLC\\vlc.exe');
     if(pt==='mpv')h+=pathRow('MPV executable','sMpv','mpvPath','C:\\Tools\\mpv\\mpv.exe');
     h+=setRow({icon:'checkCircle',color:'#30d158',title:'Auto-mark as '+watchedLabel(),desc:'Marks the episode when playback passes a percentage (VLC and MPV).',ctrl:'<input class="input sm pct-input" type="number" min="10" max="100" value="'+(S.cfg.autoMarkPercent||80)+'"'+On('change','setAutoMarkPct')+'><span class="muted">%</span>'+cfgSwitch('autoMarkEnabled',true),kw:'auto mark percent'});
-    h+=setRow({icon:'volume',color:'#64d2ff',title:'Bluetooth audio delay fix',desc:'Shifts audio by −300 ms to compensate for wireless headphone latency (MPV).',ctrl:cfgSwitch('audioDelay'),kw:'audio delay headphones wireless bluetooth'});
-    var langs=[['','Off'],['en','English'],['es','Spanish'],['pt','Portuguese'],['fr','French'],['de','German'],['it','Italian'],['ru','Russian'],['ar','Arabic'],['ja','Japanese']];
-    h+=setRow({icon:'subtitles',color:'#ffcc4d',title:'Subtitles',desc:'Preferred and fallback subtitle tracks passed to the player.',ctrl:cfgSelect('subLangPrimary',langs,'')+cfgSelect('subLangFallback',langs,''),kw:'subtitle language slang'});
+    h+=setRow({icon:'volume',color:'#64d2ff',title:'Bluetooth audio delay fix',desc:'Plays audio earlier to make up for wireless headphone lag. 300 ms suits most Bluetooth headphones; raise it if voices still trail lips (VLC and MPV).',ctrl:'<input class="input sm pct-input" type="number" min="0" max="5000" step="10" value="'+audioDelayMsValue()+'"'+On('change','setAudioDelayMs')+(S.cfg.audioDelay?'':' disabled')+Tip('Recommended: 300 ms')+'><span class="muted">ms</span>'+cfgSwitch('audioDelay'),kw:'audio delay headphones wireless bluetooth ms latency sync'});
+    var langs=[['','Player default'],['none','Off (no subtitles)'],['en','English'],['es','Spanish'],['pt','Portuguese'],['fr','French'],['de','German'],['it','Italian'],['ru','Russian'],['ar','Arabic'],['ja','Japanese']];
+    var fallbackLangs=[['','No fallback']].concat(langs.slice(2));
+    h+=setRow({icon:'subtitles',color:'#ffcc4d',title:'Subtitles',desc:S.cfg.subLangPrimary==='none'?'Subtitles are turned off when an episode starts.':'Preferred track, then the fallback when a release doesn’t have it (VLC and MPV).',ctrl:cfgSelect('subLangPrimary',langs,'')+(S.cfg.subLangPrimary==='none'?'':cfgSelect('subLangFallback',fallbackLangs,'')),kw:'subtitle language slang off'});
   }else if(id==='downloads'){
     h+=setRow({icon:'magnet',color:'#0a84ff',title:'Release choice',desc:'Erai-raws first. When it has no matching release, the most-seeded release from any group (SubsPlease, Judas, ToonsHub…) is used.',ctrl:'<span class="tag accent">Erai-raws → most seeded</span>',kw:'nyaa uploader erai subsplease judas varyg release group seeders'});
     h+=setRow({icon:'listCheck',color:'#0a84ff',title:'Let me pick the release',desc:'When you download from the app, show the best matches (group, seeders, size, codec) and choose one yourself. Automatic downloads still pick on their own.',ctrl:cfgSwitch('releasePicker'),kw:'choose pick release manual'});
+    if(S.cfg.releasePicker)h+=releasePickerScopeRows();
     h+=setRow({icon:'monitor',color:'#0a84ff',title:'Quality',ctrl:seg('nyaaQ',[{v:'1080p',label:'1080p'},{v:'720p',label:'720p'},{v:'480p',label:'480p'}],S.cfg.nyaaQuality||'1080p','setNyaaQuality'),kw:'quality resolution'});
     h+=setRow({icon:'box',color:'#0a84ff',title:'Prefer HEVC (x265)',desc:'Puts a healthy HEVC release (3+ seeders) ahead of other codecs; otherwise the most-seeded release wins.',ctrl:cfgSwitch('forceHevc',true),kw:'hevc x265 codec'});
     h+=setRow({icon:'hardDrive',color:'#0a84ff',title:'Avoid oversized HEVC',desc:'When HEVC is over twice the size of the best H.264 release, let the smaller one win.',ctrl:cfgSwitch('avoidOversizedHevc'),kw:'size hevc'});
@@ -89,13 +94,14 @@ function sectionHtml(id){
     if(S.cfg.hasGeminiApiKey)h+=setRow({icon:'lock',color:'#ffcc4d',title:'Google AI Studio key',desc:'Stored encrypted with your Windows account and only used by the main process. Luma runs on Gemini.',ctrl:'<span class="tag green">'+ic('check')+'Saved</span><button class="btn btn-ghost btn-sm"'+A('clearAiKey')+'>Remove</button>',kw:'gemini google ai studio api key ai assistant chat luma'});
     else h+=setRow({icon:'lock',color:'#ffcc4d',title:'Google AI Studio key',desc:'Luma needs your own free key: open Google AI Studio, choose “Create API key”, then paste it here.',ctrl:aiKeyForm('settingsAiKey',true),kw:'gemini google ai studio api key ai assistant chat luma'});
   }else if(id==='system'){
+    h+=setRow({icon:'wand',color:'#8e8e93',title:'Setup guide',desc:'Walk through the first-run setup again: library folders, player, MyAnimeList and Luma.',ctrl:'<button class="btn btn-secondary btn-sm"'+A('showSetupWizard')+'>'+ic('wand')+'Open setup guide</button>',kw:'setup wizard guide intro onboarding first run tutorial'});
     h+=setRow({icon:'cpu',color:'#8e8e93',title:'Performance mode',desc:'Turns off blur, glass and ambient effects and shortens motion — ideal for large libraries or older GPUs.',ctrl:switchCtl(!!S.cfg.performanceMode,'setPerformanceModeSw'),kw:'performance speed gpu blur'});
     h+=setRow({icon:'database',color:'#8e8e93',title:'Incremental library index',desc:'Only re-reads folders that changed since the last scan.',ctrl:'<button class="btn btn-ghost btn-sm"'+A('rebuildLibraryIndex')+'>Rebuild</button>'+cfgSwitch('incrementalScan',true),kw:'index cache scan incremental'});
     h+=setRow({icon:'window',color:'#8e8e93',title:'Minimize to tray',desc:'Closing or minimizing hides AnimeVault in the system tray.',ctrl:switchCtl(!!S.cfg.minimizeToTray,'setTraySw'),kw:'tray minimize close window'});
   }else if(id==='data'){
     h+=setRow({icon:'download',color:'#5e5ce6',title:'Export library',desc:'Metadata as JSON, or a spreadsheet-friendly CSV.',ctrl:'<button class="btn btn-secondary btn-sm"'+A('exportLibraryJSON')+'>JSON</button><button class="btn btn-secondary btn-sm"'+A('exportLibraryCSV')+'>CSV</button>',kw:'export json csv'});
     h+=setRow({icon:'database',color:'#5e5ce6',title:'Backup & restore',desc:'Saves settings, watch history and cached covers to a .zip in Downloads.',ctrl:'<button class="btn btn-secondary btn-sm"'+A('backupAppData')+'>Back up</button><button class="btn btn-ghost btn-sm"'+A('restoreAppData')+'>Restore…</button>',kw:'backup restore zip'});
-    h+=setRow({icon:'globe',color:'#5e5ce6',title:'Import from AniList',desc:'Adds every entry of an AniList user to MyAnimeList as Plan to Watch.',ctrl:'<input class="input sm" id="anilistUser" placeholder="AniList username" style="min-width:150px"'+On('enter','importAniList')+'><button class="btn btn-secondary btn-sm"'+A('importAniList')+'>Import</button>',kw:'anilist import'});
+    h+=setRow({icon:'globe',color:'#5e5ce6',title:'Import from AniList',desc:'Copies an AniList user’s list to your MyAnimeList with status, progress and score. Titles already on MAL are left as they are.',ctrl:'<input class="input sm" id="anilistUser" placeholder="AniList username" style="min-width:150px"'+On('enter','importAniList')+'><button class="btn btn-secondary btn-sm"'+A('importAniList')+'>Import</button>',kw:'anilist import'});
     h+=setRow({icon:'folderOpen',color:'#5e5ce6',title:'App data folder',desc:'Config, caches, cover art and logs.',ctrl:'<button class="btn btn-secondary btn-sm"'+A('openFolderPath',S.cfg._userDataPath||'')+'>Open</button>',kw:'data folder appdata logs'});
     h+=setRow({icon:'alert',color:'#ff453a',title:'Reset everything',desc:'Clears preferences, folders, MAL connection and watch history. Cover art on disk is kept.',ctrl:'<button class="btn btn-danger btn-sm"'+A('resetAllConfirm')+'>Reset…</button>',kw:'reset factory clear',cls:'danger'});
   }
@@ -157,6 +163,15 @@ act('setSearchInput',function(el){S.setQ=el.value;el.closest('.search').classLis
 act('setSearchClear',function(){S.setQ='';var i=document.getElementById('setSearch');if(i){i.value='';i.closest('.search').classList.remove('has-value');}applySettingsFilter();});
 act('scrollToSection',function(el,ev,id){S.setSection=id;var sec=document.getElementById('set-'+id);if(sec)sec.scrollIntoView({behavior:S.cfg.animSpeed==='none'?'auto':'smooth',block:'start'});document.querySelectorAll('.set-nav[data-sec]').forEach(function(b){b.classList.toggle('active',b===el);});});
 act('setNyaaQuality',function(el,ev,v){S.cfg.nyaaQuality=v;api.setConfig('nyaaQuality',v);});
+// Which manual downloads open the release picker (all of them by default).
+var RELEASE_PICKER_SCOPES=[['latest','Latest episode','The “Download latest episode” button.'],['episode','Chosen episodes','Downloading a specific episode from a series page.'],['series','Full series & batches','Whole-season and complete-series downloads.']];
+function releasePickerScope(k){var s=S.cfg.releasePickerScopes;return !(s&&s[k]===false);}
+function releasePickerScopeRows(){
+  return RELEASE_PICKER_SCOPES.map(function(x){return setRow({title:'Ask for: '+x[1],desc:x[2],ctrl:switchCtl(releasePickerScope(x[0]),'setReleasePickerScope',[x[0]]),kw:'release picker scope latest episode series batch',cls:'sub'});}).join('');
+}
+act('setReleasePickerScope',function(el,ev,k){var s=Object.assign({latest:true,episode:true,series:true},S.cfg.releasePickerScopes||{});s[k]=!!el.checked;S.cfg.releasePickerScopes=s;api.setConfig('releasePickerScopes',s);});
+function audioDelayMsValue(){var v=Number(S.cfg.audioDelayMs);return Number.isFinite(v)&&v>0?Math.round(v):300;}
+act('setAudioDelayMs',function(el){var v=Math.round(Number(el.value));if(Number.isFinite(v)&&v>=0&&v<=5000){S.cfg.audioDelayMs=v;api.setConfig('audioDelayMs',v);toast(v?'Audio plays '+v+' ms earlier':'Audio delay off','s');}else{el.value=audioDelayMsValue();toast('Enter a value from 0 to 5000 ms','e');}});
 act('setAutoMarkPct',function(el){var v=parseInt(el.value,10);if(v>=10&&v<=100){S.cfg.autoMarkPercent=v;api.setConfig('autoMarkPercent',v);toast('Auto-mark at '+v+'%','s');}else{el.value=S.cfg.autoMarkPercent||80;toast('Enter a value from 10 to 100','e');}});
 act('setAutoDownloadEnabled',function(el){return toggleAutoDownloadGlobal(el.checked);});
 act('setPollMinutes',function(el){var v=parseInt(el.value,10);S.cfg.autoDownloadPollMinutes=v;api.autoDownloadSetPollMinutes(v);});
@@ -239,18 +254,48 @@ function resetNotifPrefs(){S.cfg.notificationPrefs={};api.setConfig('notificatio
 async function exportLibraryJSON(){try{var data=await api.exportLibraryMetadata();downloadBlob(JSON.stringify(data,null,2),'application/json','animevault_library.json');toast('Exported JSON','s');}catch(e){toast('Export failed','e');}}
 async function exportLibraryCSV(){try{var csv=await api.exportLibraryCSV();downloadBlob(csv,'text/csv','animevault_library.csv');toast('Exported CSV','s');}catch(e){toast('Export failed','e');}}
 function downloadBlob(content,type,name){var blob=new Blob([content],{type:type});var url=URL.createObjectURL(blob);var a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(url);},1000);}
+// AniList list status -> MAL list fields for the current vault mode.
+function anilistToMalFields(e,manga){
+  var map={CURRENT:manga?'reading':'watching',REPEATING:manga?'reading':'watching',COMPLETED:'completed',PAUSED:'on_hold',DROPPED:'dropped',PLANNING:manga?'plan_to_read':'plan_to_watch'};
+  var f={status:map[e.status]||(manga?'plan_to_read':'plan_to_watch')};
+  if(e.progress>0)f[manga?'num_chapters_read':'num_watched_episodes']=e.progress;
+  if(e.score>0)f.score=e.score;
+  if(e.status==='REPEATING')f[manga?'is_rereading':'is_rewatching']=true;
+  return f;
+}
+// Every MAL id already on the user's list, so the import never overwrites them.
+async function malListIds(){
+  var ids={};
+  for(var off=0;off<20000;off+=1000){
+    var r=await api.malGetUserList('',1000,off);var rows=(r&&r.data)||[];
+    rows.forEach(function(x){if(x&&x.node&&x.node.id)ids[x.node.id]=true;});
+    if(rows.length<1000||!(r.paging&&r.paging.next))break;
+  }
+  return ids;
+}
 async function importAniList(){
   var el=document.getElementById('anilistUser');var user=el?el.value.trim():'';
   if(!user){toast('Enter an AniList username','e');return;}
   if(!/^[A-Za-z0-9_-]{2,40}$/.test(user)){toast('That doesn’t look like an AniList username','e');return;}
   if(!S.mal){toast('Connect MyAnimeList first','e');return;}
-  if(!await askConfirm({title:'Import '+user+'’s AniList?',text:'Every entry with a MAL ID is added to your MyAnimeList as Plan to Watch. Existing entries may be overwritten.',confirm:'Import',icon:'globe'}))return;
-  var id=activityStart('import','Import AniList list',user);toast('Importing from AniList…','i');
+  var kind=isManga()?'manga':'anime';
+  if(!await askConfirm({title:'Import '+user+'’s AniList '+kind+'?',text:'Each entry is added to your MyAnimeList with its AniList status, progress and score. Titles already on your MAL list are left untouched.',confirm:'Import',icon:'globe'}))return;
+  var id=activityStart('import','Import AniList '+kind+' list',user);toast('Importing from AniList…','i');
   try{
-    var ids=await api.anilistUserMalIds(user);
-    if(!ids||ids.error){activityFinish(id,'error',(ids&&ids.error)||'User not found');toast('AniList: '+((ids&&ids.error)||'user not found'),'e');return;}
-    var n=0;for(var i=0;i<ids.length;i++){try{await api.malAddOrUpdateListItem(ids[i],{status:'plan_to_watch'});n++;activityUpdate(id,n+' / '+ids.length);}catch(err){console.error('[AniList import]',err);}await sleep(120);}
-    activityFinish(id,'success','Imported '+n+' of '+ids.length);toast('Imported '+n+' entries as Plan to Watch','s');S.myListData=null;
+    var res=await api.anilistUserList(user);
+    if(!res||res.error){activityFinish(id,'error',(res&&res.error)||'User not found');toast('AniList: '+((res&&res.error)||'user not found'),'e');return;}
+    activityUpdate(id,'Reading your MyAnimeList…');
+    var have=await malListIds();
+    var todo=res.entries.filter(function(e){return !have[e.idMal];});
+    var n=0,failed=0;
+    for(var i=0;i<todo.length;i++){
+      try{var r=await api.malAddOrUpdateListItem(todo[i].idMal,anilistToMalFields(todo[i],isManga()));if(r)n++;else failed++;}
+      catch(err){failed++;console.error('[AniList import]',todo[i].title,err);}
+      activityUpdate(id,(i+1)+' / '+todo.length);await sleep(150);
+    }
+    var skipped=res.entries.length-todo.length;
+    var msg='Added '+n+(skipped?', '+skipped+' already on MAL':'')+(failed?', '+failed+' failed':'');
+    activityFinish(id,failed&&!n?'error':'success',msg);toast(msg,failed?'e':'s');S.myListData=null;
   }catch(e){activityFinish(id,'error',e.message||String(e));toast('Import failed: '+(e.message||e),'e');}
 }
 async function backupAppData(){

@@ -94,7 +94,7 @@ function wireIpcEvents(){
     scrollAiBottom();
   });
   api.onAiDone(function(){if(S._aiPartial||S.ai.busy)finishAiTurn();});
-  api.onAiError(function(d){handleAiError((d&&d.message)||'Stream error');});
+  api.onAiError(function(d){handleAiError((d&&d.message)||'Stream error',d&&d.kind);});
   api.onAutoMark(async function(data){
     var name=data&&data.seriesName,num=data&&data.episodeNum;
     if(!name||num===null||num===undefined||isNaN(num))return;

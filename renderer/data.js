@@ -698,6 +698,7 @@ async function downloadLatestEpisode(seriesName,malId){
   if(!seriesName){toast('No series name provided','e');return;}
   toast('Searching Nyaa for latest episode of '+seriesName+'...','i');
   var r=await api.autoDownloadLatestEpisode(seriesName,malId);
+  if(r&&r.needsChoice){showReleasePicker(r);return;}
   if(r&&r.error){toast('Latest episode: '+r.error,'e');return;}
   if(r&&r.success){toast('Queued download: '+seriesName+' E'+r.episode+' — '+r.chosen.title+' ('+r.chosen.seeders+' seeds)','s');}
   else {toast('Latest episode download failed for '+seriesName,'e');}
@@ -747,7 +748,7 @@ async function verifySeriesLatest(name,malId){
 async function deleteSeries(name,seriesPath){
   toast('Deleting...','i');var r=await api.deleteSeries(seriesPath);
   if(r.error){toast('Failed: '+r.error,'e');return;}
-  if(S.cfg.untrackOnDelete!==false)S._autoDownloadWatchlist=await api.autoDownloadGetWatchlist();
+  if(S.cfg.untrackOnDelete!==false){S._autoDownloadWatchlist=await api.autoDownloadGetWatchlist();S.cfg.autoDownloadWatchlist=S._autoDownloadWatchlist;}
   toast('Deleted: '+name,'s');cdtl();await loadLib();render();
 }
 async function fetchAll(){var m=S.lib.filter(function(s){return !s.name.startsWith('__unsorted')&&!S.covers[s.name]});
@@ -790,7 +791,7 @@ async function bulkDelete(){
     catch(e){failed.push({name:s.name,error:e.message});}
   }
   failed.forEach(function(f){console.error('[BulkDelete] Failed:',f.name,f.error)});
-  if(S.cfg.untrackOnDelete!==false)S._autoDownloadWatchlist=await api.autoDownloadGetWatchlist();
+  if(S.cfg.untrackOnDelete!==false){S._autoDownloadWatchlist=await api.autoDownloadGetWatchlist();S.cfg.autoDownloadWatchlist=S._autoDownloadWatchlist;}
   S.selectedSeries=[];S.selectMode=false;loadLib().then(function(){
     if(failed.length)toast('Deleted '+(targets.length-failed.length)+', failed '+failed.length+' (see console)','e');
     else toast('Series deleted','s');

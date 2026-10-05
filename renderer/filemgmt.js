@@ -265,7 +265,7 @@ async function executeBatchDelete(){
   var r=await api.batchDeleteSeries(paths);
   if(!Array.isArray(r)){toast('Delete failed: '+((r&&r.error)||'unknown error'),'e');return;}
   var failed=r.filter(function(x){return !x.success;});failed.forEach(function(x){console.error('[BatchDelete]',x.path,x.error||'');});
-  if(S.cfg.untrackOnDelete!==false)S._autoDownloadWatchlist=await api.autoDownloadGetWatchlist();
+  if(S.cfg.untrackOnDelete!==false){S._autoDownloadWatchlist=await api.autoDownloadGetWatchlist();S.cfg.autoDownloadWatchlist=S._autoDownloadWatchlist;}
   toast(failed.length?'Deleted '+(r.length-failed.length)+', '+failed.length+' failed':'Deleted '+plural(r.length,'series','series'),failed.length?'e':'s');
   await loadLib();
 }
