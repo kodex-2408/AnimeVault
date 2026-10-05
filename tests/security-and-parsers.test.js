@@ -300,5 +300,37 @@ assert.strictEqual(gemini.extractText({ candidates: [{ content: { parts: [{ text
   assert.strictEqual(webSearchCall.ok, false); checks++;
   assert(/key/i.test(webSearchCall.message), 'expected missing-key failure with webSearch option'); checks++;
 
+  // ---- Gemini quota handling: search off first, then other free models
+  {
+    const quota = (id, delay) => ({ ok: false, status: 429, gotText: false, message: 'HTTP 429: You exceeded your current quota', retryDelay: delay || 0, quotaIds: [id || 'GenerateRequestsPerMinutePerProjectPerModel-FreeTier'] });
+    const runWith = async (script) => {
+      const calls = []; const sent = [];
+      gemini._resetQuota();
+      gemini.setDeps({
+        config: { geminiApiKey: 'AQ.test-key-0123456789abcdef' },
+        mainWindow: () => ({ isDestroyed: () => false, webContents: { send: (ch, p) => sent.push([ch, p]) } }),
+        request: async (key, model, body) => { const search = !!body.tools; calls.push(model + (search ? '+search' : '')); return script(model, search, calls.length); },
+      });
+      const res = await gemini.chatStream([{ role: 'user', content: 'hi' }], 'gemini-flash-latest', { webSearch: true });
+      return { res, calls, sent };
+    };
+    let t = await runWith((m, search) => (search ? quota('SearchGroundingRequestsPerDay-FreeTier') : { ok: true, gotText: true }));
+    assert.deepStrictEqual([t.res.ok, t.calls], [true, ['gemini-flash-latest+search', 'gemini-flash-latest']], 'search quota -> same model without search'); checks++;
+    t = await runWith((m) => (m === 'gemini-flash-latest' ? quota('GenerateRequestsPerDayPerProjectPerModel-FreeTier') : { ok: true, gotText: true }));
+    assert.deepStrictEqual([t.res.ok, t.calls], [true, ['gemini-flash-latest+search', 'gemini-flash-latest', 'gemini-flash-lite-latest']], 'model quota -> next free model'); checks++;
+    t = await runWith((m) => (m === 'gemini-flash-latest' ? { ok: false, status: 404, message: 'HTTP 404: not found' } : { ok: true, gotText: true }));
+    assert.deepStrictEqual([t.res.ok, t.calls.length], [true, 2], 'a retired model falls through to the next'); checks++;
+    t = await runWith(() => quota('GenerateRequestsPerMinutePerProjectPerModel-FreeTier', 42));
+    assert.strictEqual(t.res.ok, false); checks++;
+    assert(/per-minute limit/.test(t.res.message) && /42 seconds/.test(t.res.message), 'friendly per-minute message: ' + t.res.message); checks++;
+    assert.strictEqual(t.calls.length, 1 + gemini.FALLBACK_MODELS.length + 1, 'every model tried once, search dropped after the first quota error'); checks++;
+    t = await runWith((m) => ({ ok: false, status: 401, message: 'HTTP 401: API key not valid' }));
+    assert.deepStrictEqual([t.res.message, t.calls.length], ['HTTP 401: API key not valid', 1], 'other errors are not retried'); checks++;
+    assert(/daily limit/.test(gemini.quotaMessage(quota('GenerateRequestsPerDayPerProjectPerModel-FreeTier'))), 'daily quota message'); checks++;
+    const pe = gemini.parseApiError(429, JSON.stringify({ error: { message: 'quota', details: [{ '@type': 'type.googleapis.com/google.rpc.QuotaFailure', violations: [{ quotaId: 'X-PerDay' }] }, { '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '37s' }] } }));
+    assert.deepStrictEqual([pe.retryDelay, pe.quotaIds], [37, ['X-PerDay']]); checks++;
+    gemini._resetQuota();
+  }
+
   console.log('security-and-parsers checks passed: ' + checks + ' assertions across extracted-source execution, packaging contract, and security invariants');
 })().catch(e => { console.error(e); process.exit(1); });
