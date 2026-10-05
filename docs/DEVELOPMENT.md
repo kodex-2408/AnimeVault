@@ -29,7 +29,7 @@ User-facing release history lives in [CHANGELOG.md](CHANGELOG.md).
 | `renderer/data.js` | Library/MAL/download data layer and sync queues |
 | `renderer/app.js` | Navigation, sidebar, routing, shortcuts, command palette |
 | `renderer/<view>.js` | One file per area: `library`, `detail`, `explore`, `schedule`, `stats`, `hub`, `filemgmt`, `mal`, `settings`, `appearance`, `luma`, `setup`; `bootstrap.js` runs last |
-| `tests/` | Eleven Node suites, no Electron or network needed (`npm test`); `source-extract.js` is the shared function extractor, `main-source.js` concatenates `main.js` + `main/**` for extraction |
+| `tests/` | Twelve Node suites, no Electron or network needed (`npm test`); `source-extract.js` is the shared function extractor, `main-source.js` concatenates `main.js` + `main/**` for extraction |
 
 Runtime split matters for testing: anything pure lives in `autoDownload.js` and is
 requireable; everything touching Electron/IPC/DOM is tested by *extracting real
@@ -67,6 +67,7 @@ Run everything with `npm test`; each file is standalone `node tests/<file>`.
 | `security-and-parsers.test.js` | Generalized source-extraction + invariants | See next section |
 | `library-layout.test.js` | Real helpers from `main.js` in `vm` against a temp tree | Category inference, category containers, season-aware folder matching, scene-style names, sequel cover matching |
 | `playback-and-tracking.test.js` | Real player-option and untrack helpers from `main/` in `vm` | One subtitle list per player and "Off", Bluetooth delay units (MPV seconds, VLC ms), untrack by name / MAL id / path, main-owned config keys |
+| `file-ops.test.js` | Real move/placement code from `main/` in `vm` with a fake EXDEV `fs` | Cross-drive moves copy then delete and never clobber, failed copies roll back, whole-folder placement and merge |
 | `renderer-store.test.js` | Real `Store`/`S` from `core.js` in `vm` | Plain reads/writes, batched per-key notifications, `Store.notify` for in-place changes, subscriber isolation, unsubscribe |
 | `filesystem-safety.test.js` | Real path helpers and File Management handlers from `main.js`, run in `vm` against a temp folder tree | Symlink/junction containment, forbidden roots, safe names, no-clobber moves, Ungroup scope, organizer result contract and undo, renderer config-write validation |
 
@@ -225,6 +226,16 @@ recorded loss event (2026-08-22) had an off-screen cause that was never identifi
   after `dist\win-arm64-unpacked\AnimeVault.exe` is confirmed to start on real
   Windows ARM64 hardware. Build-time tools still show `npm audit` advisories;
   none ship in the app (`npm audit --omit=dev` is clean).
+- **Windows ARM64 is built as a folder/zip, not a portable .exe.** The
+  electron-builder "portable" target wraps the app in an x86 NSIS launcher that
+  stays running as the app's parent, so Windows shows it as emulated even though
+  `win-arm64-unpacked\AnimeVault.exe` and every DLL in it are ARM64 (checked
+  from the PE headers: machine 0xAA64; the portable stub is 0x014C). `npm run
+  build-arm64` builds `zip` (and leaves `dist\win-arm64-unpacked`). The NSIS
+  setup program is x86 too, but it only runs during install.
+- **MAL credentials** (`malAccessToken`, `malRefreshToken`, `malClientSecret`)
+  live in `mal-credentials.enc` (safeStorage), not in config.json or its
+  backups/snapshots; refreshes are single-flight (refresh tokens are one-use).
 - **startup.log** (`%APPDATA%\animevault`) records every start, fatal
   main-process errors and single-instance hand-offs. If a build shows no
   window and writes no line here, the failure is below the app code
@@ -267,6 +278,19 @@ key publishes it to subscribers once per microtask. Use it for UI that must
 follow state wherever it changes (the MAL chip follows `mal`/`cfg`; nav badges
 follow `pendingNewSeries`/`activities`). Mutations inside a value
 (`S.lib.push`, `S.cfg.x = y`) are not seen — call `Store.notify('key')`.
+
+## File operations (5.4)
+
+- Every move goes through `moveNoClobber` -> `movePath`: rename, or copy then
+  delete when Windows reports `EXDEV` (another drive).
+- Deletes go through `trashOrDelete` (Recycle Bin, permanent only where a drive
+  has none).
+- Series folders are scanned recursively (`Season 1/`, `Season 2/`), skipping
+  bonus folders (`EXTRAS_DIR_RE`); the incremental index keys on the newest
+  mtime in the folder tree.
+- Nyaa search is one implementation (`autoDownload.js`, cached, entity-decoded,
+  429 back-off), and every hand-off goes through `handOffToClient`, which treats
+  `shell.openPath`'s returned error string as a failure.
 
 ## Open work (priority order)
 

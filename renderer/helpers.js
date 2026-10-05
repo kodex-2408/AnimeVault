@@ -4,50 +4,6 @@ function malStatusOptions(){return isManga()
   ?[['reading',watchingLabel()],['completed','Completed'],['on_hold','On Hold'],['dropped','Dropped'],['plan_to_read',planLabel()]]
   :[['watching',watchingLabel()],['completed','Completed'],['on_hold','On Hold'],['dropped','Dropped'],['plan_to_watch',planLabel()]];}
 function VM(animeLabel,mangaLabel){return isManga()?mangaLabel:animeLabel;}
-function parseEpisodeNumber(filename){
-  var base=filename.replace(/\.[^.]+$/,'');
-  var cleaned=base.replace(/\b(?:Season\s*\d{1,2}|S\d{1,2})\b/gi,'');
-  cleaned=cleaned.replace(/\s*[\[\(]\s*(?:19|20)\d{2}\s*[\]\)]\s*/g,'');
-  cleaned=cleaned.replace(/\s+/g,' ').trim();
-  // Pattern 1: S01E05
-  var m=cleaned.match(/S\d{1,2}E(\d{1,3})/i);
-  if(m)return parseInt(m[1]);
-  // Pattern 2: Episode 05, EP 05
-  m=cleaned.match(/Episode\s+(\d{1,3})/i);
-  if(m)return parseInt(m[1]);
-  m=cleaned.match(/\bEP?\s*(\d{1,3})\b/i);
-  if(m)return parseInt(m[1]);
-  // Pattern 3: - 05 (dash-separated)
-  m=cleaned.match(/-\s*(\d{1,3})(?:v\d)?(?:\s*(?:\[|\(|\.|$))/);
-  if(m)return parseInt(m[1]);
-  // Pattern 3a: NUMBER - resolution ("Title 05 - 1080p")
-  m=cleaned.match(/(?:^|[\s._-])(\d{1,3})(?:v\d)?\s*[-–—]\s*\d{3,4}[pk]\b/i);
-  if(m)return parseInt(m[1]);
-  // Pattern 3b: NUMBER - text (number followed by dash then non-digit)
-  m=cleaned.match(/(\d{1,3})\s*[-–—]\s*\D/);
-  if(m)return parseInt(m[1]);
-  // Pattern 4: rightmost standalone number not followed by dash
-  var candidates=[];
-  var p4regex=/\s+(\d{1,3})(?:v\d)?(?=\s|$|\[|\(|\.)/g;
-  var p4m;
-  while((p4m=p4regex.exec(cleaned))!==null){
-    var rest=cleaned.slice(p4regex.lastIndex);
-    if(!/^\s*[-–—]/.test(rest)) candidates.push(parseInt(p4m[1]));
-  }
-  if(candidates.length)return candidates[candidates.length-1];
-  // Fallback: number at end
-  m=cleaned.match(/\b(\d{1,3})\s*$/);
-  if(m)return parseInt(m[1]);
-  return null;
-}
-function parseChapterNumber(filename){
-  var base=filename.replace(/\.[^.]+$/,'');
-  var m=base.match(/(?:Ch(?:apter)?[.\s]*(\d{1,4})|Ch\s*(\d{1,4})|C\s*(\d{1,4})|#(\d{1,4})|-\s*(\d{1,4})(?:v\d)?\s*[\[\(\.\s]|\s+(\d{1,4})(?:v\d)?\s*[\[\(\.\s])/i);
-  if(m)return parseInt(m[1]||m[2]||m[3]||m[4]||m[5]||m[6]);
-  m=base.match(/\b(\d{1,4})\s*$/);
-  if(m)return parseInt(m[1]);
-  return null;
-}
 function notifEnabled(key){
   var np=S.cfg.notificationPrefs||{};
   return np[key]!==false;

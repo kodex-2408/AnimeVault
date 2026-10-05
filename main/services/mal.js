@@ -10,6 +10,7 @@ const https = require('https');
 const http = require('http');
 const crypto = require('crypto');
 const { URL } = require('url');
+const autoDownload = require('../../autoDownload');
 const { config } = require('../state');
 const { getWatchHistoryStore, mergeMalData, safeHistoryKey, safeMalId, saveConfig } = require('../config/config');
 
@@ -49,7 +50,17 @@ function malRequest(endpoint, method = 'GET', body = null) {
   });
 }
 
-async function malRefreshAccessToken() {
+// MAL refresh tokens are single-use: concurrent 401s must share one refresh,
+// or the second refresh spends the token the first one just replaced.
+let _malRefreshInFlight = null;
+function malRefreshAccessToken() {
+  if (!_malRefreshInFlight) {
+    _malRefreshInFlight = doMalRefreshAccessToken().finally(() => { _malRefreshInFlight = null; });
+  }
+  return _malRefreshInFlight;
+}
+
+async function doMalRefreshAccessToken() {
   try {
     const response = await new Promise((resolve, reject) => {
       const postData = new URLSearchParams({
@@ -94,6 +105,11 @@ async function malRefreshAccessToken() {
 }
 
 async function malRequestWithRetry(endpoint, method = 'GET', body = null) {
+  // Refresh ahead of expiry instead of collecting a 401 first.
+  if (config.malRefreshToken && config.malTokenExpiry && Date.now() > Number(config.malTokenExpiry) - 60000) {
+    await malRefreshAccessToken();
+  }
+  const tokenUsed = config.malAccessToken;
   let r;
   try {
     r = await malRequest(endpoint, method, body);
@@ -101,9 +117,10 @@ async function malRequestWithRetry(endpoint, method = 'GET', body = null) {
     console.error('[MAL] Initial request failed:', e.message);
     return { status: 0, data: null, error: e.message };
   }
-  // If 401, try refreshing token and retry once
+  // If 401, try refreshing token and retry once (unless another request
+  // already refreshed it while this one was in flight)
   if (r.status === 401 && config.malRefreshToken) {
-    const refreshed = await malRefreshAccessToken();
+    const refreshed = config.malAccessToken !== tokenUsed || await malRefreshAccessToken();
     if (refreshed) {
       try { r = await malRequest(endpoint, method, body); }
       catch (e) { return { status: 0, data: null, error: e.message }; }
@@ -112,17 +129,15 @@ async function malRequestWithRetry(endpoint, method = 'GET', body = null) {
   return r;
 }
 
+// Title confidence for auto-linking a library folder to a MAL entry. Uses the
+// same word-level matcher as release matching (the old character-overlap score
+// rated "Monster" vs "Monster Musume" 0.9), and a different season - "Overlord"
+// vs "Overlord II" - is never a match.
 function fuzzyTitleMatch(a, b) {
-  const normalize = s => s.toLowerCase().replace(/[^a-z0-9]/g, '');
-  const na = normalize(a), nb = normalize(b);
-  if (!na || !nb) return 0;
-  if (na === nb) return 1;
-  if (na.includes(nb) || nb.includes(na)) return 0.9;
-  // Simple edit-distance-ish score
-  let common = 0;
-  const sa = new Set(na), sb = new Set(nb);
-  for (const c of sa) if (sb.has(c)) common++;
-  return common / Math.max(sa.size, sb.size);
+  const sa = autoDownload.detectTitleSeason(a) || 1;
+  const sb = autoDownload.detectTitleSeason(b) || 1;
+  if (sa !== sb) return 0;
+  return autoDownload.seriesTitleMatchConfidence(a, b);
 }
 
 let _malAuthServers = [];
@@ -176,8 +191,21 @@ function shouldAdoptRemoteListStatus(local, remote) {
 let _malPullRunning = false;
 
 function register() {
-  ipcMain.handle('mal:isAuthenticated', () => {
-    return !!config.malAccessToken && Date.now() < config.malTokenExpiry;
+  // Only the credentials are cleared; nothing else the renderer holds is sent
+  // back (its cached config could roll back newer watch history).
+  ipcMain.handle('mal:disconnect', () => {
+    config.malAccessToken = '';
+    config.malRefreshToken = '';
+    config.malTokenExpiry = 0;
+    saveConfig();
+    return true;
+  });
+
+  // An expired access token with a refresh token is still a connection.
+  ipcMain.handle('mal:isAuthenticated', async () => {
+    if (!config.malAccessToken) return false;
+    if (Date.now() < Number(config.malTokenExpiry)) return true;
+    return config.malRefreshToken ? !!(await malRefreshAccessToken()) : false;
   });
 
   ipcMain.handle('mal:getAuthUrl', (_, clientId, clientSecret) => {
@@ -526,8 +554,8 @@ function register() {
             }
           }
         }
-        // Threshold: 0.6 for auto-link, below that needs manual review
-        const AUTO_LINK_THRESHOLD = 0.6;
+        // Auto-link only near-certain matches; everything else goes to review.
+        const AUTO_LINK_THRESHOLD = 0.88;
         if (best && bestScore >= AUTO_LINK_THRESHOLD) {
           // Auto-link this series
           if (!history[name]) history[name] = { episodesWatched: [], lastWatched: null, malId: null };
@@ -572,7 +600,7 @@ function register() {
     const s = String(season || '').toLowerCase();
     if (!/^(winter|spring|summer|fall)$/.test(s)) throw new Error('Invalid season');
     if (!Number.isInteger(y) || y < 1970 || y > 2100) throw new Error('Invalid year');
-    const r = await malRequestWithRetry(`/anime/season/${y}/${s}?limit=50&fields=id,title,main_picture,num_episodes,status,mean,media_type,genres,start_date,synopsis`);
+    const r = await malRequestWithRetry(`/anime/season/${y}/${s}?limit=500&fields=id,title,main_picture,num_episodes,status,mean,media_type,genres,start_date,synopsis`);
     return r.data || [];
   });
 
@@ -592,11 +620,15 @@ function register() {
 
   ipcMain.handle('mal:getStatusCounts', async () => {
     const isManga = config.vaultMode === 'manga';
-    const endpoint = isManga
-      ? '/users/@me/mangalist?limit=1000&fields=list_status'
-      : '/users/@me/animelist?limit=1000&fields=list_status';
-    const r = await malRequestWithRetry(endpoint);
-    const items = r.data && Array.isArray(r.data.data) ? r.data.data : [];
+    // Every page, not only the first 1000 entries.
+    const items = [];
+    for (let offset = 0; offset < 50000; offset += 1000) {
+      const endpoint = (isManga ? '/users/@me/mangalist' : '/users/@me/animelist') + `?limit=1000&offset=${offset}&fields=list_status`;
+      const r = await malRequestWithRetry(endpoint);
+      const page = r.data && Array.isArray(r.data.data) ? r.data.data : [];
+      items.push(...page);
+      if (page.length < 1000 || !(r.data.paging && r.data.paging.next)) break;
+    }
     const counts = {};
     items.forEach(item => {
       const st = item && item.list_status && item.list_status.status;

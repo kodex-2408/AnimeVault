@@ -108,6 +108,12 @@ function stopAutoMarkPoller() {
   _amConsecutiveFailures = 0;
 }
 
+// VLC: the configured path first, then the usual install locations.
+function vlcExecutable() {
+  const candidates = [config.vlcPath, 'C:\\Program Files\\VideoLAN\\VLC\\vlc.exe', 'C:\\Program Files (x86)\\VideoLAN\\VLC\\vlc.exe'].filter(Boolean);
+  return candidates.find(p => { try { return fs.existsSync(p); } catch (e) { return false; } }) || null;
+}
+
 // Subtitle preference -> language codes. Track tags are 2- or 3-letter ISO
 // codes depending on the release, so both spellings are passed; 'none' turns
 // subtitles off.
@@ -185,8 +191,7 @@ function register() {
         // Resolve VLC: configured path first, then common install locations. A
         // missing executable must degrade to the OS default player, never crash
         // the main process.
-        const candidates = [config.vlcPath, 'C:\\Program Files\\VideoLAN\\VLC\\vlc.exe', 'C:\\Program Files (x86)\\VideoLAN\\VLC\\vlc.exe'].filter(Boolean);
-        const exePath = candidates.find(p => { try { return fs.existsSync(p); } catch (e) { return false; } }) || null;
+        const exePath = vlcExecutable();
         if (!exePath) {
           console.warn('[Player] VLC not found in configured or default locations; opening with the OS default player');
           const openErr = await shell.openPath(filePath);
@@ -252,14 +257,26 @@ function register() {
     const outPath = path.join(thumbDir, `ep_${String(ep).padStart(3, '0')}.jpg`);
     if (fs.existsSync(outPath)) return { success: true, path: outPath };
     
-    const mpv = resolveMpvPath();
-    return new Promise((resolve) => {
-      // Options first, then "--" so a file name can never be read as an mpv option.
-      execFile(mpv, ['--no-audio', '--no-sub', '--frames=1', '--start=20%', `--o=${outPath}`, '--', filePath], { timeout: 30000 }, (err) => {
-        if (err) { console.error('[Thumb] Extraction failed:', err.message); resolve({ success: false, error: err.message }); }
-        else { resolve({ success: true, path: outPath }); }
-      });
+    // MPV (configured or on PATH) first; the default VLC setup has no MPV, so
+    // VLC's scene filter is the fallback.
+    const run = (exe, args) => new Promise((resolve) => {
+      execFile(exe, args, { timeout: 30000, windowsHide: true }, (err) => resolve(err && !fs.existsSync(outPath) ? err : null));
     });
+    // Options first, then "--" so a file name can never be read as an mpv option.
+    let err = await run(resolveMpvPath(), ['--no-audio', '--no-sub', '--frames=1', '--start=20%', `--o=${outPath}`, '--', filePath]);
+    if (err || !fs.existsSync(outPath)) {
+      const vlc = vlcExecutable();
+      if (vlc) {
+        const prefix = path.basename(outPath, '.jpg');
+        err = await run(vlc, ['-I', 'dummy', '--dummy-quiet', '--no-audio', '--no-sub-autodetect-file', '--video-filter=scene', '--vout=dummy',
+          '--scene-format=jpg', '--scene-ratio=24', '--scene-replace', `--scene-prefix=${prefix}`, `--scene-path=${thumbDir}`,
+          '--start-time=90', '--stop-time=91', '--play-and-exit', filePath]);
+      }
+    }
+    if (fs.existsSync(outPath)) return { success: true, path: outPath };
+    const message = err ? err.message : 'No MPV or VLC available to extract a frame';
+    console.error('[Thumb] Extraction failed:', message);
+    return { success: false, error: message };
   });
 
   // ================================================================

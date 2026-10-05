@@ -54,11 +54,11 @@ const ctx = vm.createContext({
 });
 
 const code = [
-  constLine('VIDEO_EXTS'), constLine('MANGA_EXTS'), constLine('RELEASE_META_STRIP'),
+  constLine('VIDEO_EXTS'), constLine('MANGA_EXTS'), constLine('RELEASE_META_STRIP'), constLine('RELEASE_GROUP_TAIL'),
   constLine('RENDERER_CLEAR_ONLY_KEYS'),
   ...['normalizeFsPath', 'isInsidePath', 'realpathLoose', 'isForbiddenRoot', 'getAllowedFileRoots',
     'isAllowedFileActionPath', 'assertAllowedFileActionPath', 'assertAllowedChildFileActionPath',
-    'isSafeFileName', 'moveNoClobber', 'isServableUserDataImage', 'isValidExecutableSetting',
+    'isSafeFileName', 'movePath', 'moveNoClobber', 'isServableUserDataImage', 'isValidExecutableSetting',
     'validateRendererConfigValue', 'assertPlayableMedia', 'getVideoFiles', 'getMangaFiles',
     'cleanTitle', 'cleanFolderName', 'detectResolution', 'stripReleaseMetadata', 'extractSeriesName',
     'parseVideoFilename', 'parseMangaFilename', 'parseEpisodeNumber', 'parseChapterNumber'].map(fn),

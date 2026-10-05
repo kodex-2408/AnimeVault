@@ -3,6 +3,78 @@
 All notable changes, newest first. Engineering context — test guide, security
 posture, design decisions, open roadmap — lives in [DEVELOPMENT.md](DEVELOPMENT.md).
 
+## 5.4.0 — Native ARM64, safer files, sturdier downloads
+
+### Windows ARM64
+- **The ARM64 build is native now.** The single-file portable `.exe` started through
+  an x86 launcher that Windows ran emulated. The app inside was already
+  ARM64, but the launcher stayed running alongside it. ARM64 now builds as
+  `dist\win-arm64-unpacked\AnimeVault.exe` plus `dist\AnimeVault-arm64.zip`,
+  both fully ARM64.
+
+### Files
+- **Moves between drives work.** Downloads on C: and a library on D: no longer
+  fail silently in the watcher, placement, Format or Undo. Failed moves show an
+  error.
+- **Placing a new series moves everything**, including subtitles and extras,
+  plus every loose episode instead of only the first one.
+- **Deleting uses the Recycle Bin.**
+- **Series renames:** a case-only rename ("one piece" → "One Piece") works, and
+  invalid names are refused. The watchlist path, muted duplicate warnings and
+  import lists follow the new name.
+- **Season subfolders count.** A series stored as `Season 1/`, `Season 2/` shows
+  the same episodes in the library as in its detail page.
+
+### Filenames
+- **4-digit episodes** (One Piece 1100, Detective Conan) are recognized by the
+  watcher and auto-download.
+- **Titles keep their hyphens.** "Hataraku Maou-sama", "Iruma-kun",
+  "Hanako-kun" and "Spider-Man" were cut short as if the suffix were a release
+  group. Words like "Dual", "Sub" and "Multi" in titles survive too.
+- **Recap episodes** (`12.5`) keep their number, and chapter numbers no longer
+  pick up the volume (`Vol 03 Ch 25` is chapter 25).
+
+### Downloads
+- **A failed hand-off is a failure.** With no torrent client, the episode isn't
+  logged as downloaded and a retry isn't blocked. The magnet link is tried when
+  no app opens `.torrent` files.
+- **A stalled `.torrent` download no longer freezes auto-download**; it times out.
+- **Download toasts name the right episode** for each series.
+- **One Nyaa search everywhere:** manual searches now decode `&` and
+  apostrophes, use the cache and back off when Nyaa rate-limits.
+
+### MyAnimeList & AniList
+- **Disconnecting MAL** clears only the credentials. Before, it rewrote every
+  setting from an old copy and could roll back newer data.
+- **Auto-linking is stricter.** "Monster" no longer links to "Monster Musume",
+  nor "Overlord" to "Overlord II".
+- **Token refresh** happens once, ahead of expiry, even when several requests
+  hit a 401 together, so MAL's single-use refresh tokens can't be wasted.
+- **Fuller MAL lists:** seasonal shows up to 500 titles, status counts read the
+  whole list, and an expired session that can refresh still counts as
+  connected.
+- **Covers:** titles AniList has no art for are retried weekly instead of every
+  start, AniList rate limits are respected, and very long (Japanese) folder
+  names get valid cover file names.
+- **Continued numbering:** a season stored as episodes 13–24 syncs as 1–12 to
+  MAL, and recap episodes never count.
+
+### Security
+- MAL tokens and the client secret are encrypted with your Windows account,
+  like the Gemini key, and no longer stored in `config.json`.
+- The metadata export no longer includes the Gemini key or MAL sign-in state.
+- Restoring a backup checks program paths and folders the way Settings does.
+- The cover downloader checks where a host name actually points, not only the
+  name.
+- CSV export can't carry spreadsheet formulas.
+
+### Under the hood
+- The single-instance check runs before anything else starts, so a second
+  launch never starts its own watcher or downloader.
+- Thumbnails fall back to VLC when MPV isn't installed.
+- Tests run on GitHub Actions for every push and pull request. New suites cover
+  file operations, and new cases cover parsers, hand-offs and matching.
+
 ## 5.3.0 — Playback, imports and release matching
 
 ### Downloads

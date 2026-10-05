@@ -69,6 +69,7 @@ contextBridge.exposeInMainWorld('api', {
 
   // MAL
   malIsAuthenticated: () => invoke('mal:isAuthenticated'),
+  malDisconnect: () => invoke('mal:disconnect'),
   malGetAuthUrl: (clientId, clientSecret) => invoke('mal:getAuthUrl', clientId, clientSecret),
   malStartAuthServer: () => invoke('mal:startAuthServer'),
   malExchangeToken: (code) => invoke('mal:exchangeToken', code),

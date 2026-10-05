@@ -6,7 +6,7 @@ const { ipcMain } = require('electron');
 const fs = require('fs');
 const { state, config } = require('../state');
 const { getWatchHistoryStore, mergeMalData, safeEpisodeNumber, safeHistoryKey, safeMalId, saveConfig } = require('../config/config');
-const { isAllowedFileActionPath } = require('../config/security');
+const { isAllowedFileActionPath, trashOrDelete } = require('../config/security');
 const { parseMediaNumber } = require('./parsers');
 
 function register() {
@@ -38,8 +38,9 @@ function register() {
         if (seriesEntry && seriesEntry.episodes) {
           const epFile = seriesEntry.episodes.find(e => parseMediaNumber(e.name) === ep);
           if (epFile && fs.existsSync(epFile.path) && isAllowedFileActionPath(epFile.path)) {
-            try { fs.unlinkSync(epFile.path); console.log('[Watch&Delete] Deleted', epFile.name); }
-            catch (e) { console.error('[Watch&Delete] Failed to delete', epFile.path, e.message); }
+            trashOrDelete(epFile.path)
+              .then(how => console.log('[Watch&Delete]', how === 'trash' ? 'Recycled' : 'Deleted', epFile.name))
+              .catch(e => console.error('[Watch&Delete] Failed to delete', epFile.path, e.message));
           }
         }
       }, 5000);

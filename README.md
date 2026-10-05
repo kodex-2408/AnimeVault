@@ -2,7 +2,7 @@
 
 A personal desktop anime & manga library manager built with Electron. Organize your local collection, track watch/read progress, explore new titles, download via Nyaa.si, and sync with MyAnimeList — all in one app.
 
-**Current version: 5.3.0 — playback, imports and release matching fixes.** See [docs/CHANGELOG.md](docs/CHANGELOG.md) for release history and [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for engineering notes.
+**Current version: 5.4.0 — native ARM64, safer files, sturdier downloads.** See [docs/CHANGELOG.md](docs/CHANGELOG.md) for release history and [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for engineering notes.
 
 ---
 
@@ -129,7 +129,8 @@ Validates the IPC contract, renderer script syntax and the no-inline-code/CSP co
 
 | Script | Output | Description |
 |--------|--------|-------------|
-| `BUILD.bat` | `dist\AnimeVault-<arch>.exe` | **Portable** — single self-contained `.exe`, no install needed |
+| `BUILD.bat` (x64) | `dist\AnimeVault-x64.exe` | **Portable** — single self-contained `.exe`, no install needed |
+| `BUILD.bat` (ARM64) | `dist\win-arm64-unpacked\AnimeVault.exe` and `dist\AnimeVault-arm64.zip` | **Portable, native ARM64** — run `AnimeVault.exe` from the folder (or extract the zip anywhere) |
 | `BUILD-INSTALLER.bat` | `dist\AnimeVault-Setup-<arch>.exe` | **Installer** — setup wizard with Start Menu shortcut and uninstaller |
 
 The batch files wrap `npm run build*`/`npm run build-installer*` scripts declared in `package.json`, with the electron-builder configuration inline in `package.json` (`build` key). `dist/` is build output and is excluded from packaging and version control.
@@ -138,15 +139,17 @@ The batch files wrap `npm run build*`/`npm run build-installer*` scripts declare
 - **Personal use → Portable** (`BUILD.bat`). Drop anywhere and run. No registry entries. USB-friendly.
 - **Sharing → Installer** (`BUILD-INSTALLER.bat`). Familiar setup wizard, Program Files placement, Add/Remove Programs entry.
 
-**Will a standalone `.exe` work on another computer?**
-Yes — the portable `.exe` is self-contained (Electron runtime + Chromium + Node.js + bundled MPV). The recipient needs no separate Node.js installation. Just double-click and run.
+**Why is ARM64 a folder, not one `.exe`?** The single-file portable format starts the app through a small x86 launcher, which Windows on ARM runs emulated (and flags as such) for as long as the app is open. The folder/zip build is native ARM64 end to end.
+
+**Will the portable build work on another computer?**
+Yes — it is self-contained (Electron runtime + Chromium + Node.js). The recipient needs no separate Node.js installation. A video player (VLC or MPV) is needed for playback.
 
 ---
 
 ## Configuration
 
 ### First Launch
-The setup wizard guides you through: theme, library folders, player choice, subtitle language, Nyaa uploader preference, and MAL connection.
+The setup guide walks you through: theme, library folders, player and subtitles, the Bluetooth audio delay, download preferences, the MAL connection and Luma. Reopen it any time from Settings → Performance & window.
 
 ### MyAnimeList
 1. Create an API app at [myanimelist.net/apiconfig](https://myanimelist.net/apiconfig)

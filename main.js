@@ -31,96 +31,95 @@ process.on('uncaughtException', (err) => {
   try { dialog.showErrorBox('AnimeVault ran into a problem', String(err && err.message || err) + '\n\nDetails were saved to startup.log in %APPDATA%\\animevault.'); } catch (e) {}
 });
 
-// Required after the handler above, so a module that fails to load is logged.
-const { startAutoDownloadPoller, stopAutoDownloadPoller } = require('./autoDownload');
-const { state, config } = require('./main/state');
-const { isSafeExternalUrl } = require('./main/config/security');
-const { flushSaveConfig, loadConfig, loadGeminiKey } = require('./main/config/config');
-const { appendAuthDebug } = require('./main/services/mal');
-const { startFileWatcher, stopFileWatcher } = require('./main/scanner/watcher');
-const { createWindow } = require('./main/window/window');
-const { handleCoverRequest } = require('./main/window/protocol');
-const { registerHandlers } = require('./main/ipc/registerHandlers');
+// One AnimeVault at a time. The lock is taken before any app module loads, so
+// a second launch (npm start next to a built copy, a hidden tray window) never
+// registers handlers or starts its own watcher and poller - it just hands over.
+if (!app.requestSingleInstanceLock()) {
+  logStartup('another AnimeVault instance is already running (npm start, a hidden tray window, or another build) - handing over to it');
+  app.quit();
+} else {
+  startApp();
+}
 
-// ================================================================
-//  GLOBALS & CONFIG
-// ================================================================
-// cover:// streams cached artwork straight from disk so the renderer never
-// holds megabytes of base64 copies. Must be registered before app ready.
-// Every renderer runs sandboxed, whatever a future BrowserWindow forgets to set.
-// (An explicit --no-sandbox, needed only for root/CI runs, still opts out.)
-if (!app.commandLine.hasSwitch('no-sandbox')) app.enableSandbox();
+function startApp() {
+  // Required after the handler above, so a module that fails to load is logged.
+  const { startAutoDownloadPoller, stopAutoDownloadPoller } = require('./autoDownload');
+  const { state, config } = require('./main/state');
+  const { isSafeExternalUrl } = require('./main/config/security');
+  const { flushSaveConfig, loadConfig, loadGeminiKey, loadMalCredentials } = require('./main/config/config');
+  const { appendAuthDebug } = require('./main/services/mal');
+  const { startFileWatcher, stopFileWatcher } = require('./main/scanner/watcher');
+  const { createWindow } = require('./main/window/window');
+  const { handleCoverRequest } = require('./main/window/protocol');
+  const { registerHandlers } = require('./main/ipc/registerHandlers');
 
-protocol.registerSchemesAsPrivileged([
-  { scheme: 'cover', privileges: { standard: false, secure: true, supportFetchAPI: false } }
-]);
+  // cover:// streams cached artwork straight from disk so the renderer never
+  // holds megabytes of base64 copies. Must be registered before app ready.
+  // Every renderer runs sandboxed, whatever a future BrowserWindow forgets to set.
+  // (An explicit --no-sandbox, needed only for root/CI runs, still opts out.)
+  if (!app.commandLine.hasSwitch('no-sandbox')) app.enableSandbox();
 
-registerHandlers();
+  protocol.registerSchemesAsPrivileged([
+    { scheme: 'cover', privileges: { standard: false, secure: true, supportFetchAPI: false } }
+  ]);
 
-// Defense in depth for every web contents the app ever creates (not only the
-// main window): no <webview>, no pop-up windows, no navigation away.
-app.on('web-contents-created', (_, contents) => {
-  contents.on('will-attach-webview', (event) => event.preventDefault());
-  contents.setWindowOpenHandler(({ url }) => {
-    if (isSafeExternalUrl(url)) shell.openExternal(url);
-    return { action: 'deny' };
-  });
-  contents.on('will-navigate', (event, url) => {
-    if (url !== contents.getURL()) event.preventDefault();
-  });
-});
+  registerHandlers();
 
-app.whenReady().then(() => {
-  logStartup('started from ' + process.execPath);
-  protocol.handle('cover', handleCoverRequest);
-  appendAuthDebug('boot version=' + app.getVersion() + ' pid=' + process.pid);
-  loadConfig();
-  loadGeminiKey();
-  createWindow();
-
-  // Resume file watcher if enabled
-  if (config.watcherFolder) {
-    startFileWatcher(config.watcherFolder, config.watcherDest);
-  }
-
-  // Resume auto-download poller if enabled
-  if (config.autoDownloadEnabled && config.autoDownloadWatchlist?.length) {
-    startAutoDownloadPoller();
-  }
-
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
-  });
-});
-
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
-});
-
-app.on('before-quit', () => {
-  state.isQuitting = true;
-  flushSaveConfig();
-  stopFileWatcher();
-  stopAutoDownloadPoller();
-});
-
-// ================================================================
-//  DEEP LINK PROTOCOL (Windows)
-// ================================================================
-if (process.platform === 'win32') {
-  const gotTheLock = app.requestSingleInstanceLock();
-  if (!gotTheLock) {
-    logStartup('another AnimeVault instance is already running (npm start, a hidden tray window, or another build) - handing over to it');
-    app.quit();
-  } else {
-    // A second launch hands over to the running instance. That instance may be
-    // hidden in the tray (minimize/close-to-tray), so show it — focusing a
-    // hidden window does nothing and the launch looks like it failed.
-    app.on('second-instance', () => {
-      if (!state.mainWindow || state.mainWindow.isDestroyed()) { if (app.isReady()) createWindow(); return; }
-      if (state.mainWindow.isMinimized()) state.mainWindow.restore();
-      if (!state.mainWindow.isVisible()) state.mainWindow.show();
-      state.mainWindow.focus();
+  // Defense in depth for every web contents the app ever creates (not only the
+  // main window): no <webview>, no pop-up windows, no navigation away.
+  app.on('web-contents-created', (_, contents) => {
+    contents.on('will-attach-webview', (event) => event.preventDefault());
+    contents.setWindowOpenHandler(({ url }) => {
+      if (isSafeExternalUrl(url)) shell.openExternal(url);
+      return { action: 'deny' };
     });
-  }
+    contents.on('will-navigate', (event, url) => {
+      if (url !== contents.getURL()) event.preventDefault();
+    });
+  });
+
+  app.whenReady().then(() => {
+    logStartup('started from ' + process.execPath);
+    protocol.handle('cover', handleCoverRequest);
+    appendAuthDebug('boot version=' + app.getVersion() + ' pid=' + process.pid);
+    loadConfig();
+    loadGeminiKey();
+    loadMalCredentials();
+    createWindow();
+
+    // Resume file watcher if enabled
+    if (config.watcherFolder) {
+      startFileWatcher(config.watcherFolder, config.watcherDest);
+    }
+
+    // Resume auto-download poller if enabled
+    if (config.autoDownloadEnabled && config.autoDownloadWatchlist?.length) {
+      startAutoDownloadPoller();
+    }
+
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    });
+  });
+
+  app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') app.quit();
+  });
+
+  app.on('before-quit', () => {
+    state.isQuitting = true;
+    flushSaveConfig();
+    stopFileWatcher();
+    stopAutoDownloadPoller();
+  });
+
+  // A second launch hands over to the running instance. That instance may be
+  // hidden in the tray (minimize/close-to-tray), so show it - focusing a
+  // hidden window does nothing and the launch looks like it failed.
+  app.on('second-instance', () => {
+    if (!state.mainWindow || state.mainWindow.isDestroyed()) { if (app.isReady()) createWindow(); return; }
+    if (state.mainWindow.isMinimized()) state.mainWindow.restore();
+    if (!state.mainWindow.isVisible()) state.mainWindow.show();
+    state.mainWindow.focus();
+  });
 }

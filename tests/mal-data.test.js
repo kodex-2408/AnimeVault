@@ -76,4 +76,30 @@ assert.strictEqual(context.shouldAdopt(null, droppedOnMal), true);
 assert.strictEqual(context.shouldAdopt({ status: 'watching' }, droppedOnMal), true, 'an untimestamped local status defers to MAL');
 assert.strictEqual(context.shouldAdopt(localEdit, { score: 3 }), false, 'a remote entry without a status is ignored');
 
+// Auto-linking: word-level, season-aware title confidence (threshold 0.88).
+{
+  const { extractFunction } = require('./source-extract');
+  const ctx = vm.createContext({ autoDownload: require('../autoDownload') });
+  vm.runInContext(extractFunction(main, 'fuzzyTitleMatch'), ctx);
+  const m = (a, b) => ctx.fuzzyTitleMatch(a, b);
+  assert.strictEqual(m('Monster', 'Monster'), 1);
+  assert(m('Monster', 'Monster Musume no Iru Nichijou') < 0.88, 'Monster must not auto-link to Monster Musume');
+  assert.strictEqual(m('Overlord', 'Overlord II'), 0, 'a different season is never a match');
+  assert.strictEqual(m('Overlord II', 'Overlord II'), 1);
+  assert(m('Frieren Beyond Journeys End', "Frieren: Beyond Journey's End") >= 0.88, 'punctuation differences still link');
+  assert(/AUTO_LINK_THRESHOLD = 0\.88/.test(main));
+}
+
+// Cover file names stay inside Windows' 255-character limit.
+{
+  const { extractFunction } = require('./source-extract');
+  const ctx = vm.createContext({ crypto: require('crypto') });
+  vm.runInContext(extractFunction(main, 'coverFileStem'), ctx);
+  const long = 'シャングリラ・フロンティア〜クソゲーハンター、神ゲーに挑まんとす〜 2nd Season 特別編集版';
+  const stem = ctx.coverFileStem(long);
+  assert(('anime--' + stem + '.jpg').length < 200, 'long Japanese names are shortened: ' + stem.length);
+  assert.notStrictEqual(ctx.coverFileStem(long + 'x'), stem, 'shortened names stay unique');
+  assert.strictEqual(ctx.coverFileStem('Frieren'), 'Frieren', 'short names keep the existing scheme');
+}
+
 console.log('MAL data merge regression checks passed');

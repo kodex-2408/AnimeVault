@@ -16,6 +16,10 @@ function assertPlayableMedia(filePath, exts) {
   if (!(exts || VIDEO_EXTS.concat(MANGA_EXTS)).includes(ext)) throw new Error('Refusing to open ' + (ext || 'this file') + ' — not a video or manga file');
 }
 
+// Subfolders that hold bonus material, not episodes (creditless OP/ED, menus,
+// trailers, samples). Skipped when a series folder is read recursively.
+const EXTRAS_DIR_RE = /^(?:extras?|bonus(?:es)?|featurettes?|nc(?:op|ed)?s?|creditless|menus?|trailers?|samples?|previews?|scans|fonts|subs?|subtitles|attachments)$/i;
+
 function getVideoFiles(folder, recurse = false) {
   if (!fs.existsSync(folder)) return [];
   const results = [];
@@ -28,7 +32,7 @@ function getVideoFiles(folder, recurse = false) {
           if (!fs.existsSync(fp)) continue; // Batch A.5: ghost-file guard
           results.push({ name: item.name, path: fp, size: fs.statSync(fp).size });
         } catch(e){}
-      } else if (recurse && item.isDirectory() && !item.name.startsWith('.')) {
+      } else if (recurse && item.isDirectory() && !item.name.startsWith('.') && !EXTRAS_DIR_RE.test(item.name)) {
         results.push(...getVideoFiles(fp, true));
       }
     }
@@ -48,7 +52,7 @@ function getMangaFiles(folder, recurse = false) {
           if (!fs.existsSync(fp)) continue; // Batch A.5: ghost-file guard
           results.push({ name: item.name, path: fp, size: fs.statSync(fp).size });
         } catch(e){}
-      } else if (recurse && item.isDirectory() && !item.name.startsWith('.')) {
+      } else if (recurse && item.isDirectory() && !item.name.startsWith('.') && !EXTRAS_DIR_RE.test(item.name)) {
         results.push(...getMangaFiles(fp, true));
       }
     }
@@ -78,14 +82,19 @@ function detectResolution(filename) {
 }
 
 // Common release-metadata tokens that should be stripped before parsing
-const RELEASE_META_STRIP = /\b(?:\d{3,4}p|BluRay|BDRip|WEB[-.]?DL|WEBRip|HDRip|DVDRip|XviD|x26[45]|HEVC|H\.265|H\.264|AVC|AAC|FLAC|DTS|AC3|DDP|TrueHD|Atmos|Dual|DUB|SUB|Multi|SoftSub|HardSub|REPACK|PROPER|EXTENDED|UNCUT|UNRATED|Director'?s\s*Cut|Kitsune|SubsPlease|Erai-raws|Judas|VARYG|HorribleSubs|Commie|GJM|UTW|Coalgirls|\dx\d{3,4}|10-bit|8-bit|Hi10P|YUV420P10|CRF\s*\d+)\b/gi;
+// Audio/subtitle tags only as whole tags ("Dual Audio", "Multi-Subs"), so title
+// words like "Dual", "Sub" or "Multi" survive.
+const RELEASE_META_STRIP = /\b(?:\d{3,4}p|BluRay|BDRip|WEB[-.]?DL|WEBRip|HDRip|DVDRip|XviD|x26[45]|HEVC|H\.265|H\.264|AVC|AAC|FLAC|DTS|AC3|DDP|TrueHD|Atmos|Dual[-\s]?Audio|Multi[-\s]?(?:Subs?|Audio)|MultiSubs?|MSubs|ESubs?|Dubbed|Subbed|SoftSub|HardSub|REPACK|PROPER|EXTENDED|UNCUT|UNRATED|Director'?s\s*Cut|Kitsune|SubsPlease|Erai-raws|Judas|VARYG|HorribleSubs|Commie|GJM|UTW|Coalgirls|\dx\d{3,4}|10-bit|8-bit|Hi10P|YUV420P10|CRF\s*\d+)\b/gi;
+// A release group glued to the last metadata tag ("x265-Group",
+// "H.264.MSubs-ToonsHub"). Only that shape is a group: a hyphen inside a title
+// ("Maou-sama", "Iruma-kun", "Spider-Man") is part of the name.
+const RELEASE_GROUP_TAIL = /((?:\d{3,4}p|BluRay|BDRip|WEB[-.]?DL|WEBRip|HDRip|DVDRip|XviD|x26[45]|HEVC|H\.?26[45]|AVC|AAC[\d.]*|FLAC[\d.]*|DTS|AC3|E?AC-?3|DDP[\d.]*|TrueHD|Atmos|Opus|MSubs|ESubs?|MultiSubs?|REPACK|PROPER|10-?bit|Hi10P|AV1|JPN|ENG))[-_]\s*[A-Za-z0-9][A-Za-z0-9]*\s*$/i;
 function stripReleaseMetadata(name) {
   // Remove bracket/parenthesis groups
   let cleaned = name.replace(/\[.*?\]/g, ' ').replace(/\(.*?\)/g, ' ');
-  // Remove common release metadata tokens
+  // Remove a trailing release group, then the metadata tokens themselves
+  cleaned = cleaned.replace(RELEASE_GROUP_TAIL, '$1 ');
   cleaned = cleaned.replace(RELEASE_META_STRIP, ' ');
-  // Remove release group at end (e.g. "-Kitsune", "_Kitsune")
-  cleaned = cleaned.replace(/[-_]\s*[A-Za-z][A-Za-z0-9]{1,}\s*$/g, ' ');
   // Collapse whitespace
   cleaned = cleaned.replace(/\s+/g, ' ').trim();
   return cleaned;
@@ -131,11 +140,11 @@ function parseVideoFilename(filename, folderName) {
   const stripped = stripReleaseMetadata(base);
 
   // Pattern 1: S01E05 (in stripped or original)
-  let m = stripped.match(/(?:^|[\s._-])S(\d{1,2})E(\d{1,3})(?:[\s._-]|$)/i) ||
-          base.match(/(?:^|[\s._-])S(\d{1,2})E(\d{1,3})(?:[\s._-]|$)/i);
+  let m = stripped.match(/(?:^|[\s._-])S(\d{1,2})E(\d{1,4})(?:[\s._-]|$)/i) ||
+          base.match(/(?:^|[\s._-])S(\d{1,2})E(\d{1,4})(?:[\s._-]|$)/i);
   if (m) {
     const s = parseInt(m[1]), e = parseInt(m[2]);
-    const seriesInfo = extractSeriesName(base.split(/S\d{1,2}E\d{1,3}/i)[0]);
+    const seriesInfo = extractSeriesName(base.split(/S\d{1,2}E\d{1,4}/i)[0]);
     if (seriesInfo.title) {
       const sf = s > 1 ? ` S${s}` : '';
       return {
@@ -147,10 +156,10 @@ function parseVideoFilename(filename, folderName) {
   }
 
   // Pattern 2: "Series Name - 26" or "Series Name - 26 (1080p)"
-  m = stripped.match(/^(.*?)(?:\s+(?:(\d)(?:nd|rd|th|st)\s*Season|Season\s*(\d+)|S(\d+)))?\s+-\s+(\d{1,3})(?:\s|$|v\d)/);
+  m = stripped.match(/^(.*?)(?:\s+(?:(\d)(?:nd|rd|th|st)\s*Season|Season\s*(\d+)|S(\d+)))?\s+-\s+(\d{1,4}(?:\.\d(?!\d))?)(?:\s|$|v\d)/);
   if (m) {
     const s = parseInt(m[2] || m[3] || m[4] || '1');
-    const e = parseInt(m[5]);
+    const e = parseFloat(m[5]);
     const seriesInfo = extractSeriesName(m[1]);
     if (seriesInfo.title) {
       const sf = s > 1 ? ` S${s}` : '';
@@ -163,9 +172,9 @@ function parseVideoFilename(filename, folderName) {
   }
 
   // Pattern 2b: "Series Name - NN" at end of stripped string
-  m = stripped.match(/^(.*?)\s+-\s+(\d{1,3})\s*$/);
+  m = stripped.match(/^(.*?)\s+-\s+(\d{1,4}(?:\.\d(?!\d))?)\s*$/);
   if (m) {
-    const e = parseInt(m[2]);
+    const e = parseFloat(m[2]);
     const seriesInfo = extractSeriesName(m[1]);
     if (seriesInfo.title) {
       return {
@@ -176,9 +185,10 @@ function parseVideoFilename(filename, folderName) {
     }
   }
 
-  // Pattern 3: "Series Name 26" (space-separated number at end)
-  m = stripped.match(/^(.*?)[\s_.-]+(\d{1,3})(?:\s|$)/);
-  if (m) {
+  // Pattern 3: "Series Name 26" (space-separated number at end; 4-digit
+  // numbers for long runners like "One Piece 1100", never a year)
+  m = stripped.match(/^(.*?)[\s_.-]+(\d{1,4})(?:\s|$)/);
+  if (m && !(m[2].length === 4 && +m[2] >= 1900 && +m[2] <= 2099)) {
     const e = parseInt(m[2]);
     const seriesInfo = extractSeriesName(m[1]);
     if (seriesInfo.title && seriesInfo.title.length > 1) {
@@ -210,35 +220,35 @@ function parseVideoFilename(filename, folderName) {
 function parseMangaFilename(filename, folderName) {
   const ext = path.extname(filename), base = path.parse(filename).name;
   const stripped = stripReleaseMetadata(base);
-  let m = stripped.match(/(?:^|[\s._-])S(\d{1,2})E(\d{1,3})(?:[\s._-]|$)/i) ||
-          base.match(/(?:^|[\s._-])S(\d{1,2})E(\d{1,3})(?:[\s._-]|$)/i);
+  let m = stripped.match(/(?:^|[\s._-])S(\d{1,2})E(\d{1,4})(?:[\s._-]|$)/i) ||
+          base.match(/(?:^|[\s._-])S(\d{1,2})E(\d{1,4})(?:[\s._-]|$)/i);
   if (m) {
     const s = parseInt(m[1]), e = parseInt(m[2]);
-    const seriesInfo = extractSeriesName(base.split(/S\d{1,2}E\d{1,3}/i)[0]);
+    const seriesInfo = extractSeriesName(base.split(/S\d{1,2}E\d{1,4}/i)[0]);
     if (seriesInfo.title) {
       const sf = s > 1 ? ` S${s}` : '';
       return { newName: `${seriesInfo.title}${sf} - Ch ${String(e).padStart(2, '0')}${ext}`, series: seriesInfo.title + (s > 1 ? ' S' + s : ''), matched: true };
     }
   }
-  m = stripped.match(/^(.*?)(?:\s+(?:(\d)(?:nd|rd|th|st)\s*Season|Season\s*(\d+)|S(\d+)))?\s+-\s+(\d{1,3})(?:\s|$|v\d)/);
+  m = stripped.match(/^(.*?)(?:\s+(?:(\d)(?:nd|rd|th|st)\s*Season|Season\s*(\d+)|S(\d+)))?\s+-\s+(\d{1,4}(?:\.\d(?!\d))?)(?:\s|$|v\d)/);
   if (m) {
-    const s = parseInt(m[2] || m[3] || m[4] || '1'), e = parseInt(m[5]);
+    const s = parseInt(m[2] || m[3] || m[4] || '1'), e = parseFloat(m[5]);
     const seriesInfo = extractSeriesName(m[1]);
     if (seriesInfo.title) {
       const sf = s > 1 ? ` S${s}` : '';
       return { newName: `${seriesInfo.title}${sf} - Ch ${String(e).padStart(2, '0')}${ext}`, series: seriesInfo.title + (s > 1 ? ' S' + s : ''), matched: true };
     }
   }
-  m = stripped.match(/^(.*?)\s+-\s+(\d{1,3})\s*$/);
+  m = stripped.match(/^(.*?)\s+-\s+(\d{1,4}(?:\.\d(?!\d))?)\s*$/);
   if (m) {
-    const e = parseInt(m[2]);
+    const e = parseFloat(m[2]);
     const seriesInfo = extractSeriesName(m[1]);
     if (seriesInfo.title) {
       return { newName: `${seriesInfo.title} - Ch ${String(e).padStart(2, '0')}${ext}`, series: seriesInfo.title, matched: true };
     }
   }
-  m = stripped.match(/^(.*?)[\s_.-]+(\d{1,3})(?:\s|$)/);
-  if (m) {
+  m = stripped.match(/^(.*?)[\s_.-]+(\d{1,4})(?:\s|$)/);
+  if (m && !(m[2].length === 4 && +m[2] >= 1900 && +m[2] <= 2099)) {
     const e = parseInt(m[2]);
     const seriesInfo = extractSeriesName(m[1]);
     if (seriesInfo.title && seriesInfo.title.length > 1) {
@@ -265,27 +275,28 @@ function parseEpisodeNumber(filename) {
   cleaned = cleaned.replace(/\b(?:Season\s*\d{1,2}|S\d{1,2})\b/gi, ' ');
   // "Series 05 - 1080p": resolve the episode from the dash-resolution shape
   // BEFORE release-metadata stripping deletes the resolution anchor.
-  const resDash = cleaned.match(/(?:^|[\s._-])(\d{1,3})(?:v\d)?\s*[-–—]\s*\d{3,4}[pk]\b/i);
+  const resDash = cleaned.match(/(?:^|[\s._-])(\d{1,4})(?:v\d)?\s*[-–—]\s*\d{3,4}[pk]\b/i);
   if (resDash) return parseInt(resDash[1]);
   // Strip common release-metadata tokens to avoid false positives
   cleaned = cleaned.replace(RELEASE_META_STRIP, ' ');
   cleaned = cleaned.replace(/\s+/g, ' ').trim();
 
+  // Episodes run to 4 digits (One Piece 1100) and recaps are "12.5".
   // Pattern 1: S01E05
-  let m = cleaned.match(/S\d{1,2}E(\d{1,3})/i);
+  let m = cleaned.match(/S\d{1,2}E(\d{1,4})/i);
   if (m) return parseInt(m[1]);
   // Pattern 2: Episode 05, EP 05
-  m = cleaned.match(/Episode\s+(\d{1,3})/i);
-  if (m) return parseInt(m[1]);
-  m = cleaned.match(/\bEP?\s*(\d{1,3})\b/i);
-  if (m) return parseInt(m[1]);
+  m = cleaned.match(/Episode\s+(\d{1,4}(?:\.\d(?!\d))?)/i);
+  if (m) return parseFloat(m[1]);
+  m = cleaned.match(/\bEP?\s*(\d{1,4}(?:\.\d(?!\d))?)\b/i);
+  if (m) return parseFloat(m[1]);
   // Pattern 3: " - 05" (dash-separated episode, optional space)
   // This specifically catches the "Series Name - 26 (1080p)" pattern
-  m = cleaned.match(/-\s*(\d{1,3})(?:v\d)?(?:\s*(?:\[|\(|\.|$))/);
-  if (m) return parseInt(m[1]);
+  m = cleaned.match(/-\s*(\d{1,4}(?:\.\d(?!\d))?)(?:v\d)?(?:\s*(?:\[|\(|\.|$))/);
+  if (m) return parseFloat(m[1]);
   // Pattern 3b: " - NN" at end of string (e.g. "Monster - 26")
-  m = cleaned.match(/-\s+(\d{1,3})\s*$/);
-  if (m) return parseInt(m[1]);
+  m = cleaned.match(/-\s+(\d{1,4}(?:\.\d(?!\d))?)\s*$/);
+  if (m) return parseFloat(m[1]);
   // Pattern 4: rightmost standalone number not preceded by year and not followed by dash
   // Filter out 4-digit years (19xx, 20xx)
   const candidates = [];
@@ -314,10 +325,15 @@ function parseEpisodeNumber(filename) {
 
 function parseChapterNumber(filename) {
   const base = path.parse(filename).name;
-  let m = base.match(/(?:Ch(?:apter)?[.\s]*(\d{1,4})|Ch\s*(\d{1,4})|C\s*(\d{1,4})|#(\d{1,4})|-\s*(\d{1,4})(?:v\d)?\s*[\[\(\.\s]|\s+(\d{1,4})(?:v\d)?\s*[\[\(\.\s])/i);
-  if (m) return parseInt(m[1] || m[2] || m[3] || m[4] || m[5] || m[6]);
-  m = base.match(/\b(\d{1,4})\s*$/);
-  if (m) return parseInt(m[1]);
+  // An explicit chapter marker wins over volume numbers ("Vol 03 Ch 25").
+  let m = base.match(/\b(?:Ch(?:apter)?|Chap)[.\s_-]*(\d{1,4}(?:\.\d(?!\d))?)/i) ||
+    base.match(/(?:^|[\s_-])c(\d{1,4}(?:\.\d(?!\d))?)\b/i) ||
+    base.match(/#(\d{1,4}(?:\.\d(?!\d))?)/);
+  if (m) return parseFloat(m[1]);
+  // Otherwise ignore volume numbers, years and bracketed tags.
+  const rest = base.replace(/[\[(][^\])]*[\])]/g, ' ').replace(/\b(?:Vol(?:ume)?|v)[.\s_-]*\d{1,4}\b/gi, ' ');
+  m = rest.match(/-\s*(\d{1,4}(?:\.\d(?!\d))?)(?=\s|$|\.)/) || rest.match(/(?:^|\s)(\d{1,4}(?:\.\d(?!\d))?)(?=\s|$)/);
+  if (m) return parseFloat(m[1]);
   return null;
 }
 

@@ -13,6 +13,7 @@ const { validateRendererConfigValue } = require('./security');
 const CONFIG_PATH = path.join(app.getPath('userData'), 'config.json');
 const CONFIG_BACKUP_PATH = CONFIG_PATH + '.bak';
 const GEMINI_KEY_PATH = path.join(app.getPath('userData'), 'gemini-key.enc');
+const MAL_CREDENTIALS_PATH = path.join(app.getPath('userData'), 'mal-credentials.enc');
 // 5.0 stored an OpenRouter key here; 5.1 removes it on first start.
 const LEGACY_OPENROUTER_KEY_PATH = path.join(app.getPath('userData'), 'openrouter-key.enc');
 const CACHE_DIR = path.join(app.getPath('userData'), 'cover-cache');
@@ -237,9 +238,52 @@ function saveGeminiKey(key) {
   fs.writeFileSync(GEMINI_KEY_PATH, safeStorage.encryptString(key), { mode: 0o600 });
 }
 
+// MyAnimeList tokens and the client secret live in an OS-encrypted file
+// (safeStorage: DPAPI on Windows), like the Gemini key - never in config.json,
+// its backups or the daily snapshots. Without OS encryption they stay in
+// config.json as before rather than being lost.
+const MAL_SECRET_FIELDS = ['malAccessToken', 'malRefreshToken', 'malClientSecret'];
+let _malCredentialsWritten = null;
+function malSecretsEncrypted() {
+  try { return safeStorage.isEncryptionAvailable(); } catch (e) { return false; }
+}
+function saveMalCredentials() {
+  if (!malSecretsEncrypted()) return false;
+  const payload = JSON.stringify(Object.fromEntries(MAL_SECRET_FIELDS.map(k => [k, String(config[k] || '')])));
+  if (payload === _malCredentialsWritten) return true;
+  try {
+    fs.mkdirSync(path.dirname(MAL_CREDENTIALS_PATH), { recursive: true });
+    fs.writeFileSync(MAL_CREDENTIALS_PATH, safeStorage.encryptString(payload), { mode: 0o600 });
+    _malCredentialsWritten = payload;
+    return true;
+  } catch (e) {
+    console.error('[MAL] Could not save encrypted credentials:', e.message);
+    return false;
+  }
+}
+// Called once after loadConfig(). Plaintext values from an older config.json
+// win (they are the newest) and are moved into the encrypted file.
+function loadMalCredentials() {
+  const plain = MAL_SECRET_FIELDS.some(k => typeof config[k] === 'string' && config[k]);
+  if (!plain && malSecretsEncrypted() && fs.existsSync(MAL_CREDENTIALS_PATH)) {
+    try {
+      const data = JSON.parse(safeStorage.decryptString(fs.readFileSync(MAL_CREDENTIALS_PATH)));
+      for (const k of MAL_SECRET_FIELDS) config[k] = typeof data[k] === 'string' ? data[k] : '';
+      _malCredentialsWritten = JSON.stringify(Object.fromEntries(MAL_SECRET_FIELDS.map(k => [k, String(config[k] || '')])));
+    } catch (e) {
+      console.error('[MAL] Could not read encrypted credentials:', e.message);
+    }
+  }
+  if (plain && saveMalCredentials()) { scrubFieldsFromConfigFiles(MAL_SECRET_FIELDS); saveConfig(); }
+}
+
 // Removes API keys (current and legacy) from config.json, its backups and the
 // daily snapshots.
 function scrubApiKeysFromConfigFiles() {
+  scrubFieldsFromConfigFiles(API_KEY_CONFIG_FIELDS.concat('openrouterModel'));
+}
+
+function scrubFieldsFromConfigFiles(fields) {
   const files = [CONFIG_PATH, CONFIG_BACKUP_PATH, CONFIG_BACKUP_PATH + '.old'];
   const backupDir = path.join(path.dirname(CONFIG_PATH), 'backups');
   if (fs.existsSync(backupDir)) {
@@ -251,12 +295,12 @@ function scrubApiKeysFromConfigFiles() {
     try {
       if (!fs.existsSync(file)) continue;
       const data = JSON.parse(fs.readFileSync(file, 'utf-8'));
-      const keys = API_KEY_CONFIG_FIELDS.concat('openrouterModel').filter(k => Object.prototype.hasOwnProperty.call(data, k));
+      const keys = fields.filter(k => Object.prototype.hasOwnProperty.call(data, k));
       if (!keys.length) continue;
       keys.forEach(k => delete data[k]);
       fs.writeFileSync(file, JSON.stringify(data, null, 2));
     } catch (err) {
-      console.error('[AI] Could not scrub API keys from', file, err.message);
+      console.error('[Config] Could not scrub secrets from', file, err.message);
     }
   }
 }
@@ -309,6 +353,7 @@ function snapshotConfigDaily() {
 function writeConfigSafely() {
   const { _userDataPath, ...safeConfig } = config;
   API_KEY_CONFIG_FIELDS.forEach(k => delete safeConfig[k]);
+  if (saveMalCredentials()) MAL_SECRET_FIELDS.forEach(k => delete safeConfig[k]);
   const payload = JSON.stringify(safeConfig, null, 2);
   const tempPath = CONFIG_PATH + '.tmp';
   fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
@@ -422,6 +467,7 @@ function register() {
 
 module.exports = {
   API_KEY_CONFIG_FIELDS,
+  loadMalCredentials,
   CACHE_DIR,
   GEMINI_KEY_PATH,
   LIBRARY_INDEX_PATH,

@@ -260,7 +260,7 @@ function closeBatchDelete(){closeModalById('batchDeleteOverlay');}
 async function executeBatchDelete(){
   var checks=document.querySelectorAll('#batchDeleteOverlay .bd-chk:checked');if(!checks.length)return;
   var paths=[],names=[];checks.forEach(function(c){paths.push(c.dataset.path);names.push(c.dataset.name);});
-  if(!await askConfirm({title:'Delete '+plural(paths.length,'series','series')+'?',danger:true,confirm:'Delete permanently',text:'This cannot be undone.',body:'<div class="path-list">'+paths.map(function(p){return '<div class="mono">'+E(p)+'</div>';}).join('')+'</div>'}))return;
+  if(!await askConfirm({title:'Delete '+plural(paths.length,'series','series')+'?',danger:true,confirm:'Move to Recycle Bin',text:'The folders go to the Recycle Bin. (Drives without one delete them permanently.)',body:'<div class="path-list">'+paths.map(function(p){return '<div class="mono">'+E(p)+'</div>';}).join('')+'</div>'}))return;
   closeBatchDelete();toast('Deleting '+plural(paths.length,'series','series')+'…','i');
   var r=await api.batchDeleteSeries(paths);
   if(!Array.isArray(r)){toast('Delete failed: '+((r&&r.error)||'unknown error'),'e');return;}

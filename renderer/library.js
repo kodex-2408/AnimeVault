@@ -332,7 +332,7 @@ function seriesCtx(el,ev,name,tab){
 }
 async function confirmDeleteSeries(name){
   var s=S.lib.find(function(x){return x.name===name;});if(!s)return;
-  var ok=await askConfirm({title:'Delete “'+name+'”?',danger:true,confirm:'Delete files',text:plural(s.episodeCount,'file','files')+' will be permanently removed from disk. This cannot be undone.',body:'<div class="path-list"><div class="mono">'+E(s.path)+'</div></div>'});
+  var ok=await askConfirm({title:'Delete “'+name+'”?',danger:true,confirm:'Delete files',text:plural(s.episodeCount,'file','files')+' and the folder go to the Recycle Bin. (Drives without one delete them permanently.)',body:'<div class="path-list"><div class="mono">'+E(s.path)+'</div></div>'});
   if(ok)deleteSeries(name,s.path);
 }
 async function renameSeriesPrompt(name){
@@ -341,7 +341,9 @@ async function renameSeriesPrompt(name){
   if(next===null||!next.trim()||next.trim()===name)return;
   var r=await api.managerRenameSeries(s.path,name,next.trim());
   if(!r||!r.success){toast('Rename failed: '+((r&&r.error)||'Unknown error'),'e');return;}
-  toast('Renamed '+plural(r.filesRenamed,'file','files')+' and the folder','s');cdtl();await loadLib(true);
+  toast('Renamed '+plural(r.filesRenamed,'file','files')+' and the folder','s');cdtl();
+  // Main also renamed the series in its name lists and the watchlist.
+  S.cfg=await api.getConfig();S._autoDownloadWatchlist=S.cfg.autoDownloadWatchlist||S._autoDownloadWatchlist;await loadLib(true);
 }
 
 act('openSeries',function(el,ev,name){odtl(name);});

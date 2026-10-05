@@ -66,7 +66,7 @@ if %errorlevel% neq 0 (
     echo  [ERROR]  Build failed.
     echo           Fixes:
     echo             - Review the build error above
-    echo             - Confirm bin\mpv.exe and required DLLs are present
+    echo             - Close any running AnimeVault, then retry
     echo.
     pause & exit /b 1
 )
@@ -78,12 +78,14 @@ echo  ^|  DONE!   Output is in the  dist\  folder         ^|
 echo  +--------------------------------------------------+
 echo.
 if "%arch%"=="3" (
-    echo  Files:   dist\AnimeVault Setup x64.exe
-    echo           dist\AnimeVault Setup arm64.exe
+    echo  Files:   dist\AnimeVault-Setup-x64.exe
+    echo           dist\AnimeVault-Setup-arm64.exe
 ) else (
     echo  File:    dist\AnimeVault-Setup-%ARCH_LABEL%.exe
 )
 echo  Usage:   Runs setup wizard. Installs to Program Files.
 echo           Creates Start Menu shortcut + uninstaller.
+echo           The ARM64 setup program itself is x86, but the app it installs
+echo           is native ARM64.
 echo.
 pause

@@ -2,114 +2,21 @@
 
 // main/services/nyaa.js - Nyaa search, release choice and torrent hand-off.
 
-const { app, ipcMain, shell } = require('electron');
-const path = require('path');
-const fs = require('fs');
-const https = require('https');
+const { ipcMain } = require('electron');
 const crypto = require('crypto');
 const autoDownload = require('../../autoDownload');
-const { downloadNyaaTorrentFile, getSearchVariants, buildEpisodeSearchQueries, parseNyaaEpisodeNumber, releaseMatchesUploader, releaseMatchesTrackedSeason, releaseMatchesSeriesTitle, releaseMatchesQuality } = require('../../autoDownload');
+const { getSearchVariants, buildEpisodeSearchQueries, parseNyaaEpisodeNumber, releaseMatchesUploader, releaseMatchesTrackedSeason, releaseMatchesSeriesTitle, releaseMatchesQuality } = require('../../autoDownload');
 const { config } = require('../state');
 const { isSafeExternalUrl } = require('../config/security');
 const { getWatchHistoryStore, safeHistoryKey, saveConfig } = require('../config/config');
 
-function nyaaSearchHtml(searchQuery) {
-  return new Promise((resolve) => {
-    const category = config.vaultMode === 'manga' ? '3_1' : '1_2';
-    const url = `https://nyaa.si/?f=0&c=${category}&q=${encodeURIComponent(searchQuery)}`;
-    const req = https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } }, (res) => {
-      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        return resolve([]);
-      }
-      let html = '';
-      res.on('data', chunk => html += chunk);
-      res.on('end', () => {
-        const results = [];
-        try {
-          const rows = html.match(/<tr class="[^"]*(?:default|success|danger)[^"]*"[\s\S]*?<\/tr>/g) || [];
-          for (const row of rows) {
-            try {
-              const titleMatch = row.match(/<a[^>]*href="\/view\/\d+"[^>]*title="([^"]+)"/);
-              const idMatch = row.match(/<a[^>]*href="\/view\/(\d+)"/);
-              const sizeMatch = row.match(/<td[^>]*class="text-center[^"]*"[^>]*>[\s\S]*?<\/td>[\s\S]*?<td[^>]*class="text-center[^"]*"[^>]*>[\s\S]*?<\/td>[\s\S]*?<td[^>]*class="text-center[^"]*"[^>]*>([\s\S]*?)<\/td>/);
-              // nyaa.si marks the seeder cell with the "success" class. The old
-              // code indexed a /g match array position that never exists, so
-              // every fallback result reported 0 seeders and broke scoring.
-              let seeders = 0;
-              const seedCell = row.match(/<td[^>]*class="text-center[^"]*success[^"]*"[^>]*>([\s\S]*?)<\/td>/);
-              if (seedCell) {
-                seeders = parseInt(seedCell[1].replace(/<[^>]+>/g, '').trim(), 10) || 0;
-              } else {
-                const cellRe = /<td[^>]*class="text-center[^"]*"[^>]*>([\s\S]*?)<\/td>/g;
-                let cell;
-                while ((cell = cellRe.exec(row)) !== null) {
-                  const text = cell[1].replace(/<[^>]+>/g, '').trim();
-                  if (/^\d+$/.test(text)) { seeders = parseInt(text, 10) || 0; break; }
-                }
-              }
-              const magnetMatch = row.match(/href="(magnet:\?[^"]+)"/);
-              if (titleMatch && idMatch) {
-                results.push({
-                  id: idMatch[1],
-                  title: titleMatch[1],
-                  size: sizeMatch ? sizeMatch[1].trim() : '',
-                  seeders,
-                  magnet: magnetMatch ? magnetMatch[1] : ''
-                });
-              }
-            } catch(e2) { console.error('[Nyaa] HTML parse row error:', e2.message); }
-          }
-        } catch(e) { console.error('[Nyaa] HTML parse error:', e.message); }
-        resolve(results);
-      });
-    });
-    req.on('error', (e) => { console.error('[Nyaa] HTML request error:', e.message); resolve([]); });
-    req.setTimeout(15000, () => { req.destroy(); resolve([]); });
-  });
-}
-
-function nyaaSearch(searchQuery) {
-  return new Promise((resolve) => {
-    const category = config.vaultMode === 'manga' ? '3_1' : '1_2';
-    const rssUrl = `https://nyaa.si/?page=rss&q=${encodeURIComponent(searchQuery)}&c=${category}&f=0`;
-    const req = https.get(rssUrl, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } }, (res) => {
-      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        return resolve([]);
-      }
-      let xml = '';
-      res.on('data', chunk => xml += chunk);
-      res.on('end', () => {
-        const results = [];
-        try {
-          const items = xml.match(/<item>[\s\S]*?<\/item>/g) || [];
-          for (const item of items) {
-            try {
-              const title = (item.match(/<title>([^<]+)<\/title>/) || [])[1] || '';
-              const link = (item.match(/<link>([^<]+)<\/link>/) || [])[1] || '';
-              const id = link.match(/\/view\/(\d+)/) ? link.match(/\/view\/(\d+)/)[1] : '';
-              const size = (item.match(/<nyaa:size>([^<]+)<\/nyaa:size>/) || [])[1] || '';
-              const seeders = parseInt((item.match(/<nyaa:seeders>([^<]+)<\/nyaa:seeders>/) || [])[1] || '0');
-              const magnet = (item.match(/<nyaa:infoHash>([^<]+)<\/nyaa:infoHash>/) || [])[1] || '';
-              const nyaaMagnet = magnet ? `magnet:?xt=urn:btih:${magnet}&dn=${encodeURIComponent(title)}` : '';
-              const pubDateRaw = (item.match(/<pubDate>([^<]+)<\/pubDate>/) || [])[1] || '';
-              const publishedAt = pubDateRaw && !isNaN(Date.parse(pubDateRaw))
-                ? new Date(pubDateRaw).toISOString()
-                : '';
-              results.push({ id, title, size, seeders, magnet: nyaaMagnet, publishedAt });
-            } catch(e2) { console.error('[Nyaa] RSS parse row error:', e2.message); }
-          }
-        } catch(e) { console.error('[Nyaa] RSS parse error:', e.message); }
-        if (results.length === 0) {
-          // Fall back to HTML scraping with original query
-          nyaaSearchHtml(searchQuery).then(resolve).catch((e) => { console.error('[Nyaa] HTML fallback error:', e.message); resolve([]); });
-        } else {
-          resolve(results);
-        }
-      });
-    });
-    req.on('error', (e) => { console.error('[Nyaa] RSS request error:', e.message); nyaaSearchHtml(searchQuery).then(resolve).catch((e2) => { console.error('[Nyaa] HTML fallback error:', e2.message); resolve([]); }); });
-    req.setTimeout(15000, () => { req.destroy(); resolve([]); });
-  });
+// One Nyaa search for the whole app (autoDownload.js): RSS with a 5-minute
+// cache, entity-decoded titles and 429 back-off; the HTML listing is the
+// fallback when RSS returns nothing.
+async function nyaaSearch(searchQuery) {
+  const rss = await autoDownload.nyaaSearchCached(searchQuery);
+  if (rss.length) return rss;
+  return autoDownload.nyaaSearchHtml(searchQuery);
 }
 
 // Release picker: candidates offered to the UI are remembered here, and a
@@ -124,22 +31,12 @@ function rememberReleaseOffer(offer) {
 }
 async function handOffRelease(chosen, meta) {
   const dedupKey = [meta.seriesTitle, meta.epNum, meta.mode].join('|');
-  let method;
-  if (chosen.id) {
-    const torrentData = await downloadNyaaTorrentFile(chosen.id);
-    const tmpDir = path.join(app.getPath('temp'), 'animevault-torrents');
-    fs.mkdirSync(tmpDir, { recursive: true });
-    const safeName = chosen.title.replace(/[\\/:*?"<>|]/g, '_').substring(0, 80);
-    const tmpFile = path.join(tmpDir, safeName + '.torrent');
-    fs.writeFileSync(tmpFile, torrentData);
-    await shell.openPath(tmpFile);
-    method = 'external';
-  } else if (chosen.magnet && isSafeExternalUrl(chosen.magnet)) {
-    await shell.openExternal(chosen.magnet);
-    method = 'magnet';
-  } else {
+  if (!chosen.id && !(chosen.magnet && isSafeExternalUrl(chosen.magnet))) {
     return { success: false, error: 'Selected release has no safe download link' };
   }
+  const handoff = await autoDownload.handOffToClient(chosen);
+  if (!handoff.ok) return { success: false, error: handoff.error };
+  const method = handoff.method;
   // History is written only after a successful OS handoff.
   pushDownloadHistory({
     timestamp: Date.now(), key: dedupKey, series: meta.seriesTitle, episode: meta.epNum, dlMode: meta.mode,

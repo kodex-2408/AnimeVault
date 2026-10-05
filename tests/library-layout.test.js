@@ -28,7 +28,7 @@ const touch = (p) => { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.wr
 const config = { vaultMode: 'anime', folders: [], mangaFolders: [] };
 const ctx = vm.createContext({ require, console, path, fs, config });
 vm.runInContext([
-  constBlock('CATEGORY_DIR_NAMES'), constBlock('ROMAN'), constBlock('RELEASE_META_STRIP'),
+  constBlock('CATEGORY_DIR_NAMES'), constBlock('ROMAN'), constBlock('RELEASE_META_STRIP'), constBlock('RELEASE_GROUP_TAIL'),
   ...['categoryForName', 'inferFolderType', 'hasSubdirectories', 'listSeriesDirs', 'seriesMatchKey',
     'ordinalSuffix', 'parseSeasonSuffix', 'findExistingSeriesFolder', 'anilistTitleVariants', 'mediaSeasonNumber',
     'pickSeasonMatch', 'cleanTitle', 'cleanFolderName', 'detectResolution', 'stripReleaseMetadata',
@@ -95,6 +95,19 @@ try {
   assert.strictEqual(p.series, 'Dandadan', 'bracket-style names keep working'); checks++;
   p = plain(run('parseMangaFilename("Chainsaw.Man.S01E12.cbz")'));
   assert.deepStrictEqual([p.matched, p.series], [true, 'Chainsaw Man'], 'the manga parser had the same SxxEyy bug'); checks++;
+
+  // ------------------------------------- long runners, hyphens, recaps, chapters
+  assert.deepStrictEqual([parse('One Piece - 1100.mkv').series, parse('One Piece - 1100.mkv').newName], ['One Piece', 'One Piece - 1100 (1080p) (H.264).mkv'], '4-digit episodes'); checks++;
+  assert.strictEqual(parse('[SubsPlease] Detective Conan - 1150 (1080p) [ABCD1234].mkv').series, 'Detective Conan'); checks++;
+  for (const t of ['Hataraku Maou-sama', 'Mairimashita! Iruma-kun', 'Jibaku Shounen Hanako-kun', 'Spider-Man', 'Dual Blade Sub Multi Story']) {
+    assert.strictEqual(run('extractSeriesName(' + JSON.stringify(t) + ').title'), t, 'title kept intact: ' + t); checks++;
+  }
+  assert.strictEqual(run('extractSeriesName("Monster.2004.S01.1080p.BluRay.x265-Group").title'), 'Monster (2004)', 'a real release group is still removed'); checks++;
+  assert.strictEqual(run('parseEpisodeNumber("Series - 12.5.mkv")'), 12.5, 'recap episodes keep their .5'); checks++;
+  assert.strictEqual(run('parseEpisodeNumber("Title - 05.720p.mkv")'), 5); checks++;
+  assert.strictEqual(run('parseChapterNumber("Berserk Vol 03 Ch 25.cbz")'), 25, 'chapter, not volume'); checks++;
+  assert.strictEqual(run('parseChapterNumber("One Piece Vol 100 Chapter 1000.cbz")'), 1000); checks++;
+  assert.strictEqual(run('parseChapterNumber("Chainsaw Man c097.cbz")'), 97); checks++;
 
   // ------------------------------------------------- sequel cover matching
   assert.deepStrictEqual(plain(run('anilistTitleVariants("Apothecary Diaries S2")')).slice(0, 3),

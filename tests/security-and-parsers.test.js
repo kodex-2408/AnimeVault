@@ -87,7 +87,7 @@ function mustExtract(fnCode, label) {
 }
 
 // ---------------------------------------------------------------------------
-// Episode parsers: BOTH implementations executed from their own sources
+// Episode parser (main process; the renderer uses the numbers it returns)
 // ---------------------------------------------------------------------------
 
 {
@@ -96,10 +96,6 @@ function mustExtract(fnCode, label) {
   const mainCtx = runInSandbox(
     stripLine + '\n' + mustExtract(extractFunction(mainSrc, 'parseEpisodeNumber'), 'main.parseEpisodeNumber'),
     'main-parser'
-  );
-  const renCtx = runInSandbox(
-    mustExtract(extractFunction(htmlSrc, 'parseEpisodeNumber'), 'renderer.parseEpisodeNumber'),
-    'renderer-parser'
   );
 
   const cases = [
@@ -116,12 +112,12 @@ function mustExtract(fnCode, label) {
     ['Season 2 - 1080p.mkv', null],
     ['Some Movie (2019).mkv', null],
     ['Random Film Title.mkv', null],
+    ['One Piece - 1100 (1080p).mkv', 1100],
+    ['Series - 12.5.mkv', 12.5],
   ];
   for (const [input, expected] of cases) {
     assert.strictEqual(mainCtx.parseEpisodeNumber(input), expected,
       'main parser mismatch on ' + input); checks++;
-    assert.strictEqual(renCtx.parseEpisodeNumber(input), expected,
-      'renderer parser mismatch on ' + input); checks++;
   }
 }
 
@@ -187,6 +183,10 @@ function mustExtract(fnCode, label) {
   // The main process is split across main/: every local require must resolve
   // to a file the packaged app ships, or the exe exits before any window.
   assert(pkg.build.files.includes('main/**/*'), 'build.files must ship the main/ modules'); checks++;
+  // electron-builder 25 rejects unknown top-level keys (a "zip" block broke the build).
+  const BUILDER_KEYS = ['appId', 'productName', 'compression', 'directories', 'files', 'win', 'nsis', 'portable', 'extraResources', 'extraFiles', 'asar', 'asarUnpack', 'artifactName', 'electronVersion', 'electronDist'];
+  for (const k of Object.keys(pkg.build)) { assert(BUILDER_KEYS.includes(k), 'unexpected electron-builder key: ' + k); checks++; }
+  assert(/--win zip --arm64/.test(pkg.scripts['build-arm64']), 'ARM64 builds the native zip/folder, not the x86-launcher portable'); checks++;
   const { mainFiles } = require('./main-source');
   for (const f of mainFiles()) {
     const text = fs.readFileSync(path.join(root, f), 'utf8');

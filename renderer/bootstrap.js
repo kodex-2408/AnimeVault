@@ -53,7 +53,12 @@ async function init(){
 function wireIpcEvents(){
   api.onNewFiles(function(files){
     files=files||[];
-    var moved=files.filter(function(f){return !f.isNewSeries;}),fresh=files.filter(function(f){return f.isNewSeries;});
+    var failed=files.filter(function(f){return f.error;});
+    var moved=files.filter(function(f){return !f.isNewSeries&&!f.error;}),fresh=files.filter(function(f){return f.isNewSeries&&!f.error;});
+    if(failed.length){
+      toast('Couldn’t move '+plural(failed.length,'file','files')+' into your library: '+failed[0].error,'e');
+      activityRecord('watcher','Some incoming files weren’t moved','error',failed.map(function(f){return f.file+' — '+f.error;}).join('\n').slice(0,600));
+    }
     if(moved.length){
       moved.forEach(function(f){S.watcherLog.unshift(f);});S.watcherLog=S.watcherLog.slice(0,20);
       if(notifEnabled('watcher'))toast(plural(moved.length,'file','files')+' organized into your library','s');

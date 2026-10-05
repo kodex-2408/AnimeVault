@@ -9,13 +9,25 @@ const https = require('https');
 const http = require('http');
 const crypto = require('crypto');
 const { URL } = require('url');
+const dns = require('dns');
 const { config } = require('../state');
 const { CACHE_DIR } = require('../config/config');
 const { assertAllowedFileActionPath, isInsidePath, isServableUserDataImage, normalizeFsPath } = require('../config/security');
 
+// encodeURIComponent turns each Japanese character into 9 bytes; past ~150
+// characters the name is shortened and made unique with a hash, keeping the
+// file well inside Windows' 255-character name limit. Shorter names keep the
+// original scheme, so existing cached covers are still found.
+function coverFileStem(seriesName) {
+  const encoded = encodeURIComponent(seriesName);
+  if (encoded.length <= 150) return encoded;
+  const hash = crypto.createHash('sha1').update(String(seriesName)).digest('hex').slice(0, 16);
+  return encodeURIComponent(String(seriesName).slice(0, 12)).slice(0, 100) + '~' + hash;
+}
+
 function getCoverCachePath(seriesName, mode = config.vaultMode) {
   const prefix = mode === 'manga' ? 'manga--' : 'anime--';
-  return path.join(CACHE_DIR, prefix + encodeURIComponent(seriesName) + '.jpg');
+  return path.join(CACHE_DIR, prefix + coverFileStem(seriesName) + '.jpg');
 }
 
 function getExistingCoverCachePath(seriesName) {
@@ -43,6 +55,18 @@ function isPrivateHost(hostname) {
   return false;
 }
 
+// Resolves the host and refuses private/loopback addresses, so a public name
+// pointing at 127.0.0.1 (or rebinding to it) can't reach local services.
+function guardedLookup(hostname, options, callback) {
+  if (typeof options === 'function') { callback = options; options = {}; }
+  dns.lookup(hostname, options, (err, address, family) => {
+    if (err) return callback(err);
+    const list = Array.isArray(address) ? address : [{ address, family }];
+    if (list.some(a => isPrivateHost(a.address))) return callback(new Error('Blocked internal address for ' + hostname));
+    callback(null, address, family);
+  });
+}
+
 async function fetchImage(url, redirects = 0) {
   if (redirects > 5) throw new Error('Too many redirects');
   let parsed;
@@ -53,7 +77,7 @@ async function fetchImage(url, redirects = 0) {
   } catch (e) { throw new Error('Invalid image URL: ' + e.message); }
   return new Promise((resolve, reject) => {
     const mod = parsed.protocol === 'https:' ? https : http;
-    const req = mod.get(parsed, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' } }, (res) => {
+    const req = mod.get(parsed, { lookup: guardedLookup, headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' } }, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         res.resume();
         let nextUrl = res.headers.location;
@@ -96,6 +120,7 @@ function register() {
 
 module.exports = {
   fetchImage,
+  isPrivateHost,
   getCoverCachePath,
   getExistingCoverCachePath,
   register,

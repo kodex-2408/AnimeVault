@@ -60,4 +60,33 @@ assert(/for \(const key of MAIN_OWNED_KEYS\) delete incoming\[key\]/.test(mainSr
 assert(/if \(MAIN_OWNED_KEYS\.has\(key\)\) return true;/.test(mainSrc), 'config:set ignores main-owned keys'); checks++;
 assert(!/bundled-mpv'\]/.test(mainSrc) && /config\.playerType === 'bundled-mpv'\) config\.playerType = config\.mpvPath \? 'mpv' : 'vlc'/.test(mainSrc), 'bundled MPV is migrated away'); checks++;
 
+// ---- MAL credentials: encrypted file, scrubbed from config.json ------------
+{
+  const fs = require('fs'); const os = require('os');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'av-malcred-'));
+  try {
+    const CONFIG_PATH = path.join(dir, 'config.json');
+    const cfg = { malAccessToken: 'tok-A', malRefreshToken: 'tok-R', malClientSecret: 'sec', theme: 'dark' };
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg));
+    let saves = 0;
+    const safeStorage = {
+      isEncryptionAvailable: () => true,
+      encryptString: (t) => Buffer.from(t, 'utf8').reverse(),
+      decryptString: (b) => Buffer.from(b).reverse().toString('utf8'),
+    };
+    const ctx = vm.createContext({ fs, path, console, safeStorage, config: cfg, CONFIG_PATH, CONFIG_BACKUP_PATH: CONFIG_PATH + '.bak',
+      MAL_CREDENTIALS_PATH: path.join(dir, 'mal-credentials.enc'), saveConfig: () => { saves++; } });
+    vm.runInContext([constBlock('MAL_SECRET_FIELDS'), 'let _malCredentialsWritten = null;', fn('malSecretsEncrypted'), fn('saveMalCredentials'), fn('loadMalCredentials'), fn('scrubFieldsFromConfigFiles')].join('\n'), ctx);
+    ctx.loadMalCredentials();
+    assert(fs.existsSync(path.join(dir, 'mal-credentials.enc')), 'plaintext tokens move into the encrypted file'); checks++;
+    assert(!/tok-A|tok-R|sec/.test(fs.readFileSync(CONFIG_PATH, 'utf8')), 'and are scrubbed from config.json'); checks++;
+    assert(!/tok-A/.test(fs.readFileSync(path.join(dir, 'mal-credentials.enc'), 'latin1')), 'the file is not plaintext'); checks++;
+    // restart: config.json has no tokens, the encrypted file restores them
+    for (const k of ['malAccessToken', 'malRefreshToken', 'malClientSecret']) delete cfg[k];
+    ctx.loadMalCredentials();
+    assert.deepStrictEqual([cfg.malAccessToken, cfg.malRefreshToken, cfg.malClientSecret], ['tok-A', 'tok-R', 'sec'], 'tokens restored after a restart'); checks++;
+    assert(saves >= 1); checks++;
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+
 console.log('playback-and-tracking checks passed: ' + checks + ' assertions (subtitles, audio delay, untrack on delete, main-owned keys)');

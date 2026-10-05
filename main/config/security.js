@@ -3,7 +3,7 @@
 // main/config/security.js - path containment and validation rules shared by
 // every handler that touches disk, launches a program or opens a URL.
 
-const { app } = require('electron');
+const { app, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { URL } = require('url');
@@ -95,6 +95,24 @@ function isSafeFileName(name) {
   return !/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\..*)?$/i.test(name);
 }
 
+// rename(), or copy-then-delete when source and destination are on different
+// drives (Windows reports EXDEV: downloads on C:, library on D:). A failed
+// copy removes its partial output and leaves the source untouched.
+function movePath(from, to) {
+  try {
+    fs.renameSync(from, to);
+  } catch (e) {
+    if (!e || e.code !== 'EXDEV') throw e;
+    try {
+      fs.cpSync(from, to, { recursive: true, errorOnExist: true, force: false, preserveTimestamps: true });
+    } catch (copyErr) {
+      try { fs.rmSync(to, { recursive: true, force: true }); } catch (_) {}
+      throw copyErr;
+    }
+    fs.rmSync(from, { recursive: true, force: true });
+  }
+}
+
 // Moves a file or folder without ever overwriting something else (Windows
 // renameSync silently replaces files). A case-only rename is still allowed.
 function moveNoClobber(from, to) {
@@ -102,8 +120,22 @@ function moveNoClobber(from, to) {
   if (fs.existsSync(to) && from.toLowerCase() !== to.toLowerCase()) {
     throw new Error('Refusing to overwrite existing ' + path.basename(to));
   }
-  fs.renameSync(from, to);
+  movePath(from, to);
   return true;
+}
+
+// Deletes through the Recycle Bin so a mistake can be undone. Drives without
+// one (network shares, some USB drives) fall back to a permanent delete.
+// Resolves 'trash' or 'deleted'.
+async function trashOrDelete(p) {
+  if (!fs.existsSync(p)) return 'deleted';
+  try {
+    await shell.trashItem(p);
+    return 'trash';
+  } catch (e) {
+    fs.rmSync(p, { recursive: true, force: true });
+    return 'deleted';
+  }
 }
 
 function assertAllowedFileActionPath(p, includeUserData = false) {
@@ -198,6 +230,8 @@ module.exports = {
   isSafeFileName,
   isServableUserDataImage,
   moveNoClobber,
+  movePath,
+  trashOrDelete,
   normalizeFsPath,
   validateRendererConfigValue,
 };
