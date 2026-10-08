@@ -152,12 +152,11 @@ contextBridge.exposeInMainWorld('api', {
   onDuplicateShowModal: (cb) => on('duplicate:showModal', cb),
   onDuplicateResolved: (cb) => on('duplicate:resolved', cb),
 
-  // AI assistant (Google Gemini, user’s own AI Studio key)
+  // AI assistant (Claude Haiku 5.5 through OpenRouter, user’s own key)
   aiGetStatus: () => invoke('ai:getStatus'),
   aiSetKey: (key) => invoke('ai:setKey', key),
   aiClearKey: () => invoke('ai:clearKey'),
-  aiSetModel: (model) => invoke('ai:setModel', model),
-  aiSend: (messages, model, options) => invoke('ai:send', messages, model, options),
+  aiSend: (messages) => invoke('ai:send', messages),
   aiWebSearch: (query) => invoke('ai:webSearch', query),
   aiStop: () => invoke('ai:stop'),
   onAiChunk: (cb) => on('ai:chunk', cb),

@@ -173,7 +173,7 @@ function mustExtract(fnCode, label) {
 // ---------------------------------------------------------------------------
 
 {
-  for (const f of ['main.js', 'preload.js', 'autoDownload.js', 'gemini.js', 'index.html', 'theme-boot.js', 'package.json', 'icon.png']) {
+  for (const f of ['main.js', 'preload.js', 'autoDownload.js', 'openrouter.js', 'index.html', 'theme-boot.js', 'package.json', 'icon.png']) {
     assert(fs.existsSync(path.join(root, f)), 'build.files literal missing from repo: ' + f); checks++;
     assert(pkg.build.files.includes(f), 'build.files must include ' + f); checks++;
   }
@@ -250,96 +250,101 @@ function mustExtract(fnCode, label) {
     'E() must escape apostrophes'); checks++;
 
   // AI assistant: the key stays main-side and all network stays main-side
-  assert(mainSrc.includes("'malAuthState', 'geminiApiKey', 'openrouterApiKey'"),
-    'config:get must strip the AI key (and the legacy OpenRouter key)'); checks++;
-  const gmSrc = fs.readFileSync(path.join(root, 'gemini.js'), 'utf8');
-  assert(gmSrc.includes("hostname: 'generativelanguage.googleapis.com'") && gmSrc.includes("'x-goog-api-key'"),
-    'Gemini requests must originate in the main process with the key in a header'); checks++;
+  assert(mainSrc.includes("'malAuthState', 'openRouterApiKey', 'geminiApiKey'"),
+    'config:get must strip the Luma key (and the legacy keys)'); checks++;
+  const orSrc = fs.readFileSync(path.join(root, 'openrouter.js'), 'utf8');
+  assert(orSrc.includes("API_HOST = 'openrouter.ai'") && orSrc.includes("'Authorization': 'Bearer ' + apiKey"),
+    'OpenRouter requests must originate in the main process with the key in a header'); checks++;
+  assert(/const REASONING = \{ effort: 'low' \}/.test(orSrc) && orSrc.includes('reasoning: REASONING'),
+    'Luma must send low reasoning effort'); checks++;
   assert(!/generativelanguage\.googleapis\.com|openrouter\.ai\/api/.test(htmlSrc),
     'renderer must never construct AI network calls'); checks++;
-  assert(htmlSrc.includes('aiSetKey') && htmlSrc.includes('aistudio.google.com/apikey'),
-    'assistant key entry UI with the AI Studio link is missing'); checks++;
-  assert(!fs.existsSync(path.join(root, 'openrouter.js')) && !htmlSrc.includes('sk-or-'),
-    'the OpenRouter integration must stay removed'); checks++;
-  assert(mainSrc.includes('LEGACY_OPENROUTER_KEY_PATH') && mainSrc.includes('fs.unlinkSync(LEGACY_OPENROUTER_KEY_PATH)'),
+  assert(htmlSrc.includes('aiSend') && htmlSrc.includes('https://openrouter.ai/keys'),
+    'assistant key entry UI with the OpenRouter key link is missing'); checks++;
+  assert(!/gemini/i.test(htmlSrc) && !fs.existsSync(path.join(root, 'gemini.js')),
+    'the Gemini integration must stay removed'); checks++;
+  assert(/for \(const old of \[LEGACY_OPENROUTER_KEY_PATH, LEGACY_GEMINI_KEY_PATH\]\)[\s\S]*?fs\.unlinkSync\(old\)/.test(mainSrc),
     'the stored 5.0 OpenRouter key must be deleted on start'); checks++;
+  assert(mainSrc.includes("LUMA_KEY_PATH = path.join(app.getPath('userData'), 'luma-openrouter.enc')") &&
+    mainSrc.includes("LEGACY_OPENROUTER_KEY_PATH = path.join(app.getPath('userData'), 'openrouter-key.enc')"),
+    'the Luma key must not reuse the 5.0 file name'); checks++;
 }
 
 // Behavioral checks against the real Electron-free module
-const gemini = require(path.join(root, 'gemini.js'));
-gemini.setDeps({ config: {}, mainWindow: () => null });
-assert.strictEqual(gemini.validateMessages([{ role: 'user', content: 'hi' }]), true); checks++;
-assert.strictEqual(gemini.validateMessages([{ role: 'tool', content: 'x' }]), false); checks++;
-assert.strictEqual(gemini.validateMessages([{ role: 'user', content: '' }]), false); checks++;
-assert.strictEqual(gemini.validateMessages('nope'), false); checks++;
-assert.strictEqual(gemini.validateMessages(new Array(50).fill({ role: 'user', content: 'x' })), false); checks++;
-assert.strictEqual(gemini.isPlausibleKey('AIzaSyD-abcdefghijklmnopqrstuvwxyz0123'), true); checks++;
-assert.strictEqual(gemini.isPlausibleKey('sk or v1 spaces'), false); checks++;
-assert.strictEqual(gemini.isPlausibleKey('AQ.Ab8RN6LxYz-abc_DEF.ghi0123456789jklmn'), true, 'newer AI Studio key formats are accepted'); checks++;
-assert.strictEqual(gemini.isPlausibleKey('short'), false); checks++;
-assert.strictEqual(gemini.isPlausibleKey('AIzaSyD-abc\r\nX-Evil: 1abcdefghijk'), false, 'no header injection'); checks++;
-assert.strictEqual(gemini.normalizeKey('  "AQ.Ab8RN6LxYz-abc_DEF.ghi0123456789"  '), 'AQ.Ab8RN6LxYz-abc_DEF.ghi0123456789'); checks++;
-assert.strictEqual(gemini.normalizeKey('GEMINI_API_KEY=AIzaSyD-abcdefghijklmnopqrstuvwxyz0123'), 'AIzaSyD-abcdefghijklmnopqrstuvwxyz0123'); checks++;
-// model ids become a URL path segment: anything odd falls back to the default
-assert.strictEqual(gemini.safeModelId('gemini-2.5-flash'), 'gemini-2.5-flash'); checks++;
-assert.strictEqual(gemini.safeModelId('models/gemini-flash-latest'), 'gemini-flash-latest'); checks++;
-assert.strictEqual(gemini.safeModelId('../../v1/files?x=1'), gemini.DEFAULT_MODEL); checks++;
-const gReq = gemini.toGeminiRequest([{ role: 'system', content: 'be nice' }, { role: 'user', content: 'hi' }, { role: 'assistant', content: 'hello' }], { webSearch: true });
-assert.deepStrictEqual(gReq.systemInstruction, { parts: [{ text: 'be nice' }] }); checks++;
-assert.deepStrictEqual(gReq.contents.map(c => c.role), ['user', 'model']); checks++;
-assert.deepStrictEqual(gReq.tools, [{ google_search: {} }]); checks++;
-assert.strictEqual(gemini.extractText({ candidates: [{ content: { parts: [{ text: 'thinking', thought: true }, { text: 'Hi!' }] } }] }), 'Hi!', 'thought parts are never shown'); checks++;
+const openrouter = require(path.join(root, 'openrouter.js'));
+openrouter.setDeps({ config: {}, mainWindow: () => null });
+assert.strictEqual(openrouter.validateMessages([{ role: 'user', content: 'hi' }]), true); checks++;
+assert.strictEqual(openrouter.validateMessages([{ role: 'tool', content: 'x' }]), false); checks++;
+assert.strictEqual(openrouter.validateMessages([{ role: 'user', content: '' }]), false); checks++;
+assert.strictEqual(openrouter.validateMessages('nope'), false); checks++;
+assert.strictEqual(openrouter.validateMessages(new Array(50).fill({ role: 'user', content: 'x' })), false); checks++;
+assert.strictEqual(openrouter.isPlausibleKey('sk-or-v1-' + 'a1'.repeat(32)), true); checks++;
+assert.strictEqual(openrouter.isPlausibleKey('sk or v1 spaces'), false); checks++;
+assert.strictEqual(openrouter.isPlausibleKey('short'), false); checks++;
+assert.strictEqual(openrouter.isPlausibleKey('sk-or-v1-abc\r\nX-Evil: 1abcdefghijk'), false, 'no header injection'); checks++;
+assert.strictEqual(openrouter.normalizeKey('OPENROUTER_API_KEY="sk-or-v1-abcdefghijklmnopqrstuvwxyz"'), 'sk-or-v1-abcdefghijklmnopqrstuvwxyz'); checks++;
+
+// Request body: one model, streamed, low reasoning, validated model id
+const body = openrouter.toOpenRouterRequest([{ role: 'system', content: 'be nice' }, { role: 'user', content: 'hi' }], 'anthropic/claude-haiku-5.5');
+assert.deepStrictEqual(body.reasoning, { effort: 'low' }); checks++;
+assert.strictEqual(body.model, 'anthropic/claude-haiku-5.5'); checks++;
+assert.strictEqual(body.stream, true); checks++;
+assert.deepStrictEqual(body.messages, [{ role: 'system', content: 'be nice' }, { role: 'user', content: 'hi' }]); checks++;
+assert.strictEqual(openrouter.toOpenRouterRequest([{ role: 'user', content: 'x' }], '../../evil').model, openrouter.DEFAULT_MODEL, 'model ids are validated'); checks++;
+
+// Model resolution from OpenRouter's catalogue: never guess
+assert.strictEqual(openrouter.resolveLumaModel(['openai/gpt-4o', 'anthropic/claude-haiku-5.5', 'anthropic/claude-haiku-5.5:beta']), 'anthropic/claude-haiku-5.5'); checks++;
+assert.strictEqual(openrouter.resolveLumaModel(['anthropic/claude-haiku-5-5:beta']), 'anthropic/claude-haiku-5-5:beta'); checks++;
+assert.strictEqual(openrouter.resolveLumaModel(['anthropic/claude-haiku-4.5', 'anthropic/claude-haiku-5.50']), null, 'an absent model is reported, not replaced'); checks++;
+
+// Streaming: text only, reasoning hidden, partial frames kept for the next chunk
+{
+  let out = '';
+  const r1 = openrouter.drainSse(': OPENROUTER PROCESSING\ndata: {"choices":[{"delta":{"content":"Hel"}}]}\ndata: {"choices":[{"delta":{"reasoning":"hmm"}}]}\ndata: {"choices":[{"delta":{"content":"lo"}}]}\ndata: [DONE]\ndata: {"choices":[{"del',
+    (t) => { out += t; });
+  assert.deepStrictEqual([out, r1.gotText, r1.error], ['Hello', true, null], 'reasoning deltas are never shown'); checks++;
+  assert(r1.rest.startsWith('data: {"choices'), 'the unfinished frame is kept'); checks++;
+  assert.strictEqual(openrouter.drainSse('data: {"error":{"message":"Provider disconnected"}}\n', () => {}).error, 'Provider disconnected'); checks++;
+}
+
+// Errors: what the user sees, and which hint they get
+assert.deepStrictEqual([openrouter.apiError(401, JSON.stringify({ error: { message: 'No auth' } })).kind], ['key']); checks++;
+assert(/rejected this API key/.test(openrouter.apiError(401, '{}').message)); checks++;
+assert.strictEqual(openrouter.apiError(402, '{}').kind, 'quota'); checks++;
+assert(/30 seconds/.test(openrouter.apiError(429, '{}', '30').message)); checks++;
+assert.strictEqual(openrouter.apiError(503, '').kind, 'busy'); checks++;
+assert.strictEqual(openrouter.apiError(404, JSON.stringify({ error: { message: 'No endpoints found' } })).kind, 'other'); checks++;
 
 (async () => {
-  const noKey = await gemini.chatStream([{ role: 'user', content: 'hi' }], 'gemini-flash-latest');
-  assert.strictEqual(noKey.ok, false); checks++;
-  assert(/key/i.test(noKey.message), 'expected missing-key failure, got: ' + noKey.message); checks++;
-  const badPayload = await gemini.chatStream('nope', 'gemini-flash-latest');
-  assert.strictEqual(badPayload.ok, false); checks++;
-  const webSearchCall = await gemini.chatStream([{ role: 'user', content: 'hi' }], 'gemini-flash-latest', { webSearch: true });
-  assert.strictEqual(webSearchCall.ok, false); checks++;
-  assert(/key/i.test(webSearchCall.message), 'expected missing-key failure with webSearch option'); checks++;
+  const sent = [];
+  let script;
+  const cfg = { openRouterApiKey: 'sk-or-v1-' + 'a'.repeat(40), lumaModel: 'anthropic/claude-haiku-5.5' };
+  openrouter.setDeps({
+    config: cfg,
+    mainWindow: () => ({ isDestroyed: () => false, webContents: { send: (ch, p) => sent.push([ch, p]) } }),
+    request: async (key, reqBody, onText) => { sent.push(['request', key.slice(0, 9), reqBody.model, reqBody.reasoning]); return script(onText); },
+  });
 
-  // ---- Gemini quota handling: search off first, then other free models
-  {
-    const quota = (id, delay) => ({ ok: false, status: 429, gotText: false, message: 'HTTP 429: You exceeded your current quota', retryDelay: delay || 0, quotaIds: [id || 'GenerateRequestsPerMinutePerProjectPerModel-FreeTier'] });
-    const runWith = async (script) => {
-      const calls = []; const sent = [];
-      gemini._resetQuota();
-      gemini.setDeps({
-        config: { geminiApiKey: 'AQ.test-key-0123456789abcdef' },
-        mainWindow: () => ({ isDestroyed: () => false, webContents: { send: (ch, p) => sent.push([ch, p]) } }),
-        request: async (key, model, body) => { const search = !!body.tools; calls.push(model + (search ? '+search' : '')); return script(model, search, calls.length); },
-      });
-      const res = await gemini.chatStream([{ role: 'user', content: 'hi' }], 'gemini-flash-latest', { webSearch: true });
-      return { res, calls, sent };
-    };
-    let t = await runWith((m, search) => (search ? quota('SearchGroundingRequestsPerDay-FreeTier') : { ok: true, gotText: true }));
-    assert.deepStrictEqual([t.res.ok, t.calls], [true, ['gemini-flash-latest+search', 'gemini-flash-latest']], 'search quota -> same model without search'); checks++;
-    t = await runWith((m) => (m === 'gemini-flash-latest' ? quota('GenerateRequestsPerDayPerProjectPerModel-FreeTier') : { ok: true, gotText: true }));
-    assert.deepStrictEqual([t.res.ok, t.calls], [true, ['gemini-flash-latest+search', 'gemini-flash-latest', 'gemini-flash-lite-latest']], 'model quota -> next free model'); checks++;
-    t = await runWith((m) => (m === 'gemini-flash-latest' ? { ok: false, status: 404, message: 'HTTP 404: not found' } : { ok: true, gotText: true }));
-    assert.deepStrictEqual([t.res.ok, t.calls.length], [true, 2], 'a retired model falls through to the next'); checks++;
-    t = await runWith(() => quota('GenerateRequestsPerMinutePerProjectPerModel-FreeTier', 42));
-    assert.strictEqual(t.res.ok, false); checks++;
-    assert(/per-minute limit/.test(t.res.message) && /42 seconds/.test(t.res.message), 'friendly per-minute message: ' + t.res.message); checks++;
-    assert.strictEqual(t.calls.length, 1 + gemini.FALLBACK_MODELS.length + 1, 'every model tried once, search dropped after the first quota error'); checks++;
-    t = await runWith((m) => ({ ok: false, status: 401, message: 'HTTP 401: API key not valid' }));
-    assert.deepStrictEqual([t.res.message, t.calls.length], ['HTTP 401: API key not valid', 1], 'other errors are not retried'); checks++;
-    assert(/daily limit/.test(gemini.quotaMessage(quota('GenerateRequestsPerDayPerProjectPerModel-FreeTier'))), 'daily quota message'); checks++;
-    const pe = gemini.parseApiError(429, JSON.stringify({ error: { message: 'quota', details: [{ '@type': 'type.googleapis.com/google.rpc.QuotaFailure', violations: [{ quotaId: 'X-PerDay' }] }, { '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '37s' }] } }));
-    assert.deepStrictEqual([pe.retryDelay, pe.quotaIds], [37, ['X-PerDay']]); checks++;
-    t = await runWith((m) => (m === 'gemini-flash-latest' ? { ok: false, status: 503, message: 'HTTP 503: This model is currently experiencing high demand.' } : { ok: true, gotText: true }));
-    assert.deepStrictEqual([t.res.ok, t.calls], [true, ['gemini-flash-latest+search', 'gemini-flash-lite-latest+search']], '503 high demand -> next model'); checks++;
-    t = await runWith(() => ({ ok: false, status: 503, message: 'HTTP 503: high demand' }));
-    assert.deepStrictEqual([t.res.ok, t.res.kind], [false, 'busy']); checks++;
-    assert(/overloaded/.test(t.res.message) && /isn.t a problem with your key/.test(t.res.message), 'busy message does not blame the key'); checks++;
-    t = await runWith(() => ({ ok: false, status: 401, message: 'HTTP 401: API key not valid' }));
-    assert.strictEqual(t.res.kind, 'key'); checks++;
-    const merged = gemini.toGeminiRequest([{ role: 'user', content: 'a' }, { role: 'user', content: 'b' }, { role: 'assistant', content: 'c' }]);
-    assert.deepStrictEqual(merged.contents.map(c => c.role), ['user', 'model'], 'consecutive turns are merged'); checks++;
-    gemini._resetQuota();
-  }
+  script = (onText) => { onText('Hi'); return { ok: true, gotText: true }; };
+  let r = await openrouter.chatStream([{ role: 'user', content: 'hi' }]);
+  assert.deepStrictEqual(r, { ok: true }); checks++;
+  assert.deepStrictEqual(sent.find(s => s[0] === 'request'), ['request', 'sk-or-v1-', 'anthropic/claude-haiku-5.5', { effort: 'low' }],
+    'one request to Haiku 5.5 with low reasoning'); checks++;
+  assert.deepStrictEqual(sent.filter(s => s[0] === 'ai:chunk').map(s => s[1].text), ['Hi']); checks++;
 
+  script = () => ({ ok: false, status: 401, kind: 'key', message: 'OpenRouter rejected this API key' });
+  r = await openrouter.chatStream([{ role: 'user', content: 'hi' }]);
+  assert.deepStrictEqual([r.ok, r.kind], [false, 'key']); checks++;
+  assert.strictEqual(sent.filter(s => s[0] === 'request').length, 2, 'a failure is not retried on another model'); checks++;
+
+  script = () => ({ ok: false, kind: 'busy', message: 'overloaded' });
+  r = await openrouter.chatStream([{ role: 'user', content: 'hi' }]);
+  assert.strictEqual(r.kind, 'busy'); checks++;
+
+  cfg.openRouterApiKey = '';
+  r = await openrouter.chatStream([{ role: 'user', content: 'hi' }]);
+  assert.deepStrictEqual([r.ok, r.kind], [false, 'key']); checks++;
+  assert(/OpenRouter API key/.test(r.message), r.message); checks++;
+})().then(() => {
   console.log('security-and-parsers checks passed: ' + checks + ' assertions across extracted-source execution, packaging contract, and security invariants');
-})().catch(e => { console.error(e); process.exit(1); });
+}).catch(e => { console.error(e); process.exit(1); });

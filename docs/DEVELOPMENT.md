@@ -12,7 +12,7 @@ User-facing release history lives in [CHANGELOG.md](CHANGELOG.md).
 |---|---|
 | `main.js` | Main-process entry only: startup log, sandbox, `cover://` registration, `registerHandlers()`, app lifecycle and the single-instance lock |
 | `main/state.js` | The settings object `config` (loaded in place, never reassigned) and `state` — runtime handles shared across modules (`mainWindow`, `tray`, `isQuitting`, library cache). Always `state.mainWindow`, never a local copy |
-| `main/config/` | `config.js` (config.json load/save, shrink guard, backups, Gemini key, watch-history helpers, `config:*`), `security.js` (path containment, validators), `backup.js` (export/import, backup/restore) |
+| `main/config/` | `config.js` (config.json load/save, shrink guard, backups, Luma key, watch-history helpers, `config:*`), `security.js` (path containment, validators), `backup.js` (export/import, backup/restore) |
 | `main/scanner/` | `parsers.js` (filenames), `library.js` (layout, scan, index, `library:*`), `history.js` (`watch:*`), `organizer.js` (`manager:*`), `watcher.js`, `duplicates.js` |
 | `main/players/` | `player.js` (launch, auto-mark poller, thumbnails, manga reader), `mpv.js`, `vlc.js` |
 | `main/services/` | `covers.js`, `anilist.js`, `mal.js`, `nyaa.js`, `downloads.js` (auto-download wiring), `ai.js` (Luma handlers) |
@@ -20,7 +20,7 @@ User-facing release history lives in [CHANGELOG.md](CHANGELOG.md).
 | `main/ipc/` | `registerHandlers.js` calls every module's `register()` (where its `ipcMain.handle` calls live); `system.js` holds dialog/shell handlers |
 | `preload.js` | `contextBridge` API surface (`window.api`) — every renderer capability is an explicit channel here |
 | `autoDownload.js` | Electron-free module: Nyaa RSS/HTML search, release scoring, title matching, tracking-ledger reconciliation. Required directly by tests |
-| `gemini.js` | Electron-free module: streaming Google Gemini client for Luma, using the user's own free AI Studio key (SSE from main process; the renderer never sees the key or the network). Required directly by tests |
+| `openrouter.js` | Electron-free module: streaming OpenRouter client for Luma. Sends every chat to Claude Haiku 5.5 with low reasoning effort, using the user's own OpenRouter key (SSE from main process; the renderer never sees the key or the network). Required directly by tests |
 | `index.html` | App shell only: titlebar, sidebar, overlay hosts, strict CSP, and the ordered `<script src>` list. No inline code |
 | `theme-boot.js` | Applies the cached theme before first paint (no flash of the wrong theme) |
 | `styles/` | `tokens.css` (colors, glass, shadows, radii, motion) → `base.css` (shell, sidebar, titlebar) → `components.css` (buttons, cards, menus, modals…) → `views.css` (per-page layouts) |
@@ -126,7 +126,7 @@ run these inside the packaged app after meaningful changes (~5 minutes):
 6. **Playback without a player** — with a bogus VLC path in Settings, playing an
    episode must show an info toast (OS default player) — never a main-process
    error dialog.
-7. **Assistant round-trip** — Luma dock: paste a Google AI Studio key (`AIza…`),
+7. **Assistant round-trip** — Luma dock: paste an OpenRouter key (`sk-or-v1-…`),
    save (a rejected key is refused immediately), send a message; tokens stream
    into the bubble, Stop aborts mid-stream, API errors show their text. The key must never appear in DevTools network
    or config reads (it lives only in the main process).

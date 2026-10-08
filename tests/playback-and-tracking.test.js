@@ -55,7 +55,7 @@ assert.strictEqual(uctx.untrackDeletedSeries('Frieren', ''), 0, 'setting off kee
 assert(saved >= 2); checks++;
 
 // ---- main-owned keys --------------------------------------------------------
-assert(/MAIN_OWNED_KEYS = new Set\(\['autoDownloadWatchlist', 'downloadHistory'\]\)/.test(mainSrc), 'watchlist is main-owned'); checks++;
+assert(/MAIN_OWNED_KEYS = new Set\(\['autoDownloadWatchlist', 'downloadHistory', 'openRouterApiKey', 'lumaModel'\]\)/.test(mainSrc), 'watchlist is main-owned'); checks++;
 assert(/for \(const key of MAIN_OWNED_KEYS\) delete incoming\[key\]/.test(mainSrc), 'config:setAll drops main-owned keys'); checks++;
 assert(/if \(MAIN_OWNED_KEYS\.has\(key\)\) return true;/.test(mainSrc), 'config:set ignores main-owned keys'); checks++;
 assert(!/bundled-mpv'\]/.test(mainSrc) && /config\.playerType === 'bundled-mpv'\) config\.playerType = config\.mpvPath \? 'mpv' : 'vlc'/.test(mainSrc), 'bundled MPV is migrated away'); checks++;

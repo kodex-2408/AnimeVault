@@ -1,7 +1,7 @@
 'use strict';
 
 // main/config/config.js - loading and saving config.json (shrink guard, .bak
-// rotation, daily snapshots), the encrypted Gemini key, watch-history
+// rotation, daily snapshots), the encrypted OpenRouter key, watch-history
 // helpers and the config:* IPC handlers.
 
 const { app, ipcMain, safeStorage } = require('electron');
@@ -12,7 +12,11 @@ const { validateRendererConfigValue } = require('./security');
 
 const CONFIG_PATH = path.join(app.getPath('userData'), 'config.json');
 const CONFIG_BACKUP_PATH = CONFIG_PATH + '.bak';
-const GEMINI_KEY_PATH = path.join(app.getPath('userData'), 'gemini-key.enc');
+// Luma's OpenRouter key (safeStorage-encrypted). Not the 5.0 file name, which
+// held a different key and is removed on start.
+const LUMA_KEY_PATH = path.join(app.getPath('userData'), 'luma-openrouter.enc');
+// 5.2 stored a Google AI Studio key here; Luma no longer uses it.
+const LEGACY_GEMINI_KEY_PATH = path.join(app.getPath('userData'), 'gemini-key.enc');
 const MAL_CREDENTIALS_PATH = path.join(app.getPath('userData'), 'mal-credentials.enc');
 // 5.0 stored an OpenRouter key here; 5.1 removes it on first start.
 const LEGACY_OPENROUTER_KEY_PATH = path.join(app.getPath('userData'), 'openrouter-key.enc');
@@ -46,7 +50,7 @@ function safeEpisodeNumber(n) {
 }
 
 // Changed only through their own IPC handlers (autoDownload:*, downloads:*).
-const MAIN_OWNED_KEYS = new Set(['autoDownloadWatchlist', 'downloadHistory']);
+const MAIN_OWNED_KEYS = new Set(['autoDownloadWatchlist', 'downloadHistory', 'openRouterApiKey', 'lumaModel']);
 
 const STATIC_CONFIG_KEYS = new Set([
   'folders', 'mangaFolders', 'vlcPath', 'mpvPath', 'readerPath', 'playerType',
@@ -62,7 +66,7 @@ const STATIC_CONFIG_KEYS = new Set([
   'animeKnownSeries', 'mangaKnownSeries', 'animeImportReviewDismissed', 'mangaImportReviewDismissed',
   'notificationPrefs', 'syncPaused', 'hideDonghua', 'audioDelay', 'audioDelayMs', 'animSpeed', 'backgroundEffects',
   'backgroundType', 'backgroundIntensity', 'maximized', 'setupDone', 'importAutoMatch', 'lumaMascot', 'lumaSparkles', 'lumaSize', 'lumaSpeed',
-  'untrackOnDelete', 'mutedDupSeries', 'geminiApiKey', 'geminiModel', 'hasGeminiApiKey',
+  'untrackOnDelete', 'mutedDupSeries', 'lumaModel', 'hasOpenRouterKey',
   // 5.0 UI preferences
   'glassLevel', 'lastDarkTheme', 'lastLightTheme', 'sidebarCollapsed', 'schedView', 'heroTone'
 ]);
@@ -206,40 +210,44 @@ function loadConfig() {
 }
 
 // Keys that live only in encrypted files / memory, never in config.json.
-const API_KEY_CONFIG_FIELDS = ['geminiApiKey', 'openrouterApiKey'];
+const API_KEY_CONFIG_FIELDS = ['openRouterApiKey', 'geminiApiKey', 'openrouterApiKey'];
 
-// Loads the user's Google AI Studio key (encrypted with the OS account) and
+// Loads the user's OpenRouter key (encrypted with the OS account) and
 // removes everything left from the 5.0 OpenRouter integration.
-function loadGeminiKey() {
-  const plaintextKey = typeof config.geminiApiKey === 'string' ? config.geminiApiKey.trim() : '';
-  const hadLegacy = 'openrouterApiKey' in config || 'openrouterModel' in config || fs.existsSync(LEGACY_OPENROUTER_KEY_PATH);
+function loadLumaKey() {
+  const plaintextKey = typeof config.openRouterApiKey === 'string' ? config.openRouterApiKey.trim() : '';
+  const hadLegacy = ['geminiApiKey', 'geminiModel', 'openrouterApiKey', 'openrouterModel'].some(k => k in config) ||
+    fs.existsSync(LEGACY_OPENROUTER_KEY_PATH) || fs.existsSync(LEGACY_GEMINI_KEY_PATH);
   delete config.geminiApiKey;
+  delete config.geminiModel;
   delete config.openrouterApiKey;
   delete config.openrouterModel;
-  try { if (fs.existsSync(LEGACY_OPENROUTER_KEY_PATH)) fs.unlinkSync(LEGACY_OPENROUTER_KEY_PATH); } catch (e) { console.error('[AI] Could not remove the old OpenRouter key:', e.message); }
+  for (const old of [LEGACY_OPENROUTER_KEY_PATH, LEGACY_GEMINI_KEY_PATH]) {
+    try { if (fs.existsSync(old)) fs.unlinkSync(old); } catch (e) { console.error('[AI] Could not remove an old Luma key:', e.message); }
+  }
   try {
-    if (plaintextKey) saveGeminiKey(plaintextKey);
-    if (fs.existsSync(GEMINI_KEY_PATH)) {
+    if (plaintextKey) saveLumaKey(plaintextKey);
+    if (fs.existsSync(LUMA_KEY_PATH)) {
       if (!safeStorage.isEncryptionAvailable()) throw new Error('OS credential encryption is unavailable');
-      config.geminiApiKey = safeStorage.decryptString(fs.readFileSync(GEMINI_KEY_PATH));
+      config.openRouterApiKey = safeStorage.decryptString(fs.readFileSync(LUMA_KEY_PATH));
     } else {
-      config.geminiApiKey = '';
+      config.openRouterApiKey = '';
     }
   } catch (err) {
-    config.geminiApiKey = '';
-    console.error('[AI] Could not load the encrypted Google AI Studio key:', err.message);
+    config.openRouterApiKey = '';
+    console.error('[AI] Could not load the encrypted OpenRouter key:', err.message);
   }
   if (plaintextKey || hadLegacy) { scrubApiKeysFromConfigFiles(); saveConfig(); }
 }
 
-function saveGeminiKey(key) {
+function saveLumaKey(key) {
   if (!safeStorage.isEncryptionAvailable()) throw new Error('Secure OS key storage is unavailable');
-  fs.mkdirSync(path.dirname(GEMINI_KEY_PATH), { recursive: true });
-  fs.writeFileSync(GEMINI_KEY_PATH, safeStorage.encryptString(key), { mode: 0o600 });
+  fs.mkdirSync(path.dirname(LUMA_KEY_PATH), { recursive: true });
+  fs.writeFileSync(LUMA_KEY_PATH, safeStorage.encryptString(key), { mode: 0o600 });
 }
 
 // MyAnimeList tokens and the client secret live in an OS-encrypted file
-// (safeStorage: DPAPI on Windows), like the Gemini key - never in config.json,
+// (safeStorage: DPAPI on Windows), like the Luma key - never in config.json,
 // its backups or the daily snapshots. Without OS encryption they stay in
 // config.json as before rather than being lost.
 const MAL_SECRET_FIELDS = ['malAccessToken', 'malRefreshToken', 'malClientSecret'];
@@ -410,18 +418,18 @@ function register() {
     // to keep" without ever receiving the secret itself. Whitelisted in
     // STATIC_CONFIG_KEYS so cfg round-trips through setAllConfig stay legal.
     safe.hasMalClientSecret = !!safe.malClientSecret;
-    safe.hasGeminiApiKey = !!safe.geminiApiKey;
+    safe.hasOpenRouterKey = !!safe.openRouterApiKey;
     // Credentials and internal flow state never cross to the renderer.
     // malAuthState must be stripped here specifically: setAllConfig hard-throws
     // on unknown keys, so a leaked key would break every cfg round-trip
     // (theme toggles, disconnect, reset).
-    ['malClientSecret', 'malCodeVerifier', 'malAccessToken', 'malRefreshToken', 'malAuthState', 'geminiApiKey', 'openrouterApiKey', 'openrouterModel'].forEach(key => { delete safe[key]; });
+    ['malClientSecret', 'malCodeVerifier', 'malAccessToken', 'malRefreshToken', 'malAuthState', 'openRouterApiKey', 'geminiApiKey', 'openrouterApiKey', 'openrouterModel'].forEach(key => { delete safe[key]; });
     return safe;
   });
 
   ipcMain.handle('config:set', (_, key, value) => {
     if (MAIN_OWNED_KEYS.has(key)) return true;
-    if (!isSafeConfigKey(key) || key === 'geminiApiKey' || key === 'hasGeminiApiKey' || key === '_userDataPath' || key === '__proto__' || key === 'constructor' || key === 'prototype') {
+    if (!isSafeConfigKey(key) || key === 'openRouterApiKey' || key === 'hasOpenRouterKey' || key === '_userDataPath' || key === '__proto__' || key === 'constructor' || key === 'prototype') {
       throw new Error('Invalid config key');
     }
     if (!configValueUnchanged(key, value)) validateRendererConfigValue(key, value);
@@ -439,6 +447,8 @@ function register() {
     }
     const incoming = { ...c };
     delete incoming._userDataPath;
+    delete incoming.openRouterApiKey;
+    delete incoming.hasOpenRouterKey;
     delete incoming.geminiApiKey;
     delete incoming.hasGeminiApiKey;
     delete incoming.__proto__;
@@ -469,7 +479,7 @@ module.exports = {
   API_KEY_CONFIG_FIELDS,
   loadMalCredentials,
   CACHE_DIR,
-  GEMINI_KEY_PATH,
+  LUMA_KEY_PATH,
   LIBRARY_INDEX_PATH,
   flushSaveConfig,
   getModeConfigMap,
@@ -477,13 +487,13 @@ module.exports = {
   getWatchHistoryStore,
   isSafeConfigKey,
   loadConfig,
-  loadGeminiKey,
+  loadLumaKey,
   mergeMalData,
   safeEpisodeNumber,
   safeHistoryKey,
   safeMalId,
   saveConfig,
-  saveGeminiKey,
+  saveLumaKey,
   scrubApiKeysFromConfigFiles,
   writeConfigSafely,
   register,

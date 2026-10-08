@@ -73,7 +73,7 @@ var S = Store.create({
   _myListOffset: 0, _myListHasMore: false, _myListPageSize: 1000, _myListLoadMoreSize: 100,
   schedDay: 'week', schedSource: 'watching', schedQ: '', _schedDataCache: {},
   hubTab: 'inbox', fmTab: 'tools', setSection: 'library', heroIdx: 0,
-  ai: { msgs: [], busy: false, webSearch: true, dockOpen: false, dockMinimized: false, dockExpanded: false },
+  ai: { msgs: [], busy: false, dockOpen: false, dockMinimized: false, dockExpanded: false },
   watcherLog: [], _autoDownloadWatchlist: []
 
 });

@@ -46,8 +46,8 @@ var SETUP_STEPS=[
       +'<div class="row"><button class="btn btn-secondary"'+A('openUrl','https://myanimelist.net/apiconfig')+'>'+ic('external')+'Open API page</button><button class="btn btn-primary"'+A('setupConnectMal')+'>'+ic('link')+'Connect</button></div>';
   }},
   {title:'Meet Luma',icon:'sparkles',body:function(){
-    if(S.cfg.hasGeminiApiKey)return emptyState('checkCircle','Luma is ready','Your Google AI Studio key is saved. Chat with Luma from the title bar.','',true);
-    return '<div class="setup-luma"><img src="luma/luma-front.png" alt="" class="luma-hero"></div><p class="setup-lead">Luma is your library assistant, powered by Google Gemini with your own <b>free</b> Google AI Studio key — open the page below, choose “Create API key”, and paste it here. Optional: you can add it later in Settings.</p>'
+    if(S.cfg.hasOpenRouterKey)return emptyState('checkCircle','Luma is ready','Your OpenRouter key is saved. Chat with Luma from the title bar.','',true);
+    return '<div class="setup-luma"><img src="luma/luma-front.png" alt="" class="luma-hero"></div><p class="setup-lead">Luma is your library assistant, powered by Claude Haiku 5.5 through OpenRouter. Open the page below, create a key, add a little credit (Haiku is a paid model) and paste the key here. Optional: you can add it later in Settings.</p>'
       +aiKeyForm('setupAiKey');
   }},
   {title:'After you watch…',icon:'film',body:function(){

@@ -19,7 +19,7 @@ function getLocalStorageObj() {
 
 // Credentials never leave the machine in a backup: the zip often ends up in
 // cloud-synced folders. Restoring keeps whatever account is connected now.
-const BACKUP_SECRET_KEYS = ['malAccessToken', 'malRefreshToken', 'malTokenExpiry', 'malCodeVerifier', 'malAuthState', 'malClientSecret', 'geminiApiKey', 'openrouterApiKey', '_userDataPath'];
+const BACKUP_SECRET_KEYS = ['malAccessToken', 'malRefreshToken', 'malTokenExpiry', 'malCodeVerifier', 'malAuthState', 'malClientSecret', 'openRouterApiKey', 'geminiApiKey', 'openrouterApiKey', '_userDataPath'];
 
 const RESTORE_MAX_ENTRIES = 50000;
 const RESTORE_MAX_BYTES = 2 * 1024 * 1024 * 1024;
@@ -131,7 +131,7 @@ function register() {
       const next = {};
       const rejected = [];
       for (const key of Object.keys(restored)) {
-        if (!isSafeConfigKey(key) || BACKUP_SECRET_KEYS.includes(key) || key === 'hasMalClientSecret' || key === 'hasGeminiApiKey') continue;
+        if (!isSafeConfigKey(key) || BACKUP_SECRET_KEYS.includes(key) || key === 'hasMalClientSecret' || key === 'hasOpenRouterKey' || key === 'lumaModel') continue;
         try { validateRendererConfigValue(key, restored[key]); next[key] = restored[key]; }
         catch (e) { rejected.push(key); }
       }
@@ -149,12 +149,14 @@ function register() {
       // the normal safety chain (.bak rotation, shrink guard), then reload so
       // defaults fill anything an older backup lacks.
       flushSaveConfig();
-      const aiKey = config.geminiApiKey;
+      const aiKey = config.openRouterApiKey;
+      const aiModel = config.lumaModel;
       for (const key of Object.keys(config)) delete config[key];
       Object.assign(config, next);
       writeConfigSafely();
       loadConfig();
-      config.geminiApiKey = aiKey;
+      config.openRouterApiKey = aiKey;
+      config.lumaModel = aiModel;
       clearLibraryIndex();
       return { success: true, rejected };
     } catch (e) {

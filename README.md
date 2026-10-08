@@ -2,7 +2,7 @@
 
 A personal desktop anime & manga library manager built with Electron. Organize your local collection, track watch/read progress, explore new titles, download via Nyaa.si, and sync with MyAnimeList — all in one app.
 
-**Current version: 5.4.0 — native ARM64, safer files, sturdier downloads.** See [docs/CHANGELOG.md](docs/CHANGELOG.md) for release history and [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for engineering notes.
+**Current version: 5.5.0 — Luma on Claude Haiku 5.5 via OpenRouter.** See [docs/CHANGELOG.md](docs/CHANGELOG.md) for release history and [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for engineering notes.
 
 ---
 
@@ -93,7 +93,7 @@ Toggle the **Anime / Manga** pill in the titlebar to switch modes:
 - **Liquid-glass styling** — backdrop-filter blur, accent glows, and shimmer effects
 - **Animated backgrounds** — particles, liquid orbs, or mesh gradient with intensity control
 - **Right-click context menus** on cards with status shortcuts, cover change, and file actions
-- **Luma assistant** — chat about your library, powered by Google Gemini with your own free Google AI Studio key
+- **Luma assistant** — chat about your library, powered by Claude Haiku 5.5 through OpenRouter with your own OpenRouter key (paid per use; low reasoning effort)
 - **Free-roaming Luma companion** — a Mario Galaxy-style star spirit that drifts across the whole window with optional sparkle trails, toggled from Settings → Companion
 
 ---

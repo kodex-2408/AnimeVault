@@ -1,6 +1,6 @@
 {
   "name": "animevault",
-  "version": "5.4.0",
+  "version": "5.5.0",
   "description": "Personal anime/manga library manager with MAL sync, Nyaa integration, and enhanced HEVC-aware auto-download",
   "main": "main.js",
   "author": "Kike",
@@ -37,7 +37,7 @@
       "main/**/*",
       "preload.js",
       "autoDownload.js",
-      "gemini.js",
+      "openrouter.js",
       "index.html",
       "theme-boot.js",
       "renderer/**/*",
