@@ -396,7 +396,7 @@ function buildAiSystem(){
     +' [action:nav|hub] (open download hub & background activity)'
     +' [action:nav|stats] (open stats dashboard)'
     +' App Settings Navigation — use these to direct users to any setting or preferences in the app:'
-    +' [action:nav|settings|player] (VLC/MPV player selection, bundled MPV, playback auto-mark %)'
+    +' [action:nav|settings|player] (VLC/MPV player selection, playback auto-mark %)'
     +' [action:nav|settings|subtitles] (Primary and fallback subtitle language selection)'
     +' [action:nav|settings|nyaa] (Nyaa quality, preferred uploader like Erai/SubsPlease/Judas, HEVC preference)'
     +' [action:nav|settings|autodl] (Auto-download toggles, poll interval, catch-up batch limit)'

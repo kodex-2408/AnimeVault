@@ -2,7 +2,7 @@
 
 A personal desktop anime & manga library manager built with Electron. Organize your local collection, track watch/read progress, explore new titles, download via Nyaa.si, and sync with MyAnimeList — all in one app.
 
-**Current version: 5.4.0 — native ARM64, safer files, sturdier downloads.** See [docs/CHANGELOG.md](docs/CHANGELOG.md) for release history and [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for engineering notes.
+**Current version: 5.5.0 — Luma on Claude Haiku 5.5 via OpenRouter.** See [docs/CHANGELOG.md](docs/CHANGELOG.md) for release history and [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for engineering notes.
 
 ---
 
@@ -93,7 +93,7 @@ Toggle the **Anime / Manga** pill in the titlebar to switch modes:
 - **Liquid-glass styling** — backdrop-filter blur, accent glows, and shimmer effects
 - **Animated backgrounds** — particles, liquid orbs, or mesh gradient with intensity control
 - **Right-click context menus** on cards with status shortcuts, cover change, and file actions
-- **Luma assistant** — chat about your library, powered by Google Gemini with your own free Google AI Studio key
+- **Luma assistant** — chat about your library, powered by Claude Haiku 5.5 through OpenRouter with your own OpenRouter key (paid per use; low reasoning effort)
 - **Free-roaming Luma companion** — a Mario Galaxy-style star spirit that drifts across the whole window with optional sparkle trails, toggled from Settings → Companion
 
 ---
@@ -140,6 +140,8 @@ The batch files wrap `npm run build*`/`npm run build-installer*` scripts declare
 - **Sharing → Installer** (`BUILD-INSTALLER.bat`). Familiar setup wizard, Program Files placement, Add/Remove Programs entry.
 
 **Why is ARM64 a folder, not one `.exe`?** The single-file portable format starts the app through a small x86 launcher, which Windows on ARM runs emulated (and flags as such) for as long as the app is open. The folder/zip build is native ARM64 end to end.
+
+**Is my OpenRouter key shared when I share the app?** No. Luma's key is entered once per PC (Settings → Companion) and stored encrypted with that Windows account in `%APPDATA%\animevault`. It is not in the app files, `config.json`, backups or exports, and it survives updates and rebuilds. Anyone you share the app with adds their own key. Don't build a key into the app: anything inside an app can be extracted.
 
 **Will the portable build work on another computer?**
 Yes — it is self-contained (Electron runtime + Chromium + Node.js). The recipient needs no separate Node.js installation. A video player (VLC or MPV) is needed for playback.

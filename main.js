@@ -6,7 +6,7 @@
 //   main/config/             config.json, path security, backup/restore
 //   main/scanner/            filename parsing, library scan, watcher, organizer
 //   main/players/            MPV / VLC launch and auto-mark polling
-//   main/services/           AniList, MAL, Nyaa, auto-download, Luma (Gemini)
+//   main/services/           AniList, MAL, Nyaa, auto-download, Luma (OpenRouter)
 //   main/window/             window, tray, cover:// protocol
 //   main/ipc/registerHandlers.js  registers every module's IPC handlers
 
@@ -46,7 +46,7 @@ function startApp() {
   const { startAutoDownloadPoller, stopAutoDownloadPoller } = require('./autoDownload');
   const { state, config } = require('./main/state');
   const { isSafeExternalUrl } = require('./main/config/security');
-  const { flushSaveConfig, loadConfig, loadGeminiKey, loadMalCredentials } = require('./main/config/config');
+  const { flushSaveConfig, loadConfig, loadLumaKey, loadMalCredentials } = require('./main/config/config');
   const { appendAuthDebug } = require('./main/services/mal');
   const { startFileWatcher, stopFileWatcher } = require('./main/scanner/watcher');
   const { createWindow } = require('./main/window/window');
@@ -83,7 +83,7 @@ function startApp() {
     protocol.handle('cover', handleCoverRequest);
     appendAuthDebug('boot version=' + app.getVersion() + ' pid=' + process.pid);
     loadConfig();
-    loadGeminiKey();
+    loadLumaKey();
     loadMalCredentials();
     createWindow();
 

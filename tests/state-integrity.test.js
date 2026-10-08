@@ -27,9 +27,9 @@ assert(html.includes('function applyPerformanceMode'));
 assert(html.includes('function vActivity'));
 assert(main.includes('sandbox: true'), 'renderer sandbox must stay enabled');
 assert(html.includes('Content-Security-Policy'), 'renderer must keep its local-page CSP');
-assert(/BACKUP_SECRET_KEYS = \[[^\]]*'malAccessToken'[^\]]*'malRefreshToken'[^\]]*'malAuthState'[^\]]*'malClientSecret'[^\]]*'geminiApiKey'/.test(main) &&
+assert(/BACKUP_SECRET_KEYS = \[[^\]]*'malAccessToken'[^\]]*'malRefreshToken'[^\]]*'malAuthState'[^\]]*'malClientSecret'[^\]]*'openRouterApiKey'/.test(main) &&
   main.includes('BACKUP_SECRET_KEYS.forEach(key => delete safeConfig[key]);'),
-  'metadata export must strip MAL secrets, flow state and the Gemini key');
+  'metadata export must strip MAL secrets, flow state and the Luma key');
 assert(/validateRendererConfigValue\(key, restored\[key\]\)/.test(main), 'restore validates program paths and folders like Settings does');
 assert(/if \(saveMalCredentials\(\)\) MAL_SECRET_FIELDS\.forEach\(k => delete safeConfig\[k\]\)/.test(main), 'MAL tokens are kept out of config.json when OS encryption is available');
 assert(main.includes("mode === 'manga' ? 'manga--' : 'anime--'"),

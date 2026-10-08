@@ -3,6 +3,33 @@
 All notable changes, newest first. Engineering context — test guide, security
 posture, design decisions, open roadmap — lives in [DEVELOPMENT.md](DEVELOPMENT.md).
 
+## 5.5.0 — Luma on Claude Haiku 5.5 via OpenRouter
+
+- **Luma now runs on Claude Haiku 5.5 through OpenRouter.** Every chat goes
+  straight to that model at low reasoning effort, with no fallback to other
+  models.
+- **Settings → Companion** has an OpenRouter API key row (create a key at
+  openrouter.ai, paste it, and it's checked with OpenRouter) and a Model row
+  that shows the fixed model. The setup guide's Luma step says the same.
+- **Haiku is a paid model on OpenRouter.** Add a little credit there first.
+  Luma reports a credit or rate-limit problem with a link to the credits page.
+- **If OpenRouter rejects a request setting** (the web plugin, then the
+  reasoning level), Luma retries with fewer options instead of failing.
+- **Your key is saved as before**, encrypted with your Windows account. It is
+  never in `config.json`, backups, exports or the app files, so sharing the
+  app never shares the key. The
+  saved model id is checked against OpenRouter's catalogue when you save the
+  key, so an unavailable model is reported at once.
+- **Web search works again, through OpenRouter.** A "Web search" chip in the
+  Luma dock (and a switch in Settings → Companion) lets replies use current
+  web results. The pages used appear as link chips under the reply. It is on
+  by default; OpenRouter bills each search on top of the model, so switch it
+  off to keep replies as cheap as possible. If OpenRouter rejects the search,
+  Luma answers without it and says so.
+- **Removed:** the Google AI Studio key (`gemini-key.enc`) and its model
+  setting. Both are deleted on the first start after updating, like the 5.0
+  OpenRouter key was. Enter the OpenRouter key again in Settings.
+
 ## 5.4.0 — Native ARM64, safer files, sturdier downloads
 
 ### Windows ARM64

@@ -1,6 +1,6 @@
 {
   "name": "animevault",
-  "version": "5.4.0",
+  "version": "5.5.0",
   "description": "Personal anime/manga library manager with MAL sync, Nyaa integration, and enhanced HEVC-aware auto-download",
   "main": "main.js",
   "author": "Kike",
@@ -8,7 +8,7 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "test": "node tests/contracts.test.js && node tests/search-matching.test.js && node tests/mal-data.test.js && node tests/mal-backfill.test.js && node tests/state-integrity.test.js && node tests/auto-download-state.test.js && node tests/security-and-parsers.test.js && node tests/filesystem-safety.test.js && node tests/library-layout.test.js && node tests/renderer-store.test.js && node tests/playback-and-tracking.test.js && node tests/file-ops.test.js",
+    "test": "node tests/contracts.test.js && node tests/search-matching.test.js && node tests/mal-data.test.js && node tests/mal-backfill.test.js && node tests/state-integrity.test.js && node tests/auto-download-state.test.js && node tests/security-and-parsers.test.js && node tests/filesystem-safety.test.js && node tests/library-layout.test.js && node tests/renderer-store.test.js && node tests/playback-and-tracking.test.js && node tests/file-ops.test.js && node tests/luma-openrouter.test.js",
     "build-x64": "electron-builder --win portable --x64",
     "build-arm64": "electron-builder --win zip --arm64",
     "build": "npm run build-x64 && npm run build-arm64",
@@ -37,7 +37,7 @@
       "main/**/*",
       "preload.js",
       "autoDownload.js",
-      "gemini.js",
+      "openrouter.js",
       "index.html",
       "theme-boot.js",
       "renderer/**/*",

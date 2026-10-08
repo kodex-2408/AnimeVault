@@ -1,53 +1,60 @@
 'use strict';
 
-// main/services/ai.js - Luma (Google Gemini with the user's own AI Studio key).
+// main/services/ai.js - Luma (Claude Haiku 5.5 through OpenRouter, with the user's own key).
 
 const { app, ipcMain } = require('electron');
 const fs = require('fs');
 const https = require('https');
-const gemini = require('../../gemini');
+const openrouter = require('../../openrouter');
 const { state, config } = require('../state');
-const { GEMINI_KEY_PATH, saveConfig, saveGeminiKey, scrubApiKeysFromConfigFiles } = require('../config/config');
+const { LUMA_KEY_PATH, saveConfig, saveLumaKey, scrubApiKeysFromConfigFiles } = require('../config/config');
 
 function register() {
-  gemini.setDeps({
+  openrouter.setDeps({
     config, saveConfig, mainWindow: () => state.mainWindow
   });
 
   ipcMain.handle('ai:getStatus', () => ({
-    hasKey: !!config.geminiApiKey,
-    model: config.geminiModel || gemini.DEFAULT_MODEL,
-    keyPage: gemini.KEY_PAGE_URL
+    hasKey: !!config.openRouterApiKey,
+    model: config.lumaModel || openrouter.DEFAULT_MODEL,
+    keyPage: openrouter.KEY_PAGE_URL,
+    creditsPage: openrouter.CREDITS_URL
   }));
 
+  // Checks the key with OpenRouter, then finds Haiku 5.5 in its catalogue and
+  // stores that id. The key is only saved when both checks pass (or when
+  // OpenRouter itself can't be reached, which is treated as "unknown").
   ipcMain.handle('ai:setKey', async (_, key) => {
-    const k = gemini.normalizeKey(key);
-    if (!gemini.isPlausibleKey(k)) throw new Error('That doesn’t look like a Google AI Studio key');
-    const check = await gemini.verifyKey(k, config.geminiModel);
-    if (check.ok === false) throw new Error('Google rejected this key: ' + check.message);
-    saveGeminiKey(k);
-    config.geminiApiKey = k;
+    const k = openrouter.normalizeKey(key);
+    if (!openrouter.isPlausibleKey(k)) throw new Error('That doesn’t look like an OpenRouter API key');
+    const check = await openrouter.verifyKey(k);
+    if (check.ok === false) throw new Error(check.message);
+    const ids = await openrouter.listModelIds();
+    let model = openrouter.DEFAULT_MODEL;
+    if (ids) {
+      model = openrouter.resolveLumaModel(ids);
+      if (!model) throw new Error('OpenRouter doesn’t offer Claude Haiku 5.5 to this account right now');
+    }
+    saveLumaKey(k);
+    config.openRouterApiKey = k;
+    config.lumaModel = model;
+    saveConfig();
     scrubApiKeysFromConfigFiles();
-    return true;
+    // verified:false = OpenRouter couldn't be reached, so the key is saved unchecked.
+    return { verified: check.ok === true };
   });
 
   ipcMain.handle('ai:clearKey', () => {
-    config.geminiApiKey = '';
-    try { if (fs.existsSync(GEMINI_KEY_PATH)) fs.unlinkSync(GEMINI_KEY_PATH); } catch (err) {
+    config.openRouterApiKey = '';
+    try { if (fs.existsSync(LUMA_KEY_PATH)) fs.unlinkSync(LUMA_KEY_PATH); } catch (err) {
       throw new Error('Could not remove stored API key');
     }
     scrubApiKeysFromConfigFiles();
     return true;
   });
 
-  ipcMain.handle('ai:setModel', (_, model) => {
-    config.geminiModel = gemini.safeModelId(model);
-    saveConfig();
-    return true;
-  });
-
-  ipcMain.handle('ai:send', async (_, messages, model, options) => {
-    const r = await gemini.chatStream(messages, model, options);
+  ipcMain.handle('ai:send', async (_, messages, options) => {
+    const r = await openrouter.chatStream(messages, { webSearch: !!(options && options.webSearch === true) });
     return { ok: r.ok, error: r.ok ? null : r.message, kind: r.ok ? null : (r.kind || 'other') };
   });
 
@@ -81,7 +88,7 @@ function register() {
   });
 
   ipcMain.handle('ai:stop', () => {
-    gemini.abortChat();
+    openrouter.abortChat();
     return true;
   });
 }

@@ -69,8 +69,8 @@ const config = {
   animeImportInbox: [],
   mangaImportInbox: [],
   activityLog: [],
-  geminiApiKey: '',
-  geminiModel: 'gemini-flash-latest',
+  openRouterApiKey: '',
+  lumaModel: 'anthropic/claude-haiku-5.5',
   autoDownloadBatchLimit: 0,
 };
 
