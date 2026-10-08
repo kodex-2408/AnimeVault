@@ -40,7 +40,8 @@ function register() {
     config.lumaModel = model;
     saveConfig();
     scrubApiKeysFromConfigFiles();
-    return true;
+    // verified:false = OpenRouter couldn't be reached, so the key is saved unchecked.
+    return { verified: check.ok === true };
   });
 
   ipcMain.handle('ai:clearKey', () => {
@@ -52,8 +53,8 @@ function register() {
     return true;
   });
 
-  ipcMain.handle('ai:send', async (_, messages) => {
-    const r = await openrouter.chatStream(messages);
+  ipcMain.handle('ai:send', async (_, messages, options) => {
+    const r = await openrouter.chatStream(messages, { webSearch: !!(options && options.webSearch === true) });
     return { ok: r.ok, error: r.ok ? null : r.message, kind: r.ok ? null : (r.kind || 'other') };
   });
 

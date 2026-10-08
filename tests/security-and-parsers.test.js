@@ -255,7 +255,7 @@ function mustExtract(fnCode, label) {
   const orSrc = fs.readFileSync(path.join(root, 'openrouter.js'), 'utf8');
   assert(orSrc.includes("API_HOST = 'openrouter.ai'") && orSrc.includes("'Authorization': 'Bearer ' + apiKey"),
     'OpenRouter requests must originate in the main process with the key in a header'); checks++;
-  assert(/const REASONING = \{ effort: 'low' \}/.test(orSrc) && orSrc.includes('reasoning: REASONING'),
+  assert(/const REASONING = \{ effort: 'low' \}/.test(orSrc) && orSrc.includes('body.reasoning = { ...REASONING }'),
     'Luma must send low reasoning effort'); checks++;
   assert(!/generativelanguage\.googleapis\.com|openrouter\.ai\/api/.test(htmlSrc),
     'renderer must never construct AI network calls'); checks++;
@@ -327,7 +327,7 @@ assert.strictEqual(openrouter.apiError(404, JSON.stringify({ error: { message: '
 
   script = (onText) => { onText('Hi'); return { ok: true, gotText: true }; };
   let r = await openrouter.chatStream([{ role: 'user', content: 'hi' }]);
-  assert.deepStrictEqual(r, { ok: true }); checks++;
+  assert.deepStrictEqual([r.ok, r.sources, r.searchSkipped], [true, 0, false]); checks++;
   assert.deepStrictEqual(sent.find(s => s[0] === 'request'), ['request', 'sk-or-v1-', 'anthropic/claude-haiku-5.5', { effort: 'low' }],
     'one request to Haiku 5.5 with low reasoning'); checks++;
   assert.deepStrictEqual(sent.filter(s => s[0] === 'ai:chunk').map(s => s[1].text), ['Hi']); checks++;

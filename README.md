@@ -141,6 +141,8 @@ The batch files wrap `npm run build*`/`npm run build-installer*` scripts declare
 
 **Why is ARM64 a folder, not one `.exe`?** The single-file portable format starts the app through a small x86 launcher, which Windows on ARM runs emulated (and flags as such) for as long as the app is open. The folder/zip build is native ARM64 end to end.
 
+**Is my OpenRouter key shared when I share the app?** No. Luma's key is entered once per PC (Settings → Companion) and stored encrypted with that Windows account in `%APPDATA%\animevault`. It is not in the app files, `config.json`, backups or exports, and it survives updates and rebuilds. Anyone you share the app with adds their own key. Don't build a key into the app: anything inside an app can be extracted.
+
 **Will the portable build work on another computer?**
 Yes — it is self-contained (Electron runtime + Chromium + Node.js). The recipient needs no separate Node.js installation. A video player (VLC or MPV) is needed for playback.
 

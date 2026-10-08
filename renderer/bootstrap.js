@@ -98,6 +98,7 @@ function wireIpcEvents(){
     if(live)live.innerHTML=parseLumaBubbleHtml(S._aiPartial);else if(S.ai.dockOpen)renderLumaDockMsgs();
     scrollAiBottom();
   });
+  api.onAiSources(function(d){S._aiSources=(d&&Array.isArray(d.sources)?d.sources:[]).filter(function(x){return x&&typeof x.url==='string';}).slice(0,6);});
   api.onAiDone(function(){if(S._aiPartial||S.ai.busy)finishAiTurn();});
   api.onAiError(function(d){handleAiError((d&&d.message)||'Stream error',d&&d.kind);});
   api.onAutoMark(async function(data){

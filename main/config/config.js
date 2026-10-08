@@ -66,7 +66,7 @@ const STATIC_CONFIG_KEYS = new Set([
   'animeKnownSeries', 'mangaKnownSeries', 'animeImportReviewDismissed', 'mangaImportReviewDismissed',
   'notificationPrefs', 'syncPaused', 'hideDonghua', 'audioDelay', 'audioDelayMs', 'animSpeed', 'backgroundEffects',
   'backgroundType', 'backgroundIntensity', 'maximized', 'setupDone', 'importAutoMatch', 'lumaMascot', 'lumaSparkles', 'lumaSize', 'lumaSpeed',
-  'untrackOnDelete', 'mutedDupSeries', 'lumaModel', 'hasOpenRouterKey',
+  'untrackOnDelete', 'mutedDupSeries', 'lumaModel', 'hasOpenRouterKey', 'lumaWebSearch',
   // 5.0 UI preferences
   'glassLevel', 'lastDarkTheme', 'lastLightTheme', 'sidebarCollapsed', 'schedView', 'heroTone'
 ]);

@@ -16,6 +16,8 @@ const APP_REFERER = 'https://github.com/kodex-2408/AnimeVault';
 const DEFAULT_MODEL = 'anthropic/claude-haiku-5.5';
 const REASONING = { effort: 'low' };
 const MAX_TOKENS = 4096;
+// OpenRouter's web plugin (Exa-powered search results added to the prompt).
+const WEB_PLUGIN = { id: 'web', max_results: 3 };
 const REQUEST_TIMEOUT_MS = 60000;
 
 let _deps = null;
@@ -79,15 +81,34 @@ function resolveLumaModel(ids) {
   return variant.length ? variant[0] : null;
 }
 
-// OpenAI-style messages plus low reasoning effort.
-function toOpenRouterRequest(messages, model) {
-  return {
+// OpenAI-style messages plus low reasoning effort; options.webSearch adds the
+// web plugin so the reply is grounded in current search results.
+// options.reasoning === false drops the effort setting (see chatStream).
+function toOpenRouterRequest(messages, model, options = {}) {
+  const body = {
     model: safeModelId(model),
     messages: messages.map(m => ({ role: m.role, content: m.content })),
     stream: true,
-    reasoning: REASONING,
     max_tokens: MAX_TOKENS,
   };
+  if (!options || options.reasoning !== false) body.reasoning = { ...REASONING };
+  if (options && options.webSearch === true) body.plugins = [{ ...WEB_PLUGIN }];
+  return body;
+}
+
+// Web pages the search used: OpenAI-style url_citation annotations on the
+// reply. Only http(s) links are kept; titles are shown as plain text.
+function extractSources(json) {
+  const choice = json && Array.isArray(json.choices) ? json.choices[0] : null;
+  const part = choice && (choice.delta || choice.message);
+  const notes = part && Array.isArray(part.annotations) ? part.annotations : [];
+  const out = [];
+  for (const a of notes) {
+    const c = a && a.type === 'url_citation' ? a.url_citation : null;
+    if (!c || typeof c.url !== 'string' || !/^https?:\/\//i.test(c.url)) continue;
+    out.push({ url: c.url.slice(0, 500), title: String(c.title || '').slice(0, 160) });
+  }
+  return out;
 }
 
 // Text from one streamed chunk. Reasoning deltas are never shown.
@@ -103,6 +124,7 @@ function extractText(json) {
 function drainSse(buffer, onText) {
   let gotText = false;
   let error = null;
+  const sources = [];
   let idx;
   while ((idx = buffer.indexOf('\n')) !== -1) {
     const line = buffer.slice(0, idx).trim();
@@ -115,8 +137,9 @@ function drainSse(buffer, onText) {
     if (json.error) { error = (json.error && json.error.message) || 'The model stopped early'; continue; }
     const text = extractText(json);
     if (text) { gotText = true; onText(text); }
+    sources.push(...extractSources(json));
   }
-  return { rest: buffer, gotText, error };
+  return { rest: buffer, gotText, error, sources };
 }
 
 // OpenRouter error bodies: {"error":{"message":...,"code":...}}.
@@ -169,15 +192,17 @@ function requestStream(apiKey, body, onText) {
       let buffer = '';
       let gotText = false;
       let streamError = null;
+      const sources = [];
       res.on('data', (chunk) => {
         const r = drainSse(buffer + decoder.write(chunk), onText);
         buffer = r.rest;
         gotText = gotText || r.gotText;
         streamError = streamError || r.error;
+        sources.push(...r.sources);
       });
       res.on('end', () => {
-        if (streamError) resolve({ ok: false, kind: 'other', message: streamError, gotText });
-        else resolve({ ok: true, gotText });
+        if (streamError) resolve({ ok: false, kind: 'other', message: streamError, gotText, sources });
+        else resolve({ ok: true, gotText, sources });
       });
       res.on('error', (e) => resolve({ ok: false, kind: 'other', message: e.message, gotText }));
     });
@@ -192,7 +217,9 @@ function requestStream(apiKey, body, onText) {
 // Streams a reply. Emits to the renderer:
 //   ai:chunk {text}   ai:done {}   ai:error {message, kind}
 // Resolves {ok, message, kind} so callers can surface failures in the UI.
-async function chatStream(messages) {
+// options.webSearch turns on web search. If OpenRouter rejects the search
+// plugin, the reply is retried once without it and says so.
+async function chatStream(messages, options = {}) {
   abortChat();
   const fail = (message, kind = 'other') => { pushToRenderer('ai:error', { message, kind }); return { ok: false, message, kind }; };
   try {
@@ -202,11 +229,30 @@ async function chatStream(messages) {
     if (!validateMessages(messages)) return fail('Invalid conversation payload');
     const onText = (text) => pushToRenderer('ai:chunk', { text });
     const send = d().request || requestStream;
-    const r = await send(apiKey, toOpenRouterRequest(messages, cfg.lumaModel), onText);
+    const webSearch = !!(options && options.webSearch === true);
+    // If OpenRouter rejects a request parameter (HTTP 400/422 before any text),
+    // step down once at a time: drop the web plugin, then the reasoning
+    // setting. A reply without them beats an error.
+    const attempts = [];
+    if (webSearch) attempts.push({ webSearch: true, reasoning: true });
+    attempts.push({ webSearch: false, reasoning: true }, { webSearch: false, reasoning: false });
+    let r = null;
+    let used = attempts[0];
+    for (const attempt of attempts) {
+      used = attempt;
+      r = await send(apiKey, toOpenRouterRequest(messages, cfg.lumaModel, attempt), onText);
+      if (r.ok || r.gotText || (r.status !== 400 && r.status !== 422)) break;
+      console.warn('[Luma] OpenRouter rejected the request (' + r.status + '); retrying with fewer options:', r.message);
+    }
+    const searchSkipped = webSearch && !used.webSearch;
     _activeReq = null;
     if (!r.ok) return fail(r.message || 'OpenRouter request failed', r.kind || 'other');
+    if (searchSkipped) onText('\n\n_(Web search wasn’t available for this reply.)_');
+    const seen = new Set();
+    const sources = (r.sources || []).filter(s => !seen.has(s.url) && seen.add(s.url)).slice(0, 6);
+    if (sources.length) pushToRenderer('ai:sources', { sources });
     pushToRenderer('ai:done', {});
-    return { ok: true };
+    return { ok: true, sources: sources.length, searchSkipped };
   } catch (err) {
     _activeReq = null;
     return fail(err.message || 'Failed to start the OpenRouter request');
@@ -237,10 +283,10 @@ function listModelIds() {
 // Resolves {ok:true}, {ok:false,message} for a rejected key, or {ok:null} when
 // OpenRouter can't be reached (the caller then saves the key anyway).
 function verifyKey(apiKey) {
-  return new Promise((resolve) => {
+  const ask = (path) => new Promise((resolve) => {
     const req = https.request({
       hostname: API_HOST,
-      path: API_PATH + '/auth/key',
+      path: API_PATH + path,
       method: 'GET',
       headers: { 'Authorization': 'Bearer ' + apiKey },
     }, (res) => {
@@ -249,6 +295,7 @@ function verifyKey(apiKey) {
       res.on('end', () => {
         if (res.statusCode === 200) return resolve({ ok: true });
         const err = apiError(res.statusCode, raw);
+        if (res.statusCode === 404) return resolve({ ok: null, notFound: true, message: err.message });
         resolve(res.statusCode === 401 || res.statusCode === 403 ? { ok: false, message: err.message } : { ok: null, message: err.message });
       });
     });
@@ -256,6 +303,8 @@ function verifyKey(apiKey) {
     req.setTimeout(10000, () => { req.destroy(); resolve({ ok: null, message: 'timeout' }); });
     req.end();
   });
+  // /key is the current endpoint; /auth/key is its older name.
+  return ask('/key').then(r => (r.notFound ? ask('/auth/key') : r));
 }
 
 function abortChat() {
@@ -278,6 +327,7 @@ module.exports = {
   safeModelId,
   toOpenRouterRequest,
   extractText,
+  extractSources,
   drainSse,
   apiError,
   DEFAULT_MODEL,

@@ -75,7 +75,7 @@ function renderLumaDock(){
       h+='<div class="luma-body luma-setup"><img src="luma/luma-front.png" alt="" class="luma-hero"><div class="empty-title">Wake Luma ✨</div><div class="empty-text">Luma runs on Claude Haiku 5.5 through OpenRouter, with your own OpenRouter key. Haiku is a paid model, so add a little credit on OpenRouter first. The key is encrypted with your Windows account and never leaves the main process.</div>'
         +aiKeyForm('lumaDockKey')+'</div>';
     }else{
-      h+='<div class="luma-body" id="lumaDockMsgs"></div><div class="luma-foot"><div class="luma-input"><input id="lumaDockInput" placeholder="Ask Luma anything…" autocomplete="off"'+On('enter','sendAi')+'>'
+      h+='<div class="luma-body" id="lumaDockMsgs"></div><div class="luma-foot"><div class="luma-tools"><button class="luma-web'+(lumaWebSearchOn()?' on':'')+'" id="lumaWebBtn" aria-pressed="'+(lumaWebSearchOn()?'true':'false')+'"'+A('toggleLumaWebSearch')+Tip('Let Luma search the web for current answers')+'>'+ic('globe')+'Web search</button></div><div class="luma-input"><input id="lumaDockInput" placeholder="Ask Luma anything…" autocomplete="off"'+On('enter','sendAi')+'>'
         +'<button class="luma-send" id="lumaDockSendBtn"'+A('sendAi')+(S.ai.busy?' style="display:none"':'')+' aria-label="Send">'+ic('send')+'</button><button class="luma-stop" id="lumaDockStopBtn"'+A('stopAi')+(S.ai.busy?'':' style="display:none"')+' aria-label="Stop">'+ic('stop')+'</button></div></div>';
     }
   }
@@ -94,11 +94,29 @@ function renderLumaDockMsgs(){
   }
   S.ai.msgs.forEach(function(m){
     if(m.role==='user')h+='<div class="luma-msg user"><div class="luma-bubble">'+E(m.content)+'</div></div>';
-    else h+='<div class="luma-msg bot"><img class="luma-av" src="luma/luma-front.png" alt=""><div class="luma-bubble">'+parseLumaBubbleHtml(m.content)+'</div></div>';
+    else h+='<div class="luma-msg bot"><img class="luma-av" src="luma/luma-front.png" alt=""><div class="luma-bubble">'+parseLumaBubbleHtml(m.content)+lumaSourcesHtml(m.sources)+'</div></div>';
   });
   if(S._aiPartial)h+='<div class="luma-msg bot"><img class="luma-av" src="luma/luma-front.png" alt=""><div class="luma-bubble" id="lumaDockLive">'+parseLumaBubbleHtml(S._aiPartial)+'</div></div>';
   else if(S.ai.busy)h+='<div class="luma-msg bot"><img class="luma-av" src="luma/luma-front.png" alt=""><div class="luma-bubble"><span class="typing"><i></i><i></i><i></i></span></div></div>';
   box.innerHTML=h;box.scrollTop=box.scrollHeight;
+}
+// Pages the web search used, as link chips under the reply. Titles are escaped
+// text; the link opens in the system browser through the same checked path as
+// every other external link.
+function lumaSourcesHtml(sources){
+  if(!sources||!sources.length)return '';
+  var chips=sources.slice(0,6).map(function(s){
+    var host='';try{host=new URL(s.url).hostname.replace(/^www\./,'');}catch(e){return '';}
+    return '<button class="luma-src"'+A('openUrl',s.url)+Tip(s.title||s.url)+'>'+ic('globe')+'<span>'+E(host)+'</span></button>';
+  }).join('');
+  return chips?'<div class="luma-sources"><span class="luma-sources-label">Sources</span>'+chips+'</div>':'';
+}
+function lumaWebSearchOn(){return S.cfg.lumaWebSearch!==false;}
+function toggleLumaWebSearch(){
+  var on=!lumaWebSearchOn();S.cfg.lumaWebSearch=on;api.setConfig('lumaWebSearch',on);
+  var b=document.getElementById('lumaWebBtn');if(b){b.classList.toggle('on',on);b.setAttribute('aria-pressed',on?'true':'false');}
+  toast(on?'Web search on — replies can use current web results':'Web search off','i');
+  if(S.view==='settings')render();
 }
 function renderAiMsgs(){if(S.ai.dockOpen)renderLumaDockMsgs();}
 function toggleLumaAssistant(){if(S.ai.dockOpen)closeLumaAssistant();else openLumaAssistant();}
@@ -127,17 +145,20 @@ function aiKeyForm(inputId,compact){
     +'<button class="btn btn-primary'+(compact?'':' btn-block')+'"'+A('saveAiKey',inputId)+'>'+ic('sparkles')+'Save key</button>'
     +'<button class="btn btn-ghost btn-sm"'+A('openUrl',AI_KEY_PAGE)+'>'+ic('external')+'Get a key at OpenRouter</button></div>';
 }
+// Electron wraps main-process errors as "Error invoking remote method 'x': Error: …".
+function lumaErrorText(e){return String((e&&e.message)||e||'').replace(/^Error invoking remote method '[^']*': (?:Error: )?/,'');}
 function saveAiKey(inputId){
   var el=document.getElementById(typeof inputId==='string'&&inputId?inputId:'lumaDockKey');var k=el?el.value.trim():'';
   if(!k){toast('Paste your OpenRouter key first','e');return;}
   if(k.length<20||/\s/.test(k.replace(/^\S+\s*[=:]\s*/,''))){toast('That doesn’t look like an OpenRouter key — copy the whole key from openrouter.ai/keys','e');return;}
-  api.aiSetKey(k).then(function(){return api.getConfig();}).then(function(c){S.cfg=c;toast('Key saved — Luma is ready ✨','s');renderLumaDock();if(S.view==='settings')render();}).catch(function(e){toast('Saving the key failed: '+(e.message||e),'e');});
+  var verified=true;
+  api.aiSetKey(k).then(function(r){verified=!r||r.verified!==false;return api.getConfig();}).then(function(c){S.cfg=c;toast(verified?'Key saved — Luma is ready ✨':'Key saved, but OpenRouter couldn’t be reached to check it. Send Luma a message to test it.',verified?'s':'i');renderLumaDock();if(S.view==='settings')render();}).catch(function(e){toast('Saving the key failed: '+lumaErrorText(e),'e');});
 }
 async function clearAiKey(){
   if(!await askConfirm({title:'Remove the OpenRouter key?',text:'Luma won’t be able to answer until you add a key again.',confirm:'Remove',danger:true,icon:'lock'}))return;
   await api.aiClearKey();S.cfg=await api.getConfig();S.ai.msgs=[];toast('Key removed','i');if(S.ai.dockOpen)renderLumaDock();if(S.view==='settings')render();
 }
-function finishAiTurn(){var p=stripThinkingTags(S._aiPartial||'').trim();if(p)S.ai.msgs.push({role:'assistant',content:p});S._aiPartial='';S.ai.busy=false;renderAiMsgs();setBusyUi(false);}
+function finishAiTurn(){var p=stripThinkingTags(S._aiPartial||'').trim();if(p)S.ai.msgs.push({role:'assistant',content:p,sources:S._aiSources||[]});S._aiPartial='';S._aiSources=[];S.ai.busy=false;renderAiMsgs();setBusyUi(false);}
 // One bubble per failed turn (the error arrives as an event and as the
 // result); the hint depends on whether the key, the credits or OpenRouter failed.
 var AI_ERROR_HINTS={key:'Check your OpenRouter key in Settings → Companion, then try again.',quota:'Check your OpenRouter credits at openrouter.ai/credits, then try again.',busy:'Haiku is busy on OpenRouter right now. Try again in a moment.',other:'Please try again in a moment.'};
@@ -154,11 +175,12 @@ async function sendAi(){
   var inp=document.getElementById('lumaDockInput');var q=inp?inp.value.trim():'';if(!q)return;inp.value='';
   S.ai.msgs.push({role:'user',content:q});S.ai.busy=true;S._aiPartial='';renderAiMsgs();setBusyUi(true);
   var msgs=(S.ai.msgs||[]).filter(function(m){return m&&!m.error&&typeof m.content==='string'&&m.content.trim();}).slice(-16).map(function(m){return {role:m.role,content:m.content};});
-  var r=await api.aiSend([{role:'system',content:buildAiSystem()}].concat(msgs));
+  S._aiSources=[];
+  var r=await api.aiSend([{role:'system',content:buildAiSystem()}].concat(msgs),{webSearch:lumaWebSearchOn()});
   if(r&&!r.ok)handleAiError(r.message||r.error||'Failed to get a response',r.kind);
 }
 function stopAi(){api.aiStop();finishAiTurn();}
-expose('toggleLumaAssistant','openLumaAssistant','closeLumaAssistant','minimizeLumaAssistant','clearAiConversation','saveAiKey','sendAi','stopAi','quickAiPrompt');
+expose('toggleLumaAssistant','openLumaAssistant','closeLumaAssistant','minimizeLumaAssistant','clearAiConversation','saveAiKey','sendAi','stopAi','quickAiPrompt','toggleLumaWebSearch');
 
 // ----------------------------------------------------------------- mascot --
 var LUMA_FRAMES={front:'luma/luma-front.png',left:'luma/luma-left.png',leanLeft:'luma/luma-lean-left.png',leanRight:'luma/luma-lean-right.png'};

@@ -156,10 +156,11 @@ contextBridge.exposeInMainWorld('api', {
   aiGetStatus: () => invoke('ai:getStatus'),
   aiSetKey: (key) => invoke('ai:setKey', key),
   aiClearKey: () => invoke('ai:clearKey'),
-  aiSend: (messages) => invoke('ai:send', messages),
+  aiSend: (messages, options) => invoke('ai:send', messages, options),
   aiWebSearch: (query) => invoke('ai:webSearch', query),
   aiStop: () => invoke('ai:stop'),
   onAiChunk: (cb) => on('ai:chunk', cb),
+  onAiSources: (cb) => on('ai:sources', cb),
   onAiDone: (cb) => on('ai:done', cb),
   onAiError: (cb) => on('ai:error', cb),
 
