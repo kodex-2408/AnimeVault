@@ -1,0 +1,76 @@
+/* Design 1 · Polished: the current layout, refined, with Fuki saying the status. */
+:root {
+  --bg: #f7f5f5;
+  --card: #ffffff;
+  --text: #1d1a1c;
+  --muted: #6e676b;
+  --line: #ebe5e7;
+  --red: #e0464e;
+  --red-2: #c9353d;
+  --red-soft: #fdecee;
+  --ok: #2e9e5b;
+  --warn: #d28a13;
+  --err: #cc3340;
+  --track: #d8d0d3;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #161314; --card: #201c1e; --text: #f1ecee; --muted: #a39a9e; --line: #342d30; --red-soft: #3a1f23; --track: #4a4044; color-scheme: dark; }
+}
+
+* { box-sizing: border-box; margin: 0; }
+body { width: 320px; padding: 12px; display: flex; flex-direction: column; gap: 10px; background: var(--bg); color: var(--text); font: 13px/1.4 "Segoe UI", system-ui, sans-serif; }
+
+header { display: flex; align-items: center; gap: 10px; }
+.fuki { width: 54px; height: 54px; flex: none; }
+.face-sleep { display: none; }
+body:has(.status.err) .face-happy, body:has(.status.err) .sparkle { display: none; }
+body:has(.status.err) .face-sleep { display: inline; }
+.head-text { flex: 1; min-width: 0; }
+h1 { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
+
+/* The status is Fuki's speech bubble */
+.status {
+  position: relative; display: flex; align-items: center; gap: 6px;
+  padding: 5px 9px; border-radius: 10px; background: var(--card); border: 1px solid var(--line);
+  font-size: 12px; color: var(--muted);
+}
+.status::before { content: ""; position: absolute; left: -6px; top: 50%; width: 10px; height: 10px; background: var(--card); border-left: 1px solid var(--line); border-bottom: 1px solid var(--line); transform: translateY(-50%) rotate(45deg); }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+.status.ok .dot { background: var(--ok); }
+.status.warn .dot { background: var(--warn); }
+.status.err .dot { background: var(--err); }
+#status-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 11px 12px; display: flex; flex-direction: column; gap: 10px; }
+.row { display: flex; align-items: center; justify-content: space-between; gap: 10px; cursor: pointer; }
+.row b { font-weight: 600; }
+kbd { font: 10.5px ui-monospace, Consolas, monospace; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; margin-left: 4px; }
+
+.tgl { appearance: none; flex: none; position: relative; width: 36px; height: 21px; border-radius: 999px; background: var(--track); cursor: pointer; transition: background 0.2s; }
+.tgl::after { content: ""; position: absolute; top: 2.5px; left: 2.5px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25); transition: transform 0.2s; }
+.tgl:checked { background: var(--red); }
+.tgl:checked::after { transform: translateX(15px); }
+.tgl:disabled { opacity: 0.4; }
+
+.buttons { display: flex; gap: 6px; }
+.btn { border: 0; border-radius: 8px; padding: 8px 10px; font: 600 12.5px "Segoe UI", system-ui, sans-serif; cursor: pointer; }
+.btn.primary { flex: 1; background: var(--red); color: #fff; }
+.btn.primary:hover { background: var(--red-2); }
+.btn.secondary { background: var(--red-soft); color: var(--red-2); }
+@media (prefers-color-scheme: dark) { .btn.secondary { color: #ff9aa2; } }
+
+.langs { display: flex; align-items: flex-end; gap: 8px; }
+.langs label { flex: 1; display: flex; flex-direction: column; gap: 3px; font-size: 11.5px; color: var(--muted); }
+.arrow { padding-bottom: 6px; color: var(--muted); }
+select, input[type="url"], input[type="number"] { width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--text); font: inherit; }
+
+.size-ctl { display: flex; align-items: center; gap: 6px; }
+.size-ctl small { font-size: 10px; color: var(--muted); }
+.size-ctl b { font-size: 15px; color: var(--muted); }
+.size input { width: 96px; accent-color: var(--red); }
+.size output { width: 36px; text-align: right; font-size: 12px; color: var(--muted); }
+
+details { padding: 0 4px; }
+summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+.field { display: flex; flex-direction: column; gap: 3px; margin-top: 8px; font-size: 12px; color: var(--muted); }

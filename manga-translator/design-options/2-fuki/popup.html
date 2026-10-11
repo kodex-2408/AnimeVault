@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Manga Translator</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <section class="stage">
+    <svg class="fuki" viewBox="-52 22 112 114" aria-hidden="true">
+      <path d="M-44 80 C-44 54 -22 40 0 40 C22 40 44 54 44 80 C44 104 24 118 0 118 C-8 118 -15 117 -21 115 L-38 132 L-31 110 C-39 103 -44 92 -44 80 Z" fill="#E5484D" stroke="#B4232A" stroke-width="2.5" stroke-linejoin="round"/>
+      <g class="face-happy"><ellipse cx="-14" cy="78" rx="5" ry="6.5" fill="#2B1B1B"/><ellipse cx="14" cy="78" rx="5" ry="6.5" fill="#2B1B1B"/><circle cx="-12.5" cy="75.5" r="1.8" fill="#fff"/><circle cx="15.5" cy="75.5" r="1.8" fill="#fff"/><path d="M-6 90 q3 4 6 0 q3 4 6 0" fill="none" stroke="#2B1B1B" stroke-width="2" stroke-linecap="round"/></g>
+      <g class="face-sleep"><path d="M-19 78 q5 4 10 0 M9 78 q5 4 10 0" fill="none" stroke="#2B1B1B" stroke-width="2.2" stroke-linecap="round"/><ellipse cx="0" cy="93" rx="3" ry="2.2" fill="#2B1B1B"/><path d="M30 46 h8 l-8 9 h8 M44 30 h6 l-6 7 h6" fill="none" stroke="#B4232A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></g>
+      <ellipse cx="-26" cy="91" rx="6" ry="3.5" fill="#FF9AA2"/><ellipse cx="26" cy="91" rx="6" ry="3.5" fill="#FF9AA2"/>
+      <path class="sparkle" d="M40 40 l6 -8 M48 50 l9 -3 M34 34 l1 -9" stroke="#E5484D" stroke-width="2.5" stroke-linecap="round"/>
+    </svg>
+    <div class="speech">
+      <p class="say say-ok">Ready to translate!</p>
+      <p class="say say-warn">I need a Gemini key first…</p>
+      <p class="say say-err">Zzz… something went wrong. Try reopening me</p>
+      <p class="say say-wait">Waking up…</p>
+      <div id="status" class="status"><span class="dot"></span><span id="status-text">Starting…</span></div>
+    </div>
+  </section>
+
+  <main>
+    <button id="translate-now" class="cta">Translate this page</button>
+
+    <div class="card">
+      <label class="row">
+        <span><b>Always on</b> <small>for <span id="host">this site</span></small></span>
+        <input type="checkbox" id="site-enabled" class="tgl">
+      </label>
+      <label class="row">
+        <span><b>Show translations</b> <small><kbd>Alt+Shift+T</kbd></small></span>
+        <input type="checkbox" id="show-overlay" class="tgl">
+      </label>
+    </div>
+
+    <div class="card langs">
+      <select id="src-lang" aria-label="From">
+        <option value="auto">Auto</option><option value="ja">日本語</option><option value="zh">中文</option><option value="ko">한국어</option>
+      </select>
+      <span class="arrow" aria-hidden="true">→</span>
+      <select id="tgt-lang" aria-label="To">
+        <option value="en">English</option><option value="es">Español</option><option value="pt">Português</option><option value="fr">Français</option><option value="de">Deutsch</option><option value="it">Italiano</option><option value="ru">Русский</option><option value="vi">Tiếng Việt</option><option value="id">Indonesia</option>
+      </select>
+    </div>
+
+    <div class="card">
+      <label class="size">
+        <span class="size-head"><b>Text size</b><output id="text-scale-value">100%</output></span>
+        <span class="size-ctl"><small>A</small><input type="range" id="text-scale" min="50" max="125" step="5"><big>A</big></span>
+      </label>
+    </div>
+
+    <div class="footer">
+      <button id="retry-failed" class="link">Retry failed</button>
+      <details>
+        <summary>Advanced</summary>
+        <label class="field">Gemini API key <input id="gemini-key" type="password" placeholder="Paste your key" autocomplete="off" spellcheck="false"> <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Get a free key ↗</a></label>
+        <label class="field">OpenRouter API key <small>(optional: translates with Claude Haiku 5.5 instead of Gemini)</small> <input id="openrouter-key" type="password" placeholder="Paste your key" autocomplete="off" spellcheck="false"> <a href="https://openrouter.ai/keys" target="_blank" rel="noopener">Get a key ↗</a></label>
+        <label class="field">Min. image size (px) <input id="min-size" type="number" min="100" max="2000" step="50"></label>
+      </details>
+    </div>
+  </main>
+
+  <script src="../mock-chrome.js"></script>
+  <script type="module" src="../../extension/popup.js"></script>
+</body>
+</html>

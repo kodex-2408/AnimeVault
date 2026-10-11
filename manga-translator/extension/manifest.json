@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "Manga Translator",
+  "version": "0.7.0",
+  "description": "Translate manga, manhwa and manhua in place with your free Gemini key. Runs entirely in the browser.",
+  "minimum_chrome_version": "116",
+  "permissions": ["storage", "unlimitedStorage", "contextMenus", "declarativeNetRequestWithHostAccess", "tabs", "scripting", "offscreen"],
+  "host_permissions": ["<all_urls>"],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  },
+  "cross_origin_embedder_policy": { "value": "require-corp" },
+  "cross_origin_opener_policy": { "value": "same-origin" },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["content.js"],
+      "css": ["overlay.css"],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" }
+  },
+  "icons": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
+  "commands": {
+    "_execute_action": {
+      "suggested_key": { "default": "Alt+T" },
+      "description": "Open the Manga Translator panel"
+    },
+    "toggle-overlay": {
+      "suggested_key": { "default": "Alt+Shift+T" },
+      "description": "Show / hide translations (peek at the original)"
+    }
+  }
+}

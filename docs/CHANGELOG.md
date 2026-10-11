@@ -5,6 +5,17 @@ Tsundoku was called AnimeVault up to 5.7.0; older entries keep the old name.
 All notable changes, newest first. Engineering context — test guide, security
 posture, design decisions, open roadmap — lives in [DEVELOPMENT.md](DEVELOPMENT.md).
 
+## 5.10.1 — Episode cards; the extension shares the translator
+
+- **Fixed: on episode cards the play button overlapped the watched checkmark.**
+  Cards now keep enough height for both.
+- **The manga-translator browser extension is in the repository**
+  (`manga-translator/`) and uses the reader's translator: the same
+  `typeset.js` splits pages into one unit per balloon, erases the original text
+  and letters the translation. See `manga-translator/CHANGELOG.md` (0.7.0).
+- `TS.render` takes a text size (`opts.scale`, 0.5–1.5), used by the extension's
+  Text size setting.
+
 ## 5.10.0 — Manga translation with a text detector
 
 - **The translator now finds the text the way your manga-translator extension

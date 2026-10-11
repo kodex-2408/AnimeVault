@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Manga Translator</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header class="panel hero">
+    <div class="titles">
+      <h1>Manga<br>Translator</h1>
+      <div id="status" class="status"><span class="dot"></span><span id="status-text">Starting…</span></div>
+    </div>
+    <svg class="fuki" viewBox="-52 22 112 114" aria-hidden="true">
+      <path d="M-44 80 C-44 54 -22 40 0 40 C22 40 44 54 44 80 C44 104 24 118 0 118 C-8 118 -15 117 -21 115 L-38 132 L-31 110 C-39 103 -44 92 -44 80 Z" fill="#E5484D" stroke="#1a1414" stroke-width="3.5" stroke-linejoin="round"/>
+      <g class="face-happy"><ellipse cx="-14" cy="78" rx="5" ry="6.5" fill="#1a1414"/><ellipse cx="14" cy="78" rx="5" ry="6.5" fill="#1a1414"/><circle cx="-12.5" cy="75.5" r="1.8" fill="#fff"/><circle cx="15.5" cy="75.5" r="1.8" fill="#fff"/><path d="M-6 90 q3 4 6 0 q3 4 6 0" fill="none" stroke="#1a1414" stroke-width="2.2" stroke-linecap="round"/></g>
+      <g class="face-sleep"><path d="M-19 78 q5 4 10 0 M9 78 q5 4 10 0" fill="none" stroke="#1a1414" stroke-width="2.4" stroke-linecap="round"/><ellipse cx="0" cy="93" rx="3" ry="2.2" fill="#1a1414"/><path d="M30 46 h8 l-8 9 h8 M44 30 h6 l-6 7 h6" fill="none" stroke="#1a1414" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></g>
+      <ellipse cx="-26" cy="91" rx="6" ry="3.5" fill="#FF9AA2"/><ellipse cx="26" cy="91" rx="6" ry="3.5" fill="#FF9AA2"/>
+      <path class="sparkle" d="M40 40 l6 -8 M48 50 l9 -3 M34 34 l1 -9" stroke="#1a1414" stroke-width="3" stroke-linecap="round"/>
+    </svg>
+  </header>
+
+  <div class="grid">
+    <button id="translate-now" class="panel action">Translate!</button>
+    <button id="retry-failed" class="panel action alt">Retry<br>failed</button>
+  </div>
+
+  <section class="panel">
+    <label class="row"><span>Auto on <b id="host">this site</b></span><input type="checkbox" id="site-enabled" class="tgl"></label>
+    <label class="row"><span>Show translations <kbd>Alt+Shift+T</kbd></span><input type="checkbox" id="show-overlay" class="tgl"></label>
+  </section>
+
+  <section class="panel langs">
+    <select id="src-lang" aria-label="From"><option value="auto">Auto</option><option value="ja">Japanese</option><option value="zh">Chinese</option><option value="ko">Korean</option></select>
+    <span class="arrow" aria-hidden="true">➜</span>
+    <select id="tgt-lang" aria-label="To"><option value="en">English</option><option value="es">Spanish</option><option value="pt">Portuguese</option><option value="fr">French</option><option value="de">German</option><option value="it">Italian</option><option value="ru">Russian</option><option value="vi">Vietnamese</option><option value="id">Indonesian</option></select>
+  </section>
+
+  <section class="panel">
+    <label class="row size"><span>Text size <output id="text-scale-value">100%</output></span><input type="range" id="text-scale" min="50" max="125" step="5"></label>
+  </section>
+
+  <details class="panel">
+    <summary>Advanced</summary>
+    <label class="field">Gemini API key <input id="gemini-key" type="password" placeholder="Paste your key" autocomplete="off" spellcheck="false"> <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Get a free key ↗</a></label>
+    <label class="field">OpenRouter API key <small>(optional: translates with Claude Haiku 5.5 instead of Gemini)</small> <input id="openrouter-key" type="password" placeholder="Paste your key" autocomplete="off" spellcheck="false"> <a href="https://openrouter.ai/keys" target="_blank" rel="noopener">Get a key ↗</a></label>
+    <label class="field">Min. image size (px) <input id="min-size" type="number" min="100" max="2000" step="50"></label>
+  </details>
+
+  <script src="../mock-chrome.js"></script>
+  <script type="module" src="../../extension/popup.js"></script>
+</body>
+</html>
