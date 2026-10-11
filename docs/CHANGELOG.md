@@ -27,6 +27,11 @@ posture, design decisions, open roadmap — lives in [DEVELOPMENT.md](DEVELOPMEN
   window back to its normal size (Esc no longer closes the reader while in
   fullscreen). Closing the reader also leaves fullscreen.
 - **Visual fixes.**
+  - Scrolled pages now have one frosted-glass layer across the whole window
+    instead of two bands with different blur. It reaches down to the docked
+    filter bar, runs from the left to the right window edge (no gap at the
+    scrollbar), and sits behind the sidebar so the sidebar's rounded corner
+    no longer meets a square glass edge.
   - Continue watching/reading cards: the hover shadow now animates and stays
     rounded (the hover shadow no longer swapped the inset ring for an
     unanimatable list, and the shelf no longer clips the shadow square).

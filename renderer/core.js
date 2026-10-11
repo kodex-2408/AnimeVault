@@ -473,8 +473,14 @@ var SPECULAR_SEL='.pc-art,.rc,.hub-tab,.kpi.clickable,.tool,.panel.interactive,.
 })();
 // The title bar's blurred scroll edge only appears once content is under it.
 document.addEventListener('scroll',function(e){
-  if(e.target&&e.target.id==='mc')document.body.classList.toggle('mc-scrolled',e.target.scrollTop>4);
+  if(e.target&&e.target.id==='mc'){document.body.classList.toggle('mc-scrolled',e.target.scrollTop>4);updateGlassBand();}
 },true);
+// The glass reaches down to the bottom of a docked filter bar, if there is one.
+function updateGlassBand(){
+  var tb=document.querySelector('#mc .toolbar.stuck');
+  if(tb)document.body.style.setProperty('--glass-band',Math.round(tb.getBoundingClientRect().bottom)+'px');
+  else document.body.style.removeProperty('--glass-band');
+}
 
 // ------------------------------------------------------------- misc utils --
 // Height of the floating title bar that content scrolls beneath.

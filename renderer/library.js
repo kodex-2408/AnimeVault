@@ -200,7 +200,7 @@ function updateShelfNav(id){
 function shelfScroll(id,dir){var sh=document.getElementById(id);if(!sh)return;var t=sh.querySelector('.shelf-track');t.scrollBy({left:dir*Math.max(300,t.clientWidth*.8),behavior:'smooth'});}
 function observeStickyToolbar(){
   var tb=document.getElementById('libToolbar');var mc=document.getElementById('mc');if(!tb||!mc)return;
-  var onScroll=function(){tb.classList.toggle('stuck',tb.getBoundingClientRect().top<=mc.getBoundingClientRect().top+chromeTop()+1);};
+  var onScroll=function(){tb.classList.toggle('stuck',tb.getBoundingClientRect().top<=mc.getBoundingClientRect().top+chromeTop()+1);updateGlassBand();};
   if(mc._stickyHandler)mc.removeEventListener('scroll',mc._stickyHandler);
   mc._stickyHandler=onScroll;mc.addEventListener('scroll',onScroll,{passive:true});onScroll();
 }
