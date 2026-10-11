@@ -5,7 +5,29 @@ Tsundoku was called AnimeVault up to 5.7.0; older entries keep the old name.
 All notable changes, newest first. Engineering context — test guide, security
 posture, design decisions, open roadmap — lives in [DEVELOPMENT.md](DEVELOPMENT.md).
 
-## 5.11.0 — Release priority, faster auto-download, covers, donghua filter
+## 5.11.0 — Tsumi, an agenda Schedule, release priority, faster auto-download
+
+- **Tsumi replaces Luma.** The star companion is gone, and the assistant is
+  now called Tsumi everywhere. Tsumi is an original character: a little pile
+  of unread books, drawn as vector art so it stays sharp at every size.
+  - It hops from place to place, and the top book wobbles a beat behind.
+  - It puffs dust when it lands; the "Dust puffs" switch replaces "Sparkle trail".
+  - It blinks and looks where it's going.
+  - It talks while the chat is answering, dozes off when left alone, and does
+    a happy hop when clicked.
+  - Settings, config keys and the OpenRouter key carry over unchanged. The old
+    `luma/` PNGs are removed; the art is `companion/tsumi.svg`.
+- **Schedule: Agenda is the new default.**
+  - One list down the page, grouped by day.
+  - Each row shows the full title on one line, the episode number, time, live
+    countdown and the library/auto-download chips.
+  - Days with nothing airing fold into one quiet line.
+  - Week stays one click away. A saved view choice applies again once you pick
+    one in this version.
+- **Series links:**
+  - Miruro now opens `barelystarted.miruro.tv`.
+  - ani.pm replaces Netflix.
+  - Manga mode: Comix (`comix.to`) replaces MangaReader.
 
 - **Release choice.** New episodes: Erai-raws, then VARYG, then ToonsHub, then
   the most-seeded release from any group. **Full-series downloads give no group

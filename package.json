@@ -47,7 +47,7 @@
       "styles/**/*",
       "package.json",
       "icon.png",
-      "luma/**/*",
+      "companion/**/*",
       "fonts/**/*",
       "!node_modules/pdfjs-dist/{legacy,web,types,image_decoders}{,/**/*}",
       "!node_modules/pdfjs-dist/**/*.map",

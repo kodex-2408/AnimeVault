@@ -36,7 +36,8 @@ async function init(){
   S.activities.forEach(function(a){if(a.status==='running'){a.status='error';a.detail=(a.detail?a.detail+' · ':'')+'Interrupted when the app closed';a.finishedAt=Date.now();}});
   if(S.cfg.autoMarkEnabled===undefined||S.cfg.autoMarkEnabled===null){S.cfg.autoMarkEnabled=true;api.setConfig('autoMarkEnabled',true);}
   S.vaultMode=S.cfg.vaultMode||'anime';
-  if(S.cfg.schedView)S.schedView=S.cfg.schedView;
+  // 5.11: Agenda is the new default; a saved choice counts only once made in this version.
+  if(S.cfg.schedView&&S.cfg.schedViewV===2)S.schedView=S.cfg.schedView;
   if(S.cfg.sidebarCollapsed)document.querySelector('.app').classList.add('sidebar-collapsed');
   restoreImportInbox();persistActivities();
   applyTheme();applyPerformanceMode(S.cfg.performanceMode);applyAnimSpeed(motionSpeed());watchSystemMotion();

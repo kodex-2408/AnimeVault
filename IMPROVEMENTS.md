@@ -13,7 +13,7 @@ All nine "Next up" items, plus manga translation from "Later":
 3. `t3` reaches 4.5:1 or more on `bg`, `bg2`, `s1` and `s2` in all 16 themes.
 4. Motion follows the system's reduced-motion setting until one is chosen.
 5. Dialogs trap Tab, are labelled by their title, and restore focus.
-6. Luma's loop stops in Performance Mode or with motion off.
+6. Tsumi's loop stops in Performance Mode or with motion off.
 7. Settings → Manga names the formats that go to the reader app.
 8. The `electron-store` fallback is removed.
 9. CI runs on `windows-latest` too (needed `.gitattributes` for LF checkouts).
@@ -71,6 +71,6 @@ All nine "Next up" items, plus manga translation from "Later":
   them when electron-builder is upgraded.
 - **`dist\` in the project folder**: local build output that git ignores. Delete
   it when space is needed.
-- **Luma model picker**: a product decision. Haiku 5.5 stays the fixed choice
+- **Tsumi model picker**: a product decision. Haiku 5.5 stays the fixed choice
   unless a curated list is wanted.
 - **Mobile port (Capacitor)**: a separate project.

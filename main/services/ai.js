@@ -1,6 +1,6 @@
 'use strict';
 
-// main/services/ai.js - Luma (Claude Haiku 5.5 through OpenRouter, with the user's own key).
+// main/services/ai.js - Tsumi (Claude Haiku 5.5 through OpenRouter, with the user's own key).
 
 const { app, ipcMain } = require('electron');
 const fs = require('fs');

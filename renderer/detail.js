@@ -37,8 +37,8 @@ function statTile(label,value,opts){
 function linkChips(title,malId){
   var sn=encodeURIComponent(title||'');
   var links=isManga()
-    ?[['MangaDex','https://mangadex.org/search?q='+sn],['MangaFire','https://mangafire.to/search?keyword='+sn],['MangaReader','https://mangareader.to/search?keyword='+sn]]
-    :[['Crunchyroll','https://www.crunchyroll.com/search?q='+sn],['Miruro','https://www.miruro.to/search?query='+sn],['Netflix','https://www.netflix.com/search?q='+sn]];
+    ?[['MangaDex','https://mangadex.org/search?q='+sn],['MangaFire','https://mangafire.to/search?keyword='+sn],['Comix','https://comix.to/browse?q='+sn+'&sort=relevance%3Adesc']]
+    :[['Crunchyroll','https://www.crunchyroll.com/search?q='+sn],['Miruro','https://barelystarted.miruro.tv/search?q='+sn],['ani.pm','https://ani.pm/search?q='+sn]];
   var h='<div class="chips">';
   links.forEach(function(l){h+='<button class="chip"'+A('openUrl',l[1])+'>'+ic('external')+E(l[0])+'</button>';});
   h+='<button class="chip"'+A('openNyaa',title)+'>'+ic('search')+'Nyaa</button>';

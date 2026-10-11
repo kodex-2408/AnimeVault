@@ -1,7 +1,7 @@
 'use strict';
 
-// openrouter.js — Electron-free OpenRouter client for Luma.
-// Luma sends its chats straight to Claude Haiku 5.5 through OpenRouter, with the
+// openrouter.js — Electron-free OpenRouter client for Tsumi.
+// Tsumi sends its chats straight to Claude Haiku 5.5 through OpenRouter, with the
 // user's own OpenRouter API key and low reasoning effort. Streaming runs in the
 // main process only: the renderer never sees the key or the network.
 
@@ -242,7 +242,7 @@ async function chatStream(messages, options = {}) {
       used = attempt;
       r = await send(apiKey, toOpenRouterRequest(messages, cfg.lumaModel, attempt), onText);
       if (r.ok || r.gotText || (r.status !== 400 && r.status !== 422)) break;
-      console.warn('[Luma] OpenRouter rejected the request (' + r.status + '); retrying with fewer options:', r.message);
+      console.warn('[Tsumi] OpenRouter rejected the request (' + r.status + '); retrying with fewer options:', r.message);
     }
     const searchSkipped = webSearch && !used.webSearch;
     _activeReq = null;

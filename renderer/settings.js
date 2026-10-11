@@ -8,7 +8,7 @@ var SETTINGS_SECTIONS=[
   {id:'import',label:'Import & matching',icon:'inbox',color:'#bf5af2'},
   {id:'aliases',label:'Titles & parser',icon:'tag',color:'#64d2ff'},
   {id:'notifications',label:'Notifications',icon:'bell',color:'#ff375f'},
-  {id:'companion',label:'Luma',icon:'sparkles',color:'#ffcc4d'},
+  {id:'companion',label:'Tsumi',icon:'sparkles',color:'#ffcc4d'},
   {id:'system',label:'Performance & window',icon:'cpu',color:'#8e8e93'},
   {id:'data',label:'Data & backup',icon:'database',color:'#5e5ce6'}
 ];
@@ -97,16 +97,16 @@ function sectionHtml(id){
     });
     h+=setRow({block:'<div class="row"><button class="btn btn-ghost btn-sm"'+A('resetNotifPrefs')+'>Reset to defaults</button></div>',kw:'reset notifications'});
   }else if(id==='companion'){
-    h+=setRow({icon:'sparkles',color:'#ffcc4d',title:'Luma on screen',desc:'A little star spirit that floats around the window. He never blocks your clicks — click him to chat.',ctrl:cfgSwitch('lumaMascot'),kw:'luma mascot companion star'});
-    h+=setRow({icon:'sparkles',color:'#ffcc4d',title:'Sparkle trail',ctrl:cfgSwitch('lumaSparkles',true),kw:'sparkle trail'});
+    h+=setRow({icon:'sparkles',color:'#ffcc4d',title:'Tsumi on screen',desc:'A little pile of unread books that hops around the window. It never blocks your clicks; click it to chat.',ctrl:cfgSwitch('lumaMascot'),kw:'tsumi luma mascot companion books'});
+    h+=setRow({icon:'sparkles',color:'#ffcc4d',title:'Dust puffs',desc:'Little clouds of dust when Tsumi lands.',ctrl:cfgSwitch('lumaSparkles',true),kw:'sparkle trail dust puffs'});
     h+=setRow({icon:'expand',color:'#ffcc4d',title:'Size & style',ctrl:seg('lumaSize',[{v:'small',label:'Small'},{v:'medium',label:'Medium'},{v:'big',label:'Big'},{v:'rainbow',label:'Rainbow'}],S.cfg.lumaSize||'medium','setLumaSize'),kw:'size rainbow'});
     h+=setRow({icon:'activity',color:'#ffcc4d',title:'Speed',ctrl:seg('lumaSpeed',[{v:'slow',label:'Slow'},{v:'normal',label:'Normal'},{v:'fast',label:'Fast'}],S.cfg.lumaSpeed||'normal','setLumaSpeed'),kw:'speed'});
-    if(S.cfg.hasOpenRouterKey)h+=setRow({icon:'lock',color:'#ffcc4d',title:'OpenRouter API key',desc:'Stored encrypted with your Windows account and only used by the main process.',ctrl:'<span class="tag green">'+ic('check')+'Saved</span><button class="btn btn-ghost btn-sm"'+A('clearAiKey')+'>Remove</button>',kw:'openrouter api key ai assistant chat luma'});
-    else h+=setRow({icon:'lock',color:'#ffcc4d',title:'OpenRouter API key',desc:'Create a key at openrouter.ai, add a little credit (Claude Haiku 5.5 is a paid model), then paste it here.',ctrl:aiKeyForm('settingsAiKey',true),kw:'openrouter api key ai assistant chat luma'});
-    h+=setRow({icon:'globe',color:'#ffcc4d',title:'Web search',desc:'Lets Luma look things up online (release dates, news, “is this show good?”) and shows the pages it used. OpenRouter bills each search on top of the model, so switch it off to keep replies as cheap as possible.',ctrl:switchCtl(lumaWebSearchOn(),'toggleLumaWebSearch',[]),kw:'web search internet online luma sources'});
-    h+=setRow({icon:'sparkles',color:'#ffcc4d',title:'Model',desc:'Luma always answers with Claude Haiku 5.5 through OpenRouter, at low reasoning effort for quick replies.'+(S.cfg.lumaModel?' <span class="mono muted">'+E(S.cfg.lumaModel)+'</span>':''),ctrl:'<span class="tag accent">Haiku 5.5 · low reasoning</span>',kw:'model haiku claude openrouter reasoning effort luma'});
+    if(S.cfg.hasOpenRouterKey)h+=setRow({icon:'lock',color:'#ffcc4d',title:'OpenRouter API key',desc:'Stored encrypted with your Windows account and only used by the main process.',ctrl:'<span class="tag green">'+ic('check')+'Saved</span><button class="btn btn-ghost btn-sm"'+A('clearAiKey')+'>Remove</button>',kw:'openrouter api key ai assistant chat luma tsumi'});
+    else h+=setRow({icon:'lock',color:'#ffcc4d',title:'OpenRouter API key',desc:'Create a key at openrouter.ai, add a little credit (Claude Haiku 5.5 is a paid model), then paste it here.',ctrl:aiKeyForm('settingsAiKey',true),kw:'openrouter api key ai assistant chat luma tsumi'});
+    h+=setRow({icon:'globe',color:'#ffcc4d',title:'Web search',desc:'Lets Tsumi look things up online (release dates, news, “is this show good?”) and shows the pages it used. OpenRouter bills each search on top of the model, so switch it off to keep replies as cheap as possible.',ctrl:switchCtl(lumaWebSearchOn(),'toggleLumaWebSearch',[]),kw:'web search internet online luma tsumi sources'});
+    h+=setRow({icon:'sparkles',color:'#ffcc4d',title:'Model',desc:'Tsumi always answers with Claude Haiku 5.5 through OpenRouter, at low reasoning effort for quick replies.'+(S.cfg.lumaModel?' <span class="mono muted">'+E(S.cfg.lumaModel)+'</span>':''),ctrl:'<span class="tag accent">Haiku 5.5 · low reasoning</span>',kw:'model haiku claude openrouter reasoning effort luma'});
   }else if(id==='system'){
-    h+=setRow({icon:'wand',color:'#8e8e93',title:'Setup guide',desc:'Walk through the first-run setup again: library folders, player, MyAnimeList and Luma.',ctrl:'<button class="btn btn-secondary btn-sm"'+A('showSetupWizard')+'>'+ic('wand')+'Open setup guide</button>',kw:'setup wizard guide intro onboarding first run tutorial'});
+    h+=setRow({icon:'wand',color:'#8e8e93',title:'Setup guide',desc:'Walk through the first-run setup again: library folders, player, MyAnimeList and Tsumi.',ctrl:'<button class="btn btn-secondary btn-sm"'+A('showSetupWizard')+'>'+ic('wand')+'Open setup guide</button>',kw:'setup wizard guide intro onboarding first run tutorial'});
     h+=setRow({icon:'cpu',color:'#8e8e93',title:'Performance mode',desc:'Turns off blur, glass and ambient effects and shortens motion — ideal for large libraries or older GPUs.',ctrl:switchCtl(!!S.cfg.performanceMode,'setPerformanceModeSw'),kw:'performance speed gpu blur'});
     h+=setRow({icon:'database',color:'#8e8e93',title:'Incremental library index',desc:'Only re-reads folders that changed since the last scan.',ctrl:'<button class="btn btn-ghost btn-sm"'+A('rebuildLibraryIndex')+'>Rebuild</button>'+cfgSwitch('incrementalScan',true),kw:'index cache scan incremental'});
     h+=setRow({icon:'window',color:'#8e8e93',title:'Minimize to tray',desc:'Closing or minimizing hides Tsundoku in the system tray.',ctrl:switchCtl(!!S.cfg.minimizeToTray,'setTraySw'),kw:'tray minimize close window'});
