@@ -137,9 +137,10 @@ contextBridge.exposeInMainWorld('api', {
   readerOpen: (filePath) => invoke('reader:open', filePath),
   readerClose: (token) => invoke('reader:close', token),
   readerFileData: (token) => invoke('reader:fileData', token),
+  readerPageData: (token, index) => invoke('reader:pageData', token, index),
   translateState: (token) => invoke('translate:state', token),
   translateSetEnabled: (token, on) => invoke('translate:setEnabled', token, on),
-  translatePage: (token, index, pdfImage) => invoke('translate:page', token, index, pdfImage),
+  translatePage: (token, index, page) => invoke('translate:page', token, index, page),
   detectMangaReaders: () => invoke('manga:detectReaders'),
 
   // Watcher

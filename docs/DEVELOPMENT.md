@@ -15,7 +15,7 @@ User-facing release history lives in [CHANGELOG.md](CHANGELOG.md).
 | `main/config/` | `config.js` (config.json load/save, shrink guard, backups, Luma key, watch-history helpers, `config:*`), `security.js` (path containment, validators), `backup.js` (export/import, backup/restore) |
 | `main/scanner/` | `parsers.js` (filenames), `library.js` (layout, scan, index, `library:*`), `history.js` (`watch:*`), `organizer.js` (`manager:*`), `watcher.js`, `duplicates.js` |
 | `main/players/` | `player.js` (launch, auto-mark poller, thumbnails, manga reader), `readerTimer.js` (reading timer for external manga readers, via window titles), `reader.js` (built-in reader: comic archives, EPUB and MOBI parsing, PDF hand-off to pdf.js, `page://` protocol), `mpv.js`, `vlc.js` |
-| `main/services/` | `covers.js`, `anilist.js`, `mal.js`, `nyaa.js`, `downloads.js` (auto-download wiring), `ai.js` (Luma handlers), `translate.js` (reader page translation: prompt, answer checking, per-chapter cache in `userData/translations`) |
+| `main/services/` | `covers.js`, `anilist.js`, `mal.js`, `nyaa.js`, `downloads.js` (auto-download wiring), `ai.js` (Luma handlers), `translate.js` (reader page translation: prompt, answer checking against the numbered balloons, per-chapter cache in `userData/translations`) |
 | `main/window/` | `window.js` (window + `window:*`), `tray.js`, `protocol.js` (`cover://` handler) |
 | `main/ipc/` | `registerHandlers.js` calls every module's `register()` (where its `ipcMain.handle` calls live); `system.js` holds dialog/shell handlers |
 | `preload.js` | `contextBridge` API surface (`window.api`) — every renderer capability is an explicit channel here |
@@ -77,7 +77,7 @@ Run everything with `npm test`; each file is standalone `node tests/<file>`.
 | `security-and-parsers.test.js` | Generalized source-extraction + invariants | See next section |
 | `library-layout.test.js` | Real helpers from `main.js` in `vm` against a temp tree | Category inference, category containers, season-aware folder matching, scene-style names, sequel cover matching |
 | `playback-and-tracking.test.js` | Real player-option and untrack helpers from `main/` in `vm` | One subtitle list per player and "Off", Bluetooth delay units (MPV seconds, VLC ms), untrack by name / MAL id / path, main-owned config keys |
-| `manga-translation.test.js` | Real `translate.js`, `reader.js` and `openrouter.js` with a stand-in `electron` and a fake OpenRouter request | Answer parsing (code fences, clamping, swapped corners, dropped boxes, 80-box cap), Claude model lookup, no key = nothing sent, in-flight de-duplication, per-chapter cache and on/off switch, separate pages per language and model, edited files start over, errors not cached, PDF picture checks, config validation, renderer/main language lists match |
+| `manga-translation.test.js` | Real `translate.js`, `reader.js` and `openrouter.js` with a stand-in `electron` and a fake OpenRouter request; `renderer/typeset.js` in a vm on a drawn page with a canvas stand-in | Balloon detection (a balloon found, an outline-less white area refused), erasing (all text including a character joined to the outline, outline and art untouched), lettering (whole words in order, every line inside the balloon), word breaking (hyphens, CJK), answer parsing (numbered balloons, unknown numbers and sound effects dropped, code fences, clamping, swapped corners, 80-box cap), Claude model lookup, no key = nothing sent, in-flight de-duplication, per-chapter cache and on/off switch, separate pages per language and model, edited files start over, errors not cached, PDF picture checks, config validation, renderer/main language lists match |
 | `luma-openrouter.test.js` | Real `openrouter.js` against a stand-in `https` that behaves like OpenRouter | Request shape (host, headers, model, low reasoning, web plugin only when asked), streaming incl. multi-byte characters split across chunks, citations -> source links, step-down retries when a parameter is rejected, every error class, key and model checks |
 | `manga-reading.test.js` | Real `parsers.js`, `library.js` and `readerTimer.js` with a stand-in `electron`; renderer functions extracted from `data.js` | Display titles from real-world names, rename targets (volume, decimals, ambiguity guard, stable round-trip), first-sight renames on a temp library (known series untouched, busy files retried, undo log), reader timer with a fake `tasklist` (title and process modes, next-file handoff), MAL progress -> checkmarks and the sync-paused lock, built-in reader page listing / `page://` serving / path refusal |
 | `file-ops.test.js` | Real move/placement code from `main/` in `vm` with a fake EXDEV `fs` | Cross-drive moves copy then delete and never clobber, failed copies roll back, whole-folder placement and merge |
@@ -144,10 +144,11 @@ run these inside the packaged app after meaningful changes (~5 minutes):
    into the bubble, Stop aborts mid-stream, API errors show their text. The key must never appear in DevTools network
    or config reads (it lives only in the main process).
 8. **Page translation** — with a key saved, open a raw chapter in the built-in
-   reader, press `T`: a "Translating…" chip, then white boxes over the
-   bubbles; hover shows the original; zoom, Double and Long strip keep the
-   boxes in place. Close and reopen the chapter: the boxes return with no new
-   OpenRouter charge (check the OpenRouter activity page).
+   reader, press `T`: "Translating 2 pages…" bottom left, then the page comes
+   back lettered: original text gone, outlines intact, English inside every
+   balloon, no split words. `T` shows the original again; zoom, Double and Long
+   strip keep the lettered page. Close and reopen the chapter: lettered again
+   with no new OpenRouter charge (check the OpenRouter activity page).
 
 ---
 
@@ -276,6 +277,34 @@ recorded loss event (2026-08-22) had an off-screen cause that was never identifi
 - Content scrolls under the title bar: `.mc` has `padding-top: var(--titlebar-h)`,
   and sticky children use `top: 0` (Chromium measures sticky offsets from the
   scroller's padding edge). Use `chromeTop()` when comparing positions.
+
+## Manga page translation (5.9)
+
+`renderer/typeset.js` does the image work, `main/services/translate.js` the
+model call and the cache. Placement never relies on the model's coordinates:
+
+1. `TS.detect` thresholds the page (paper >= 200 grey), erodes it by about
+   1/450 of the short side so thin leaks don't merge areas, labels white areas
+   and grows them back. A balloon fills >= 66% of its box, has a dark outline
+   around >= 75% of its edge (looked for a few pixels out), 1.2-55% of it is
+   enclosed holes with real ink, and the holes are several small blobs.
+2. `TS.annotate` draws dashed red outlines and number tags on a <= 1600 px copy;
+   the model answers `{region, text}` per balloon, or a 0-1000 box for text
+   outside them. `parseTranslation` drops unknown numbers and sound effects.
+3. `TS.render` erases inside each balloon's convex hull (inset so the outline
+   is never touched): enclosed text, plus pieces touching the edge band only
+   at a small contact and dense like lettering, plus off-white speckle near
+   them, in the balloon's median paper colour. It then fits the text into the
+   balloon's row spans (whole words, hyphen and CJK breaks), evens lines out,
+   caps each balloon at 1.2x the page median size, and draws in Comic Neue.
+   Box items land on an unclaimed balloon under them, or get a panel in their
+   own background colour.
+
+The lettered page (JPEG, <= 2400 px) replaces the `<img>` src, so zoom and every
+mode just work. Bump `PROMPT_VERSION` in `translate.js` when the prompt or the
+numbering changes; saved answers are keyed by it. Tuning pages:
+`tests/manga-translation.test.js` covers the rules on a drawn page; real pages
+need a look by eye.
 
 ## Main-process modules (5.2)
 

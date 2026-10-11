@@ -19,15 +19,18 @@ All nine "Next up" items, plus manga translation from "Later":
 9. CI runs on `windows-latest` too (needed `.gitattributes` for LF checkouts).
 - **Manga translation in the reader** (`main/services/translate.js`, Translate
   tool `T`). Built from scratch with the same approach as the browser
-  extension, which isn't on GitHub. Not yet tried against the live OpenRouter
-  API from this environment (no key here): the first real run should check
-  box placement on a few raw chapters, and whether Haiku 5.5 is good enough
-  or Sonnet 5.5 should be the default.
+  extension, which isn't on GitHub. Reworked after the first real test: the
+  reader now finds the balloons itself, numbers them for the model, erases
+  the original text and letters the translation into each balloon
+  (`renderer/typeset.js`). Checked on the owner's page (as a re-lettered
+  stand-in) at 1x and 2x; the live model call is still untried here (no key).
 
 ## Next up (in order)
 
-1. **Try translation on real chapters** (owner, with a key) and tune
-   `buildPrompt` or the default model from what you see.
+1. **Try translation on real chapters** (owner, with a key). Things to watch:
+   balloons on grey screentone or without an outline (they fall back to the
+   model's box), very small "!?" balloons, and whether Haiku 5.5 names the
+   balloon numbers reliably or Sonnet 5.5 should be the default.
 2. **Electron smoke test in CI** (below): it would have caught the CRLF
    problem and would cover the reader, translation overlay and protocols.
 3. **Unescaped HTML check**, then the **empty `catch` pass**.

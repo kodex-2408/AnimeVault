@@ -315,6 +315,13 @@ function register() {
     if (!s || s.kind !== 'pdf') return null;
     return fs.readFileSync(s.filePath);
   });
+  // A page's own bytes, for the translator (it reads the pixels).
+  ipcMain.handle('reader:pageData', async (_, token, index) => {
+    const s = sessions.get(String(token || ''));
+    const item = s && s.kind === 'pages' ? s.pages[Number(index)] : null;
+    if (!item) return null;
+    try { return await item.read(); } catch (e) { return null; }
+  });
   ipcMain.handle('reader:close', (_, token) => { sessions.delete(String(token || '')); return true; });
 }
 
