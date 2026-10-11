@@ -17,6 +17,8 @@ contextBridge.exposeInMainWorld('api', {
   minimize: () => invoke('window:minimize'),
   maximize: () => invoke('window:maximize'),
   close: () => invoke('window:close'),
+  setFullScreen: (on) => invoke('window:setFullScreen', on),
+  isFullScreen: () => invoke('window:isFullScreen'),
   setMinimizeToTray: (enabled) => invoke('window:setMinimizeToTray', enabled),
 
   // Config
@@ -134,6 +136,7 @@ contextBridge.exposeInMainWorld('api', {
   openMangaFile: (filePath, seriesName, chapterNum) => invoke('manga:openFile', filePath, seriesName, chapterNum),
   readerOpen: (filePath) => invoke('reader:open', filePath),
   readerClose: (token) => invoke('reader:close', token),
+  readerFileData: (token) => invoke('reader:fileData', token),
   detectMangaReaders: () => invoke('manga:detectReaders'),
 
   // Watcher

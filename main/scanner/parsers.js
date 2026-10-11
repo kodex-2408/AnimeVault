@@ -8,7 +8,7 @@ const fs = require('fs');
 const { config } = require('../state');
 
 const VIDEO_EXTS = ['.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v', '.ts'];
-const MANGA_EXTS = ['.cbz', '.cbr', '.zip', '.pdf', '.epub'];
+const MANGA_EXTS = ['.cbz', '.cbr', '.zip', '.pdf', '.epub', '.mobi'];
 // Files handed to a player, reader or the OS default handler must be media —
 // never scripts or executables that happen to live in a library folder.
 function assertPlayableMedia(filePath, exts) {

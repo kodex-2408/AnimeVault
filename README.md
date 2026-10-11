@@ -2,7 +2,7 @@
 
 A personal desktop anime & manga library manager built with Electron. Organize your local collection, track watch/read progress, explore new titles, download via Nyaa.si, and sync with MyAnimeList — all in one app.
 
-**Current version: 5.6.0 — Built-in manga reader, clean chapter names, MAL checkmarks.** See [docs/CHANGELOG.md](docs/CHANGELOG.md) for release history and [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for engineering notes.
+**Current version: 5.7.0 — Reader zoom, PDF / EPUB / MOBI, real fullscreen.** See [docs/CHANGELOG.md](docs/CHANGELOG.md) for release history and [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for engineering notes.
 
 ---
 
@@ -13,7 +13,7 @@ Toggle the **Anime / Manga** pill in the titlebar to switch modes:
 - **Separate libraries** — Independent anime and manga folders with isolated watch/read histories
 - **MAL manga sync** — All API calls route to `/manga/` endpoints (chapters read, manga list, manga details)
 - **File support** — Scans `.cbz`, `.cbr`, `.zip`, `.pdf`; parses chapter numbers from filenames
-- **Built-in reader** — Single page, double page or long strip, left-to-right or right-to-left, marks chapters read as you reach the end (.cbz / .cbr)
+- **Built-in reader** — Single page, double page or long strip, left-to-right or right-to-left, zoom, fullscreen, marks chapters read as you reach the end (.cbz / .cbr / .pdf / .epub / .mobi)
 - **Reader integration** — Or opens manga files with your configured reader (CDisplayEx, OpenComic, SumatraPDF, calibre…) or system default, and marks a chapter read after a reading time you choose (default 2 min)
 - **Nyaa manga** — Searches Nyaa category `c=3_1` (English-translated manga)
 - **Smart labels** — UI adapts automatically: Ep → Ch, Watching → Reading, Plan to Watch → Plan to Read

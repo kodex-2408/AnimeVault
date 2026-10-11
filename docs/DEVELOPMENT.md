@@ -14,7 +14,7 @@ User-facing release history lives in [CHANGELOG.md](CHANGELOG.md).
 | `main/state.js` | The settings object `config` (loaded in place, never reassigned) and `state` — runtime handles shared across modules (`mainWindow`, `tray`, `isQuitting`, library cache). Always `state.mainWindow`, never a local copy |
 | `main/config/` | `config.js` (config.json load/save, shrink guard, backups, Luma key, watch-history helpers, `config:*`), `security.js` (path containment, validators), `backup.js` (export/import, backup/restore) |
 | `main/scanner/` | `parsers.js` (filenames), `library.js` (layout, scan, index, `library:*`), `history.js` (`watch:*`), `organizer.js` (`manager:*`), `watcher.js`, `duplicates.js` |
-| `main/players/` | `player.js` (launch, auto-mark poller, thumbnails, manga reader), `readerTimer.js` (reading timer for external manga readers, via window titles), `reader.js` (built-in reader: archive page listing, `page://` protocol), `mpv.js`, `vlc.js` |
+| `main/players/` | `player.js` (launch, auto-mark poller, thumbnails, manga reader), `readerTimer.js` (reading timer for external manga readers, via window titles), `reader.js` (built-in reader: comic archives, EPUB and MOBI parsing, PDF hand-off to pdf.js, `page://` protocol), `mpv.js`, `vlc.js` |
 | `main/services/` | `covers.js`, `anilist.js`, `mal.js`, `nyaa.js`, `downloads.js` (auto-download wiring), `ai.js` (Luma handlers) |
 | `main/window/` | `window.js` (window + `window:*`), `tray.js`, `protocol.js` (`cover://` handler) |
 | `main/ipc/` | `registerHandlers.js` calls every module's `register()` (where its `ipcMain.handle` calls live); `system.js` holds dialog/shell handlers |

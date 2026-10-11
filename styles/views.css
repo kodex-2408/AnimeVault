@@ -94,18 +94,22 @@
 /* Sticky offsets inside .mc are measured from its padding edge, which already
    clears the title bar — so top: 0 docks right beneath the floating controls. */
 .toolbar { position: sticky; top: 0; z-index: 30; margin: 0 calc(var(--pad-x) * -1) 6px; padding: 10px var(--pad-x); }
-/* Once docked, one glass layer spans the toolbar AND the title-bar zone above
-   it, so the two read as a single surface instead of content peeking between
-   them. (The blur lives on the pseudo-element alone: a backdrop-filter nested
-   in another backdrop-filter has nothing to sample.) */
-.toolbar::before { content: ''; position: absolute; z-index: -1; left: -100vw; right: -100vw; top: calc(var(--titlebar-h) * -1); bottom: -18px; pointer-events: none; opacity: 0;
+/* Once docked, the toolbar's glass covers its own band and the title bar's
+   glass (base.css) switches to the same tint, unmasked, from window edge to
+   window edge, so the two read as one surface. The toolbar layer lives in the
+   content column, which clips it at the sidebar: it must not draw the title
+   bar zone itself or the blur stops halfway across the window. (The blur lives
+   on the pseudo-element alone: a backdrop-filter nested in another
+   backdrop-filter has nothing to sample.) */
+.toolbar::before { content: ''; position: absolute; z-index: -1; left: -100vw; right: -100vw; top: 0; bottom: -18px; pointer-events: none; opacity: 0;
   /* spans the whole content column (the scroller clips it at its edges) and
      fades out at the bottom like a scroll edge instead of ending in a hard bar */
   background: color-mix(in srgb, var(--bg) 62%, transparent); backdrop-filter: blur(24px) saturate(130%);
   -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 26px), transparent);
   transition: opacity var(--dur-2) var(--ease-soft); }
 .toolbar.stuck::before { opacity: 1; }
-body:has(.toolbar.stuck) .titlebar::before { opacity: 0; }
+body:has(.toolbar.stuck) .titlebar::before { opacity: 1; bottom: 0; -webkit-mask-image: none;
+  background: color-mix(in srgb, var(--bg) 62%, transparent); backdrop-filter: blur(24px) saturate(130%); }
 .toolbar-inner { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; max-width: var(--content-max); margin: 0 auto; }
 .toolbar .search { flex: 1 1 200px; min-width: 180px; max-width: 380px; }
 .toolbar-sep { width: 1px; height: 20px; background: var(--hairline-strong); margin: 0 4px; }

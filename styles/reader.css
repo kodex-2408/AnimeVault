@@ -12,8 +12,13 @@
 @keyframes rd-in { from { opacity: 0; } to { opacity: 1; } }
 
 .rd-stage { position: absolute; inset: 0; overflow: auto; outline: none; scrollbar-width: thin; }
-.rd-spread { min-height: 100%; display: flex; align-items: center; justify-content: center; gap: 0; }
+/* Zoom (Ctrl + wheel, the bottom-right control) scales the pages with CSS
+   zoom: page sizes in vw/vh grow with it while min-width/min-height: 100%
+   keep small pages centred, and "safe" centring keeps every edge of a large
+   page reachable by scrolling. */
+.rd-spread { zoom: var(--rd-zoom, 1); min-height: 100%; min-width: 100%; width: max-content; display: flex; align-items: safe center; justify-content: safe center; gap: 0; }
 .rd-page { display: block; flex: none; user-select: none; -webkit-user-drag: none; }
+.rd-page.rd-pending { aspect-ratio: 0.707; min-width: 120px; background: var(--fill-1); }
 
 /* single / double */
 .rd-fit-height .rd-spread .rd-page { height: 100vh; width: auto; max-width: calc(100vw - 2 * var(--rd-gutter)); object-fit: contain; }
@@ -26,12 +31,29 @@
 .rd-fit-original .rd-spread .rd-page { max-width: none; }
 
 /* long strip */
-.rd-strip .rd-stage { display: flex; flex-direction: column; align-items: center; }
+.rd-col { zoom: var(--rd-zoom, 1); display: flex; flex-direction: column; align-items: safe center; min-width: 100%; width: max-content; }
 .rd-strip .rd-page { width: min(860px, calc(100vw - 2 * var(--rd-gutter))); height: auto; min-height: 200px; }
 .rd-strip.rd-fit-width .rd-page { width: calc(100vw - 2 * var(--rd-gutter)); }
 .rd-strip.rd-fit-height .rd-page { height: 100vh; width: auto; max-width: calc(100vw - 2 * var(--rd-gutter)); object-fit: contain; min-height: 0; }
 .rd-strip.rd-fit-original .rd-page { width: auto; max-width: none; }
 .rd-end { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; align-items: center; padding: 48px 16px 96px; }
+
+/* text books (EPUB, MOBI): one readable column; zoom scales the type instead */
+.rd-text .rd-col { zoom: 1; width: auto; }
+.rd-book {
+  width: min(42em, calc(100vw - 2 * var(--rd-gutter))); padding: 72px 0 0;
+  font-family: Georgia, "Iowan Old Style", "Palatino Linotype", serif;
+  font-size: calc(18px * var(--rd-zoom, 1)); line-height: 1.65; color: var(--text-1);
+  overflow-wrap: break-word;
+}
+.rd-book .rd-sec + .rd-sec { margin-top: 2.5em; padding-top: 2.5em; border-top: 1px solid var(--hairline); }
+.rd-book h1, .rd-book h2, .rd-book h3, .rd-book h4 { font-family: var(--font-display); line-height: 1.25; margin: 1.4em 0 .6em; }
+.rd-book p { margin: 0 0 .9em; }
+.rd-book img { display: block; max-width: 100%; height: auto; margin: 1.2em auto; border-radius: 4px; }
+.rd-book blockquote { margin: 1em 0; padding-left: 1em; border-left: 3px solid var(--hairline-strong); color: var(--text-2); }
+.rd-book table { border-collapse: collapse; margin: 1em 0; }
+.rd-book td, .rd-book th { border: 1px solid var(--hairline-strong); padding: .3em .6em; }
+.rd-book pre { white-space: pre-wrap; font-family: var(--font-mono); font-size: .85em; }
 
 /* chapter switcher, top right */
 .rd-chip {
@@ -46,6 +68,17 @@
 .rd-chip-btn:hover:not(:disabled) { color: var(--text-1); background: var(--fill-3); }
 .rd-chip-btn:disabled { opacity: .35; cursor: default; }
 .rd-chip-btn svg { width: 15px; height: 15px; }
+
+/* zoom control, bottom right: − 100% + */
+.rd-zoom {
+  position: absolute; bottom: 14px; right: 14px; display: flex; align-items: center; gap: 2px;
+  padding: 4px; border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--surface-1) 88%, transparent);
+  box-shadow: inset 0 0 0 1px var(--hairline-strong), var(--shadow-1);
+}
+.rd-zoom-val { min-width: 52px; height: 30px; padding: 0 6px; border-radius: var(--r-pill); font-size: 12.5px; font-weight: 650; font-variant-numeric: tabular-nums; color: var(--text-1); }
+.rd-zoom-val:hover { background: var(--fill-2); }
+.rd-zoomed .rd-zoom-val { color: var(--accent-text); }
 
 /* tools, right edge */
 .rd-tools {

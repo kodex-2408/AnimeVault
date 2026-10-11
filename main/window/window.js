@@ -73,6 +73,16 @@ function register() {
       else state.mainWindow.maximize();
     }
   });
+  // The reader's fullscreen button: the whole window goes fullscreen (not just
+  // an element inside it). Returns the new state.
+  ipcMain.handle('window:setFullScreen', (_, on) => {
+    const w = state.mainWindow;
+    if (!w || w.isDestroyed()) return false;
+    w.setFullScreen(!!on);
+    return w.isFullScreen();
+  });
+  ipcMain.handle('window:isFullScreen', () => !!(state.mainWindow && !state.mainWindow.isDestroyed() && state.mainWindow.isFullScreen()));
+
   ipcMain.handle('window:close', () => {
     if (state.mainWindow) {
       if (config.minimizeToTray) {

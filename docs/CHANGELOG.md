@@ -3,6 +3,42 @@
 All notable changes, newest first. Engineering context — test guide, security
 posture, design decisions, open roadmap — lives in [DEVELOPMENT.md](DEVELOPMENT.md).
 
+## 5.7.0 — Reader zoom, PDF / EPUB / MOBI, real fullscreen, visual fixes
+
+- **Zoom in the built-in reader.** Ctrl + scroll wheel, Ctrl + / − / 0, or the
+  new − 100% + control in the bottom-right corner (click the percentage to
+  reset). Pages keep the spot under the view while they grow, every edge of
+  a zoomed page can be scrolled to, and the zoom is remembered. In text books
+  zoom changes the type size.
+- **PDF, EPUB and MOBI open in the built-in reader.**
+  - PDF pages are drawn with pdf.js (bundled; CJK fonts included) and behave
+    like comic pages: single, double, long strip, fit and direction.
+  - EPUB comics (one picture per page) read as pages; text EPUBs show as one
+    readable column with their pictures. Book HTML is sanitized: scripts,
+    styles, links, event handlers and remote pictures are removed.
+  - MOBI comics (Kindle Comic Converter style) read as pages in the book's
+    order, without the cover/thumbnail copies. MOBI text books with standard
+    PalmDOC compression show as text; the rarer HUFF/CDIC-compressed books
+    and AZW3 still open in your reader app.
+  - Progress, "marked read at N%" and the resume position work the same for
+    text (by how far you have scrolled).
+- **Fullscreen means the whole app.** The reader's fullscreen button now puts
+  the AnimeVault window in fullscreen; pressing it again or Esc brings the
+  window back to its normal size (Esc no longer closes the reader while in
+  fullscreen). Closing the reader also leaves fullscreen.
+- **Visual fixes.**
+  - Continue watching/reading cards: the hover shadow now animates and stays
+    rounded (the hover shadow no longer swapped the inset ring for an
+    unanimatable list, and the shelf no longer clips the shadow square).
+  - Series cards: the lifted, slightly enlarged cover no longer hits an
+    invisible square corner (paint containment on the card clipped it).
+  - Title bar: when content scrolls under it, the frosted glass now runs
+    from the window's left edge to its right edge instead of stopping at the
+    sidebar, including on pages with the docked filter bar.
+- Tests: EPUB comic/novel parsing, MOBI comic/text/HUFF handling (with a
+  MOBI builder in `tests/mobi-fixture.js`), PalmDOC round trip, `page://`
+  pictures for books, and the PDF kind; 78 assertions in `manga-reading`.
+
 ## 5.6.0 — Built-in manga reader, clean chapter names, MAL checkmarks
 
 - **Built-in manga reader.** Chapters (.cbz/.zip and .cbr/.rar) open inside

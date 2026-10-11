@@ -209,6 +209,10 @@ function validateRendererConfigValue(key, value) {
     if (value != null && (!Number.isInteger(value) || value < 15 || value > 3600)) throw new Error('Reading time must be 15-3600 seconds');
     return;
   }
+  if (key === 'readerZoom') {
+    if (value != null && (!Number.isInteger(value) || value < 30 || value > 400)) throw new Error('Reader zoom must be 30-400%');
+    return;
+  }
   if (key === 'readerMarkPercent') {
     if (value != null && (!Number.isInteger(value) || value < 10 || value > 100)) throw new Error('Mark-read share must be 10-100%');
     return;
