@@ -3,12 +3,12 @@
 // main/scanner/library.js - library layout (category containers), the
 // incremental library scan and its index, and library:* handlers.
 
-const { ipcMain } = require('electron');
+const { app, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { state, config } = require('../state');
 const { LIBRARY_INDEX_PATH, getWatchHistoryStore, safeHistoryKey, saveConfig } = require('../config/config');
-const { assertPlayableMedia, getMangaFiles, getVideoFiles, parseChapterNumber, parseEpisodeNumber, parseMediaNumber } = require('./parsers');
+const { assertPlayableMedia, getMangaFiles, getVideoFiles, mangaChapterFileName, mediaDisplayTitle, parseChapterNumber, parseEpisodeNumber, parseMediaNumber } = require('./parsers');
 const { getExistingCoverCachePath } = require('../services/covers');
 const { coverFileVersion } = require('../services/anilist');
 const { scheduleDuplicateCheck } = require('./duplicates');
@@ -190,6 +190,49 @@ function getConfiguredAnimeSeriesNames() {
   return names;
 }
 
+// ---- Auto-rename for new manga series ----------------------------------------
+// The first time a manga series folder shows up in the library its chapter
+// files are renamed to "Series - Ch 012 - Title.cbz". Folders the library
+// already knew are never touched, and the very first scan after this feature
+// arrives (or the first scan of a newly added library folder) only records
+// what is there. A folder whose files are still being
+// copied is retried on the next scan. Renames go to the organizer's undo log.
+const MANGA_RENAME_IDLE_MS = 60 * 1000;
+function autoRenameMangaFolder(seriesPath, seriesName, moves) {
+  let pending = false;
+  const taken = new Set();
+  let files;
+  try { files = getMangaFiles(seriesPath, false); } catch (e) { return { done: false }; }
+  for (const f of files) taken.add(f.name.toLowerCase());
+  for (const f of files) {
+    const target = mangaChapterFileName(f.name, seriesName);
+    if (!target || target === f.name || target.length > 240) continue;
+    if (target.toLowerCase() === f.name.toLowerCase()) continue;
+    if (taken.has(target.toLowerCase())) continue;
+    try {
+      if (Date.now() - fs.statSync(f.path).mtimeMs < MANGA_RENAME_IDLE_MS) { pending = true; continue; }
+      const to = path.join(seriesPath, target);
+      if (fs.existsSync(to)) continue;
+      fs.renameSync(f.path, to);
+      taken.delete(f.name.toLowerCase());
+      taken.add(target.toLowerCase());
+      moves.push({ from: to, to: f.path });
+    } catch (e) {
+      pending = true; // locked or still copying: try again next scan
+      console.warn('[AutoRename]', f.name, e.message);
+    }
+  }
+  return { done: !pending };
+}
+function recordAutoRenames(moves) {
+  if (!moves.length) return;
+  console.log('[AutoRename] Renamed', moves.length, 'chapter file(s)');
+  try {
+    fs.writeFileSync(path.join(app.getPath('userData'), 'format-undo.json'),
+      JSON.stringify({ version: 2, label: 'Auto-rename new manga chapters', createdAt: new Date().toISOString(), moves }));
+  } catch (e) { console.warn('[AutoRename] Undo log not written:', e.message); }
+}
+
 function _doScanLibrary(force = false) {
   const startedAt = Date.now();
   const isManga = config.vaultMode === 'manga';
@@ -203,15 +246,36 @@ function _doScanLibrary(force = false) {
   lastScanStats = { cacheHits: 0, cacheMisses: 0, durationMs: 0, series: 0 };
 
   const library = [];
+  // Manga series folders seen before; null on the first scan with this feature.
+  const firstRenamePass = isManga && (!config.mangaSeenSeries || typeof config.mangaSeenSeries !== 'object');
+  const seenSeries = isManga ? (firstRenamePass ? {} : config.mangaSeenSeries) : null;
+  let seenChanged = firstRenamePass;
+  const renameMoves = [];
   for (const folder of (activeFolders || [])) {
     if (!folder || !folder.path || !fs.existsSync(folder.path)) continue;
+    // A library folder added later (an existing collection) is recorded, not
+    // renamed, the same as the very first scan.
+    const rootKey = 'root:' + path.resolve(folder.path).toLowerCase();
+    const seedOnly = firstRenamePass || (seenSeries && !seenSeries[rootKey]);
+    if (seenSeries && !seenSeries[rootKey]) { seenSeries[rootKey] = 1; seenChanged = true; }
     try {
       for (const dir of listSeriesDirs(folder)) {
         const seriesPath = dir.path;
-        liveIndexKeys.add(path.resolve(seriesPath).toLowerCase());
+        const seriesKey = path.resolve(seriesPath).toLowerCase();
+        liveIndexKeys.add(seriesKey);
+        let renamedHere = false;
+        if (seenSeries && !dir.containerOnly && !seenSeries[seriesKey]) {
+          let done = true;
+          if (!seedOnly && config.mangaAutoRename !== false) {
+            const before = renameMoves.length;
+            done = autoRenameMangaFolder(seriesPath, dir.name, renameMoves).done;
+            renamedHere = renameMoves.length > before;
+          }
+          if (done) { seenSeries[seriesKey] = 1; seenChanged = true; }
+        }
         // A category container only contributes its own loose files, never its
         // series subfolders a second time.
-        const files = (dir.containerOnly ? scanner(seriesPath, false) : getIndexedMediaFiles(seriesPath, scanner, mode, !!force)).map(f => ({...f, episodeNum: parseMediaNumber(f.name)}));
+        const files = (dir.containerOnly ? scanner(seriesPath, false) : getIndexedMediaFiles(seriesPath, scanner, mode, !!force || renamedHere)).map(f => { const episodeNum = parseMediaNumber(f.name); return { ...f, episodeNum, title: mediaDisplayTitle(f.name, dir.name, episodeNum) }; });
         if (files.length === 0) continue;
 
         // Parse all episode numbers
@@ -265,7 +329,9 @@ function _doScanLibrary(force = false) {
   const bucket = readLibraryIndex()[mode] || {};
   Object.keys(bucket).forEach(key => { if (!liveIndexKeys.has(key)) delete bucket[key]; });
   scheduleLibraryIndexSave();
-  if (migratedHistory) saveConfig();
+  recordAutoRenames(renameMoves);
+  if (seenChanged) config.mangaSeenSeries = seenSeries;
+  if (migratedHistory || seenChanged) saveConfig();
   state.lastLibraryScan = library;
   state.libraryScanReady = true;
   lastScanStats.durationMs = Date.now() - startedAt;
@@ -322,7 +388,7 @@ function register() {
     const fileScanner = isManga ? getMangaFiles : getVideoFiles;
     const numParser = isManga ? parseChapterNumber : parseEpisodeNumber;
     return fileScanner(seriesPath, true)
-      .map(f => ({ ...f, episodeNum: numParser(f.name) }))
+      .map(f => { const episodeNum = numParser(f.name); return { ...f, episodeNum, title: mediaDisplayTitle(f.name, path.basename(seriesPath), episodeNum) }; })
       .sort((a, b) => {
         const an = Number(a.episodeNum);
         const bn = Number(b.episodeNum);

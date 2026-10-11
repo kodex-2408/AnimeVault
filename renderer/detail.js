@@ -161,23 +161,29 @@ act('openFolderPath',function(el,ev,p){api.openFolder(p);});
 act('setEpView',function(el,ev,v){S.epView=v;if(S.cur)odtl(S.cur.name);});
 act('toggleTrackSwitch',function(el,ev,name,malId){toggleAutoDownloadTrack(name,malId);});
 
+// A cleaned title from the scanner: "" for an untitled chapter/episode, so the
+// card shows just its number. Files without a number keep their name.
+function epTitle(ep){
+  if(typeof ep.title!=='string')return ep.name;
+  return ep.title||(ep.episodeNum===null?ep.name:'');
+}
 function renderDetailEpisodes(eps,s,ws){
-  var h='';
+  var h='',locked=checkmarksLocked(),lockCls=locked?' locked':'';
   if(S.epView==='grid'){
     h+='<div class="ep-grid">';
     eps.forEach(function(ep){var n=ep.episodeNum;var w=n!==null&&ws.has(n);
       h+='<div class="ep'+(w?' watched':'')+'"'+A('playEpisode',s.name,ep.path,n)+' tabindex="0" role="button"'+Tip(ep.name)+'>'
-        +'<div class="ep-num">'+(n!==null?n:'?')+'</div><div class="ep-name">'+E(ep.name)+'</div><div class="ep-size">'+fmtBytes(ep.size)+'</div>'
-        +(n!==null?'<button class="ep-check"'+A('toggleWatched',s.name,n,w)+(w?Tip('Mark as not '+watchedLabel()):Tip('Mark as '+watchedLabel()))+'>'+ic('check')+'</button>':'')
+        +'<div class="ep-num">'+(n!==null?n:'?')+'</div>'+(epTitle(ep)?'<div class="ep-name">'+E(epTitle(ep))+'</div>':'')+'<div class="ep-size">'+fmtBytes(ep.size)+'</div>'
+        +(n!==null?'<button class="ep-check'+lockCls+'"'+A('toggleWatched',s.name,n,w)+(locked?Tip('MAL sync is paused, so checkmarks are locked'):w?Tip('Mark as not '+watchedLabel()):Tip('Mark as '+watchedLabel()))+'>'+ic('check')+'</button>':'')
         +'<span class="ep-play">'+ic('play')+'</span></div>';
     });
     h+='</div>';
   }else{
     h+='<div class="list-group ep-list">';
     eps.forEach(function(ep){var n=ep.episodeNum;var w=n!==null&&ws.has(n);
-      h+='<div class="lg-row clickable ep-row'+(w?' watched':'')+'"'+A('playEpisode',s.name,ep.path,n)+'>'
-        +'<div class="ep-row-num">'+(n!==null?n:'?')+'</div><div class="lg-main"><div class="lg-title ellipsis">'+E(ep.name)+'</div><div class="lg-desc">'+fmtBytes(ep.size)+'</div></div>'
-        +(n!==null?'<button class="ep-check"'+A('toggleWatched',s.name,n,w)+'>'+ic('check')+'</button>':'')+'</div>';
+      h+='<div class="lg-row clickable ep-row'+(w?' watched':'')+'"'+A('playEpisode',s.name,ep.path,n)+Tip(ep.name)+'>'
+        +'<div class="ep-row-num">'+(n!==null?n:'?')+'</div><div class="lg-main">'+(epTitle(ep)?'<div class="lg-title ellipsis">'+E(epTitle(ep))+'</div>':'')+'<div class="lg-desc">'+fmtBytes(ep.size)+'</div></div>'
+        +(n!==null?'<button class="ep-check'+lockCls+'"'+A('toggleWatched',s.name,n,w)+(locked?Tip('MAL sync is paused, so checkmarks are locked'):'')+'>'+ic('check')+'</button>':'')+'</div>';
     });
     h+='</div>';
   }

@@ -174,8 +174,10 @@ Store.subscribe(['pendingNewSeries','activities'],updateNavBadges);
 function toggleSync(){
   if(!S.mal){go('mal');return;}
   S.cfg.syncPaused=!S.cfg.syncPaused;api.setConfig('syncPaused',S.cfg.syncPaused);Store.notify('cfg');
-  toast(S.cfg.syncPaused?'MAL sync paused':'MAL sync resumed','i');
+  toast(S.cfg.syncPaused?'MAL sync paused. Checkmarks are locked until you resume':'MAL sync resumed','i');
   if(S.view==='mal')render();
+  if(S.cur)odtl(S.cur.name);
+  if(!S.cfg.syncPaused)pullMalStatuses({force:true});
 }
 
 // ------------------------------------------------------------ keyboard map --

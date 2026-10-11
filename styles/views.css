@@ -233,6 +233,10 @@ body:has(.toolbar.stuck) .titlebar::before { opacity: 0; }
 .ep-check:hover { color: var(--text-2); box-shadow: inset 0 0 0 1.5px var(--green); }
 .ep-check:active { transform: scale(.8); }
 .ep.watched .ep-check, .ep-row.watched .ep-check { background: var(--green); color: #fff; box-shadow: 0 2px 8px rgba(var(--green-rgb), .4); }
+.ep-check.locked { cursor: not-allowed; opacity: .6; }
+.ep-check.locked:hover { color: transparent; box-shadow: inset 0 0 0 1.5px var(--hairline-strong); }
+.ep.watched .ep-check.locked:hover, .ep-row.watched .ep-check.locked:hover { color: #fff; box-shadow: none; }
+.ep-check.locked:active { transform: none; }
 .ep.watched { background: transparent; }
 .ep.watched .ep-num { color: var(--text-3); }
 .ep-play { position: absolute; right: 10px; bottom: 10px; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: var(--on-accent); opacity: 0; transform: scale(.6); transition: opacity var(--dur-2), transform var(--dur-3) var(--ease-spring); }

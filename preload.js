@@ -131,7 +131,7 @@ contextBridge.exposeInMainWorld('api', {
   managerRenameSeries: (seriesPath, oldName, newName) => invoke('manager:renameSeries', seriesPath, oldName, newName),
 
   // Manga
-  openMangaFile: (filePath) => invoke('manga:openFile', filePath),
+  openMangaFile: (filePath, seriesName, chapterNum) => invoke('manga:openFile', filePath, seriesName, chapterNum),
   detectMangaReaders: () => invoke('manga:detectReaders'),
 
   // Watcher

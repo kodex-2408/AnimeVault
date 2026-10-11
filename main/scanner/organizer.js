@@ -8,7 +8,7 @@ const path = require('path');
 const fs = require('fs');
 const { config } = require('../state');
 const { assertAllowedChildFileActionPath, assertAllowedFileActionPath, isAllowedFileActionPath, isSafeFileName, moveNoClobber } = require('../config/security');
-const { cleanFolderName, detectResolution, extractSeriesName, getMangaFiles, getVideoFiles, parseChapterNumber, parseEpisodeNumber, parseMangaFilename, parseVideoFilename } = require('./parsers');
+const { cleanFolderName, detectResolution, extractSeriesName, getMangaFiles, getVideoFiles, mangaChapterFileName, parseChapterNumber, parseEpisodeNumber, parseMangaFilename, parseVideoFilename } = require('./parsers');
 const { getModeConfigMap, getTitleAlias, getWatchHistoryStore, saveConfig } = require('../config/config');
 const { getCoverCachePath, getExistingCoverCachePath } = require('../services/covers');
 const { _doScanLibrary } = require('./library');
@@ -23,13 +23,13 @@ function saveOrganizerUndo(label, moves) {
 function organizerMediaScanner() {
   return config.vaultMode === 'manga' ? getMangaFiles : getVideoFiles;
 }
-// "Series - 05 (1080p) (HEVC).mkv" / "Series - Ch 05.cbz" for a known series name.
+// "Series - 05 (1080p) (HEVC).mkv" / "Series - Ch 005 - Title.cbz" for a known series name.
 function buildMediaFileName(seriesName, fileName) {
   const ext = path.extname(fileName);
   if (config.vaultMode === 'manga') {
     const ch = parseChapterNumber(fileName);
-    if (ch === null || !(ch > 0)) return null;
-    return `${seriesName} - Ch ${String(ch).padStart(2, '0')}${ext}`;
+    if (ch === null || !(ch >= 0)) return null;
+    return mangaChapterFileName(fileName, seriesName, ch) || `${seriesName} - Ch ${String(ch).padStart(2, '0')}${ext}`;
   }
   const ep = parseEpisodeNumber(fileName);
   if (ep === null || !(ep > 0)) return null;

@@ -227,7 +227,7 @@ function parseMangaFilename(filename, folderName) {
     const seriesInfo = extractSeriesName(base.split(/S\d{1,2}E\d{1,4}/i)[0]);
     if (seriesInfo.title) {
       const sf = s > 1 ? ` S${s}` : '';
-      return { newName: `${seriesInfo.title}${sf} - Ch ${String(e).padStart(2, '0')}${ext}`, series: seriesInfo.title + (s > 1 ? ' S' + s : ''), matched: true };
+      return { newName: mangaChapterFileName(filename, seriesInfo.title + sf, e) || `${seriesInfo.title}${sf} - Ch ${String(e).padStart(2, '0')}${ext}`, series: seriesInfo.title + (s > 1 ? ' S' + s : ''), matched: true };
     }
   }
   m = stripped.match(/^(.*?)(?:\s+(?:(\d)(?:nd|rd|th|st)\s*Season|Season\s*(\d+)|S(\d+)))?\s+-\s+(\d{1,4}(?:\.\d(?!\d))?)(?:\s|$|v\d)/);
@@ -236,7 +236,7 @@ function parseMangaFilename(filename, folderName) {
     const seriesInfo = extractSeriesName(m[1]);
     if (seriesInfo.title) {
       const sf = s > 1 ? ` S${s}` : '';
-      return { newName: `${seriesInfo.title}${sf} - Ch ${String(e).padStart(2, '0')}${ext}`, series: seriesInfo.title + (s > 1 ? ' S' + s : ''), matched: true };
+      return { newName: mangaChapterFileName(filename, seriesInfo.title + sf, e) || `${seriesInfo.title}${sf} - Ch ${String(e).padStart(2, '0')}${ext}`, series: seriesInfo.title + (s > 1 ? ' S' + s : ''), matched: true };
     }
   }
   m = stripped.match(/^(.*?)\s+-\s+(\d{1,4}(?:\.\d(?!\d))?)\s*$/);
@@ -244,7 +244,7 @@ function parseMangaFilename(filename, folderName) {
     const e = parseFloat(m[2]);
     const seriesInfo = extractSeriesName(m[1]);
     if (seriesInfo.title) {
-      return { newName: `${seriesInfo.title} - Ch ${String(e).padStart(2, '0')}${ext}`, series: seriesInfo.title, matched: true };
+      return { newName: mangaChapterFileName(filename, seriesInfo.title, e) || `${seriesInfo.title} - Ch ${String(e).padStart(2, '0')}${ext}`, series: seriesInfo.title, matched: true };
     }
   }
   m = stripped.match(/^(.*?)[\s_.-]+(\d{1,4})(?:\s|$)/);
@@ -252,7 +252,7 @@ function parseMangaFilename(filename, folderName) {
     const e = parseInt(m[2]);
     const seriesInfo = extractSeriesName(m[1]);
     if (seriesInfo.title && seriesInfo.title.length > 1) {
-      return { newName: `${seriesInfo.title} - Ch ${String(e).padStart(2, '0')}${ext}`, series: seriesInfo.title, matched: true };
+      return { newName: mangaChapterFileName(filename, seriesInfo.title, e) || `${seriesInfo.title} - Ch ${String(e).padStart(2, '0')}${ext}`, series: seriesInfo.title, matched: true };
     }
   }
   if (folderName) {
@@ -260,7 +260,7 @@ function parseMangaFilename(filename, folderName) {
     if (ep !== null && ep > 0) {
       const seriesInfo = extractSeriesName(folderName);
       const seriesClean = seriesInfo.title || cleanFolderName(folderName);
-      return { newName: `${seriesClean} - Ch ${String(ep).padStart(2, '0')}${ext}`, series: seriesClean, matched: true };
+      return { newName: mangaChapterFileName(filename, seriesClean, ep) || `${seriesClean} - Ch ${String(ep).padStart(2, '0')}${ext}`, series: seriesClean, matched: true };
     }
   }
   return { newName: cleanTitle(base) + ext, series: null, matched: false };
@@ -341,17 +341,116 @@ function parseMediaNumber(filename) {
   return config.vaultMode === 'manga' ? parseChapterNumber(filename) : parseEpisodeNumber(filename);
 }
 
+// ---- Display titles ------------------------------------------------------------
+// What is left of a file name once the extension, release tags, the series name,
+// volume markers and the number itself are gone. A real title survives
+// ("008 - The Type of Girl.cbz" -> "The Type of Girl"); "Chapter 12.cbz",
+// "010.cbz" and "Series - 27.cbz" have none and give "".
+const TECH_TOKEN = /^(?:(?:AAC|DDP|E?AC-?3|FLAC|Opus)[\d.]*|DTS|H\.?26[45]|x26[45]|AV1|HEVC|AVC|JPN|ENG|RAW|WEB|DL|CR|AMZN|NF|DSNP|HMAX|ATVP|HIDIVE|ADN|BILI|\d+\.\d+(?:\.\d+)*)$/i;
+const GENERIC_TITLE = /^(?:ch(?:apter|ap)?|episode|ep|vol(?:ume)?|part|raw|digital|scan(?:s|lation)?|end|v\d)$/i;
+
+function escapeRegExp(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+// "Kaiju No. 8 (2020)" also matches "Kaiju No 8" and "Kaiju.No.8": words in
+// order, any punctuation between them.
+function seriesPrefixRegex(name) {
+  const words = String(name || '').replace(/\(\d{4}\)/g, ' ').match(/[\p{L}\p{N}]+/gu) || [];
+  if (!words.length) return null;
+  return new RegExp('^[\\W_]*' + words.map(escapeRegExp).join('[\\W_]+') + '(?=[\\W_]|$)', 'iu');
+}
+
+function mediaDisplayTitle(fileName, seriesName, num) {
+  let t = path.parse(String(fileName || '')).name;
+  t = t.replace(/\[[^\]]*\]/g, ' ').replace(/\{[^}]*\}/g, ' ');
+  // One-word or technical parentheses are tags ("(Digital)", "(2023)", "(1r0n)");
+  // "(Part 2)" is part of a title.
+  t = t.replace(/\(([^()]*)\)/g, (m, inner) => (/^\s*\S+\s*$/.test(inner) || /\b(?:digital|scans?|c2c|\d{3,4}p)\b/i.test(inner)) ? ' ' : m);
+  // Scene names ("Show.S01E05.Title.1080p") use dots for spaces; decimals
+  // such as "10.1" keep theirs.
+  const scene = !/\s/.test(t.trim());
+  t = t.replace(RELEASE_GROUP_TAIL, '$1 ').replace(RELEASE_META_STRIP, ' ');
+  if (scene) t = t.replace(/(?<=\D)\.|\.(?=\D)/g, ' ');
+  t = t.replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
+
+  const variants = [seriesName];
+  const base = String(seriesName || '').replace(/\s+(?:S\d{1,2}|Season\s*\d{1,2}|\d(?:st|nd|rd|th)\s+Season)\s*$/i, '');
+  if (base !== seriesName) variants.push(base);
+  for (const v of variants) {
+    const re = seriesPrefixRegex(v);
+    if (re && re.test(t)) { t = t.replace(re, ''); break; }
+  }
+  const SEP = /^[\s\-–—:,.#~|]+/;
+  t = t.replace(SEP, '');
+  t = t.replace(/^(?:vol(?:ume)?\.?\s*|v)\d{1,4}\b/i, '').replace(SEP, '');
+  t = t.replace(/^(?:S\d{1,2}|Season\s*\d{1,2})\b/i, '').replace(SEP, '');
+  // The number itself, with or without a marker: "Ch. 012", "c012", "#12",
+  // "E05", "Episode 5", "012v2", plain "012".
+  const lead = t.match(/^(?:S\d{1,2})?(?:ch(?:apter|ap)?|episode|ep|e|c|#)?\.?\s*(\d{1,4}(?:\.\d{1,2})?)(?:v\d)?(?![\d.])/i);
+  let numberFound = false;
+  if (lead && (num == null || isNaN(num) || parseFloat(lead[1]) === Number(num) || /^\D/.test(lead[0]))) {
+    t = t.slice(lead[0].length).replace(SEP, '');
+    numberFound = true;
+  }
+  // "Other Title - Chapter 27": the number comes last, so the text before it
+  // is another spelling of the series, not a chapter title.
+  if (!numberFound) {
+    const tail = t.match(/[\s\-–—]*(?:ch(?:apter|ap)?|episode|ep|e|c|#)?\.?\s*(\d{1,4}(?:\.\d{1,2})?)(?:v\d)?\s*$/i);
+    if (tail && (num == null || isNaN(num) || parseFloat(tail[1]) === Number(num))) t = '';
+  }
+  t = t.split(/\s+/).filter(w => w && !TECH_TOKEN.test(w)).join(' ');
+  t = t.replace(SEP, '').replace(/[\s\-–—:,~|]+$/, '').trim();
+  if (!/\p{L}/u.test(t) || GENERIC_TITLE.test(t)) return '';
+  return t;
+}
+
+// Library file name for a manga chapter: "Series - Ch 012 - Title.cbz", with
+// "Vol 03 - " before the chapter when the original carries a volume. Returns
+// null when the chapter number can't be read.
+function formatChapterNumber(num) {
+  const [i, f] = String(num).split('.');
+  return i.padStart(3, '0') + (f ? '.' + f : '');
+}
+// A file is only renamed when its chapter number can't be misread: an
+// explicit "Ch"/"c"/"#" marker, or a single number once the series name,
+// tags and volume are gone ("012 - 100 Ways to Die" is left alone).
+function chapterNumberIsClear(fileName, seriesName) {
+  let base = path.parse(String(fileName || '')).name.replace(/[\[(][^\])]*[\])]/g, ' ');
+  if (/\b(?:Ch(?:apter)?|Chap)[.\s_-]*\d|(?:^|[\s_.-])c\d|#\d/i.test(base)) return true;
+  const re = seriesPrefixRegex(seriesName);
+  if (re) base = base.replace(re, ' ');
+  base = base.replace(/\b(?:Vol(?:ume)?|v)[.\s_-]*\d{1,4}\b/gi, ' ');
+  return (base.match(/(?<![\d.])\d{1,4}(?:\.\d{1,2})?(?![\d.])/g) || []).length === 1;
+}
+function mangaChapterFileName(fileName, seriesName, num) {
+  const ext = path.extname(String(fileName || ''));
+  if (num == null) num = parseChapterNumber(fileName);
+  if (num == null || isNaN(num) || num < 0) return null;
+  if (!chapterNumberIsClear(fileName, seriesName)) return null;
+  const series = String(seriesName || '').replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim();
+  if (!series) return null;
+  const base = path.parse(String(fileName)).name;
+  const vol = base.match(/\bVol(?:ume)?[.\s_-]*(\d{1,3})\b/i) || base.match(/(?:^|[\s_-])v(\d{1,3})(?=[\s_-]*c\d)/i);
+  const title = mediaDisplayTitle(fileName, seriesName, num).replace(/[\\/:*?"<>|]/g, '_').slice(0, 120);
+  return series + ' - ' + (vol ? 'Vol ' + String(parseInt(vol[1], 10)).padStart(2, '0') + ' - ' : '') +
+    'Ch ' + formatChapterNumber(num) + (title ? ' - ' + title : '') + ext;
+}
+
 module.exports = {
   MANGA_EXTS,
   VIDEO_EXTS,
   assertPlayableMedia,
   cleanFolderName,
   detectResolution,
+  escapeRegExp,
   extractSeriesName,
   getMangaFiles,
   getVideoFiles,
   parseChapterNumber,
   parseEpisodeNumber,
+  chapterNumberIsClear,
+  formatChapterNumber,
+  mangaChapterFileName,
+  mediaDisplayTitle,
   parseMangaFilename,
   parseMediaNumber,
   parseVideoFilename,

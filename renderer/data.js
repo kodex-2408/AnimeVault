@@ -261,7 +261,7 @@ async function pullMalStatuses(opts){
   if(!opts.force&&Date.now()-_malPullAt<3*60*1000)return;
   _malPullAt=Date.now();
   var r;try{r=await api.malPullListStatuses();}catch(e){console.warn('[MAL pull]',e);return;}
-  if(!r||r.error||!r.updated||!r.updated.length)return;
+  if(!r||r.error||!r.updated||!r.updated.length){await adoptMalProgress();return;}
   r.updated.forEach(function(u){
     var s=S.lib.find(function(x){return x.name===u.name;});if(!s)return;
     if(!s.watchData)s.watchData={};
@@ -270,7 +270,10 @@ async function pullMalStatuses(opts){
     s.watchData.malData=md;
   });
   S.myListData=null;S._statsCounts=null;
-  if(notifEnabled('malSync'))toast(r.updated.length===1?'“'+r.updated[0].name+'” is now '+(r.updated[0].to?statusLabel(r.updated[0].to).toLowerCase():'off your list')+' (from MyAnimeList)':'Updated '+r.updated.length+' series from MyAnimeList','i');
+  var adopted=await adoptMalProgress();
+  var loud=r.updated.filter(function(u){return !u.quiet;});
+  if(adopted&&!loud.length&&notifEnabled('malSync'))toast('Checkmarks updated from MyAnimeList for '+adopted+' series','i');
+  if(loud.length&&notifEnabled('malSync'))toast(loud.length===1?'“'+loud[0].name+'” is now '+(loud[0].to?statusLabel(loud[0].to).toLowerCase():'off your list')+' (from MyAnimeList)':'Updated '+loud.length+' series from MyAnimeList','i');
   if(S.cur&&r.updated.some(function(u){return u.name===S.cur.name;}))odtl(S.cur.name);
   render();
 }
@@ -304,23 +307,28 @@ async function runMalBackfill(){
 async function pEp(name,fpath,num){
   if(isManga()){
     // Manga mode: open with reader
-    var r=await api.openMangaFile(fpath);
-    if(r.error){toast(r.error,'e');return;}
-    if(num!==null){
-      // Show mark-as-read toast
-      toast('Opened Ch '+num+'. Mark as read?','i');
-      // Auto-mark chapter as read
-      var s=S.lib.find(function(x){return x.name===name});
-      var allNums=s?s.episodes.filter(function(e){return e.episodeNum!==null}).map(function(e){return e.episodeNum}).sort(function(a,b){return a-b}):[];
-      var wd=await api.markUpTo(name,num,allNums);_patchLibWatchData(name,wd);
-      toast('Marked Ch '+num+' as read','s');await autoSyncSeries(name);if(S.cur&&S.cur.name===name)odtl(name);
+    var r=await api.openMangaFile(fpath,name,num);
+    if(!r||r.error){toast((r&&r.error)||'Could not open the chapter','e');return;}
+    if(num===null)return;
+    if(checkmarksLocked()){toast('Opened Ch '+num+' (sync paused, not marked)','i');return;}
+    if(r.tracked){
+      var secs=S.cfg.readerTimerSeconds||120;
+      toast('Opened Ch '+num+'. Marked read after '+(secs%60?secs+' s':(secs/60)+' min')+' of reading','i');
+      return;
     }
+    // Reading timer off (or not available): mark it as soon as it opens.
+    var s=S.lib.find(function(x){return x.name===name});
+    var allNums=s?s.episodes.filter(function(e){return e.episodeNum!==null}).map(function(e){return e.episodeNum}).sort(function(a,b){return a-b}):[];
+    var wd=await api.markUpTo(name,num,allNums);_patchLibWatchData(name,wd);
+    toast('Marked Ch '+num+' as read','s');await autoSyncSeries(name);if(S.cur&&S.cur.name===name)odtl(name);
     return;
   }
   var r=await api.play(fpath,name,num);if(r.error){toast(r.error,'e');return;}
   if(r.warning){toast(r.warning,'i');}
   if(num!==null){
-    if(S.cfg.autoMarkEnabled===false){
+    if(checkmarksLocked()){
+      toast('Playing Ep '+num+' (sync paused, not marked)','i');
+    } else if(S.cfg.autoMarkEnabled===false){
       // Auto-mark disabled: mark immediately on play (old behavior)
       var s=S.lib.find(function(x){return x.name===name});
       var allEpNums=s?s.episodes.filter(function(e){return e.episodeNum!==null}).map(function(e){return e.episodeNum}).sort(function(a,b){return a-b}):[];
@@ -346,7 +354,42 @@ function _patchLibMal(name,fields){
   if('malId' in fields)s.watchData.malId=fields.malId;
   if('malData' in fields)s.watchData.malData=fields.malData;
 }
+// While MAL sync is paused every checkmark is frozen: clicks, auto-mark, the
+// reading timer and MyAnimeList itself leave them as they are.
+function checkmarksLocked(){return !!(S.mal&&S.cfg&&S.cfg.syncPaused);}
+function lockedToast(){
+  toast('MAL sync is paused, so checkmarks are locked','i',{label:'Resume sync',onClick:function(){toggleSync();}});
+}
+// Local episode/chapter numbers a MAL count covers. A folder that continues
+// the previous season's numbering (S2 as 13-24) is shifted by that offset.
+function localNumsUpTo(s,malCount){
+  var md=s.watchData&&s.watchData.malData;
+  var off=malEpisodeOffset(s,md?totalField(md):0);
+  return (s.episodes||[]).map(function(e){return e.episodeNum;}).filter(function(n){return n!==null&&n<=malCount+off;});
+}
+// MyAnimeList ahead of the checkmarks (chapters read on the phone, episodes
+// marked on the website): tick up to MAL's count. Never removes checkmarks.
+async function adoptMalProgress(names){
+  if(!S.mal||checkmarksLocked()||!S.lib)return 0;
+  var changed=0;
+  for(var i=0;i<S.lib.length;i++){
+    var s=S.lib[i];
+    if(names&&names.indexOf(s.name)<0)continue;
+    var w=s.watchData;if(!w||!w.malId||!w.malData)continue;
+    var ls=getMyListStatus(w.malData);var remote=ls?epWatchedField(ls):0;
+    if(!(remote>0))continue;
+    var have=new Set(w.episodesWatched||[]);
+    var add=localNumsUpTo(s,remote).filter(function(n){return !have.has(n);});
+    if(!add.length)continue;
+    var wd=await api.setEpisodesWatched(s.name,Array.from(have).concat(add));_patchLibWatchData(s.name,wd);
+    changed++;
+    if(S.cur&&S.cur.name===s.name)odtl(s.name);
+  }
+  if(changed&&(S.view==='library'||S.view==='continue'||S.view==='completed'))render();
+  return changed;
+}
 async function tw(name,num,wasWatched){
+  if(checkmarksLocked()){lockedToast();return;}
   var s=S.lib.find(function(x){return x.name===name});if(!s)return;
   var allEpNums=s.episodes.filter(function(e){return e.episodeNum!==null}).map(function(e){return e.episodeNum}).sort(function(a,b){return a-b});
   if(!wasWatched){
@@ -449,7 +492,7 @@ async function autoSyncSeries(name, uncheckedEp){
   if(r&&!r.error){await fetchMD(name,w.malId);toast('Synced '+highestEp+' '+watchedLabel()+' to MAL','s');}
   else{console.error('[Sync] Failed:',r);toast('Sync error','e');}
 }
-async function markAll(name){var s=S.lib.find(function(x){return x.name===name});if(!s)return;
+async function markAll(name){if(checkmarksLocked()){lockedToast();return;}var s=S.lib.find(function(x){return x.name===name});if(!s)return;
   var allEpNums=s.episodes.filter(function(e){return e.episodeNum!==null}).map(function(e){return e.episodeNum});
   var maxEp=allEpNums.length?Math.max.apply(null,allEpNums):0;
   var wd=await api.markUpTo(name,maxEp,allEpNums);_patchLibWatchData(name,wd);await autoSyncSeries(name);odtl(name);toast('All marked','s');}
@@ -462,6 +505,7 @@ async function fetchMD(name,malId){
       // rescanning the whole library.
       var merged=await api.setMalData(name,det);
       _patchLibMal(name,{malId:malId,malData:merged});
+      await adoptMalProgress([name]);
       if(S.cur&&S.cur.name===name)odtl(name);
       render();
     }
@@ -492,10 +536,8 @@ async function saveMyListEdit(malId){
   if(r&&!r.error){
     // Also update local watch history if series is in library
     var local=S.lib.find(function(s){return s.watchData&&s.watchData.malId===malId});
-    if(local){
-      var allEpNums=local.episodes.filter(function(e){return e.episodeNum!==null}).map(function(e){return e.episodeNum}).sort(function(a,b){return a-b});
-      var epList=allEpNums.slice(0,eps);
-      var wd2=await api.setEpisodesWatched(local.name,epList);_patchLibWatchData(local.name,wd2);
+    if(local&&!checkmarksLocked()){
+      var wd2=await api.setEpisodesWatched(local.name,localNumsUpTo(local,eps));_patchLibWatchData(local.name,wd2);
     }
     toast('Updated on MAL','s');
     // Reload the list and refresh the detail overlay if it's open
@@ -524,10 +566,8 @@ async function saveMalEdit(name,malId){
     var r=await api.malEditStatus(malId,editFields,name);
     if(r&&!r.error){
       var s=S.lib.find(function(x){return x.name===name});
-      if(s){
-        var allEpNums=s.episodes.filter(function(e){return e.episodeNum!==null}).map(function(e){return e.episodeNum}).sort(function(a,b){return a-b});
-        var epList=allEpNums.slice(0,eps);
-        var wd=await api.setEpisodesWatched(name,epList);_patchLibWatchData(name,wd);
+      if(s&&!checkmarksLocked()){
+        var wd=await api.setEpisodesWatched(name,localNumsUpTo(s,eps));_patchLibWatchData(name,wd);
       }
       await fetchMD(name,malId);
       toast('Updated on MAL','s');
