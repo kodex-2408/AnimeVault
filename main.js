@@ -51,6 +51,7 @@ function startApp() {
   const { startFileWatcher, stopFileWatcher } = require('./main/scanner/watcher');
   const { createWindow } = require('./main/window/window');
   const { handleCoverRequest } = require('./main/window/protocol');
+  const { handlePageRequest } = require('./main/players/reader');
   const { registerHandlers } = require('./main/ipc/registerHandlers');
 
   // cover:// streams cached artwork straight from disk so the renderer never
@@ -60,7 +61,9 @@ function startApp() {
   if (!app.commandLine.hasSwitch('no-sandbox')) app.enableSandbox();
 
   protocol.registerSchemesAsPrivileged([
-    { scheme: 'cover', privileges: { standard: false, secure: true, supportFetchAPI: false } }
+    { scheme: 'cover', privileges: { standard: false, secure: true, supportFetchAPI: false } },
+    // page:// serves built-in reader pages straight out of the chapter archive.
+    { scheme: 'page', privileges: { standard: false, secure: true, supportFetchAPI: false } }
   ]);
 
   registerHandlers();
@@ -81,6 +84,7 @@ function startApp() {
   app.whenReady().then(() => {
     logStartup('started from ' + process.execPath);
     protocol.handle('cover', handleCoverRequest);
+    protocol.handle('page', handlePageRequest);
     appendAuthDebug('boot version=' + app.getVersion() + ' pid=' + process.pid);
     loadConfig();
     loadLumaKey();

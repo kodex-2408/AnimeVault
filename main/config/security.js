@@ -205,6 +205,23 @@ function validateRendererConfigValue(key, value) {
     if (value != null && (!Number.isInteger(value) || value < 0 || value > 5000)) throw new Error('Audio delay must be 0-5000 ms');
     return;
   }
+  if (key === 'readerTimerSeconds') {
+    if (value != null && (!Number.isInteger(value) || value < 15 || value > 3600)) throw new Error('Reading time must be 15-3600 seconds');
+    return;
+  }
+  if (key === 'readerMarkPercent') {
+    if (value != null && (!Number.isInteger(value) || value < 10 || value > 100)) throw new Error('Mark-read share must be 10-100%');
+    return;
+  }
+  const READER_CHOICES = { mangaReader: ['builtin', 'external'], readerMode: ['single', 'double', 'strip'], readerDir: ['ltr', 'rtl'], readerFit: ['height', 'width', 'original'] };
+  if (READER_CHOICES[key]) {
+    if (value != null && !READER_CHOICES[key].includes(value)) throw new Error('Unknown ' + key + ': ' + value);
+    return;
+  }
+  if (key === 'mangaAutoRename' || key === 'readerTimerEnabled') {
+    if (value != null && typeof value !== 'boolean') throw new Error('Expected on/off for ' + key);
+    return;
+  }
   if (key === 'watcherFolder' || key === 'watcherDest') {
     if (value && (typeof value !== 'string' || !path.isAbsolute(value) || isForbiddenRoot(value))) throw new Error('That folder can’t be watched: ' + value);
   }

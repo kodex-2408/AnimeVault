@@ -665,7 +665,11 @@ function register() {
         if (rs) {
           if (shouldAdoptRemoteListStatus(local, rs)) {
             entry.malData = { ...(entry.malData || {}), my_list_status: rs };
-            if (!local || local.status !== rs.status || local.score !== rs.score) updated.push({ name, from: local && local.status || null, to: rs.status, listStatus: rs });
+            // Progress-only changes (read more chapters on the phone) come back
+            // too, marked quiet: they move checkmarks but need no toast.
+            const progress = (ls) => ls ? Number(isManga ? ls.num_chapters_read : (ls.num_episodes_watched != null ? ls.num_episodes_watched : ls.num_watched_episodes)) || 0 : 0;
+            const statusChanged = !local || local.status !== rs.status || local.score !== rs.score;
+            if (statusChanged || progress(local) !== progress(rs)) updated.push({ name, from: local && local.status || null, to: rs.status, listStatus: rs, quiet: !statusChanged });
           }
         } else if (complete && local && local.status) {
           // Removed from the MAL list entirely: the series keeps its link, not a status.

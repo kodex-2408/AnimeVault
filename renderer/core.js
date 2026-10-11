@@ -126,6 +126,13 @@ document.addEventListener('keydown',function(e){
 
 // ------------------------------------------------------------------- icons --
 var ICONS={
+  home:'<path d="M3.5 10.5L12 3.5l8.5 7V20a1 1 0 0 1-1 1H15v-6.5H9V21H4.5a1 1 0 0 1-1-1z"/>',
+  bookOpen:'<path d="M2.5 5.5c3-1.3 6.2-1.3 9.5 1 3.3-2.3 6.5-2.3 9.5-1v13c-3-1.3-6.2-1.3-9.5 1-3.3-2.3-6.5-2.3-9.5-1z"/><path d="M12 6.5v13"/>',
+  fitWidth:'<path d="M3.5 4v16M20.5 4v16M7.5 12h9M10 9.5L7.5 12l2.5 2.5M14 9.5l2.5 2.5-2.5 2.5"/>',
+  fitHeight:'<path d="M4 3.5h16M4 20.5h16M12 7.5v9M9.5 10L12 7.5l2.5 2.5M9.5 14l2.5 2.5 2.5-2.5"/>',
+  fullscreen:'<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+  help:'<circle cx="12" cy="12" r="9"/><path d="M9.6 9.3a2.5 2.5 0 1 1 3.6 2.3c-.7.3-1.2.9-1.2 1.6v.6"/><path d="M12 17h.01"/>',
+  swap:'<path d="M4 8h15l-3.5-3.5M20 16H5l3.5 3.5"/>',
   grid:'<rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/>',
   compass:'<circle cx="12" cy="12" r="9.5"/><path d="M15.8 8.2l-2.2 5.4-5.4 2.2 2.2-5.4z"/>',
   list:'<path d="M8 6h13M8 12h13M8 18h13"/><circle cx="3.5" cy="6" r="1"/><circle cx="3.5" cy="12" r="1"/><circle cx="3.5" cy="18" r="1"/>',

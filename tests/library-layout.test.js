@@ -28,11 +28,11 @@ const touch = (p) => { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.wr
 const config = { vaultMode: 'anime', folders: [], mangaFolders: [] };
 const ctx = vm.createContext({ require, console, path, fs, config });
 vm.runInContext([
-  constBlock('CATEGORY_DIR_NAMES'), constBlock('ROMAN'), constBlock('RELEASE_META_STRIP'), constBlock('RELEASE_GROUP_TAIL'),
+  constBlock('CATEGORY_DIR_NAMES'), constBlock('ROMAN'), constBlock('RELEASE_META_STRIP'), constBlock('RELEASE_GROUP_TAIL'), constBlock('TECH_TOKEN'), constBlock('GENERIC_TITLE'),
   ...['categoryForName', 'inferFolderType', 'hasSubdirectories', 'listSeriesDirs', 'seriesMatchKey',
     'ordinalSuffix', 'parseSeasonSuffix', 'findExistingSeriesFolder', 'anilistTitleVariants', 'mediaSeasonNumber',
     'pickSeasonMatch', 'cleanTitle', 'cleanFolderName', 'detectResolution', 'stripReleaseMetadata',
-    'extractSeriesName', 'parseVideoFilename', 'parseMangaFilename', 'parseEpisodeNumber', 'parseChapterNumber'].map(fn),
+    'extractSeriesName', 'parseVideoFilename', 'escapeRegExp', 'seriesPrefixRegex', 'mediaDisplayTitle', 'formatChapterNumber', 'chapterNumberIsClear', 'mangaChapterFileName', 'parseMangaFilename', 'parseEpisodeNumber', 'parseChapterNumber'].map(fn),
 ].join('\n\n'), ctx, { filename: 'main.js (extracted)' });
 const run = (src) => vm.runInContext(src, ctx);
 const plain = (v) => JSON.parse(JSON.stringify(v));

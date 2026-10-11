@@ -50,7 +50,7 @@ function safeEpisodeNumber(n) {
 }
 
 // Changed only through their own IPC handlers (autoDownload:*, downloads:*).
-const MAIN_OWNED_KEYS = new Set(['autoDownloadWatchlist', 'downloadHistory', 'openRouterApiKey', 'lumaModel']);
+const MAIN_OWNED_KEYS = new Set(['autoDownloadWatchlist', 'downloadHistory', 'openRouterApiKey', 'lumaModel', 'mangaSeenSeries']);
 
 const STATIC_CONFIG_KEYS = new Set([
   'folders', 'mangaFolders', 'vlcPath', 'mpvPath', 'readerPath', 'playerType',
@@ -67,6 +67,8 @@ const STATIC_CONFIG_KEYS = new Set([
   'notificationPrefs', 'syncPaused', 'hideDonghua', 'audioDelay', 'audioDelayMs', 'animSpeed', 'backgroundEffects',
   'backgroundType', 'backgroundIntensity', 'maximized', 'setupDone', 'importAutoMatch', 'lumaMascot', 'lumaSparkles', 'lumaSize', 'lumaSpeed',
   'untrackOnDelete', 'mutedDupSeries', 'lumaModel', 'hasOpenRouterKey', 'lumaWebSearch',
+  'mangaAutoRename', 'mangaSeenSeries', 'readerTimerEnabled', 'readerTimerSeconds',
+  'mangaReader', 'readerMode', 'readerDir', 'readerFit', 'readerMarkPercent',
   // 5.0 UI preferences
   'glassLevel', 'lastDarkTheme', 'lastLightTheme', 'sidebarCollapsed', 'schedView', 'heroTone'
 ]);

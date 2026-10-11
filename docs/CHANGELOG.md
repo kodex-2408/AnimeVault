@@ -3,6 +3,61 @@
 All notable changes, newest first. Engineering context — test guide, security
 posture, design decisions, open roadmap — lives in [DEVELOPMENT.md](DEVELOPMENT.md).
 
+## 5.6.0 — Built-in manga reader, clean chapter names, MAL checkmarks
+
+- **Built-in manga reader.** Chapters (.cbz/.zip and .cbr/.rar) open inside
+  the app: the page fills the window, the chapter switcher (‹ Ch. 31 / 40 ›)
+  sits top right and a slim toolbar on the right edge holds Back to series,
+  Display (single page, double page, long strip), Chapters, Reader settings,
+  Fit (height, width, original), Direction (left to right or right to left),
+  Fullscreen and Keyboard shortcuts. Double page shows the cover and
+  two-page spreads on their own. Click either side of the page or use the
+  arrow keys, Space, Page Up/Down, Home/End, [ and ] for chapters, M, W, D,
+  C and F. The reader remembers where you stopped in each chapter, moves on
+  to the next chapter after the last page, and marks a chapter read once you
+  reach a share of its pages (default 90%, Settings → Manga). Pages are read
+  straight from the archive and never extracted to disk. PDF and EPUB still
+  open in your reader app, and Settings → Manga → "Open chapters in" can send
+  everything there.
+- **Chapter and episode cards show a real title or nothing.** The series name,
+  the number, "Chapter"/"Ch."/"Vol", release tags and the extension are
+  stripped. "008 - The Type of Girl….cbz" shows its title; "Chapter 12.cbz",
+  "010.cbz" and "Series - 27.cbz" show only the number. Hovering a card still
+  shows the full file name. No files are renamed for this.
+- **New manga series are renamed on import.** The first time a series folder
+  appears in a manga library folder, its chapter files become
+  "Series - Ch 012 - Title.cbz" (with "Vol 03 - " when the file has a volume).
+  Chapter titles are kept. Series already in the library are never touched,
+  nor is an existing collection you add as a new library folder, and a file whose chapter number could be misread ("012 - 100 Ways to
+  Die.cbz") is left alone. Files still being copied are retried on the next
+  scan, and the renames can be undone from File management. The watcher's
+  imports and the "Organize a manga folder" tool keep chapter titles now too.
+  Settings → Manga → "Rename new manga chapters" turns this off.
+- **Reading timer for external readers.** Opening a chapter no longer marks
+  it read immediately. It is marked read once it has been open in your reader
+  for the reading time you set (default 120 seconds; type any value from 15
+  to 3600 in Settings → Manga). The app watches window titles, so it works with CDisplayEx,
+  SumatraPDF, Honeyview, YACReader, MComix and the system default app. When
+  the reader moves to the next file, that chapter is timed too. Readers that
+  don't show the file name (calibre, OpenComic) are timed while the program
+  is open. Turning the timer off brings back marking on open. The reader
+  detection also looks for calibre, YACReader, MComix and per-user installs of
+  OpenComic and SumatraPDF.
+- **Checkmarks follow MyAnimeList.** Episodes watched or chapters read on MAL
+  (website, phone, another PC) now tick the matching checkmarks. Sequel
+  folders numbered from 13 are handled. MAL only adds checkmarks, never
+  removes them. Progress-only changes on MAL now come back with the
+  10-minute pull, and linking a series adopts its MAL progress right away.
+  The MAL edit dialogs map counts onto the right files instead of the first N.
+- **Paused sync locks the checkmarks.** While MAL sync is paused, nothing
+  changes them: clicks (a toast offers "Resume sync"), "Mark all read",
+  auto-mark at 80%, the reading timer and MAL itself. Resuming pulls MAL
+  straight away.
+- Tests: new `manga-reading.test.js` (titles, rename targets and their
+  round-trip, first-sight renames on a real folder, the reader timer with a
+  stand-in `tasklist`, MAL progress and the paused lock, the reader's page
+  listing and page:// serving). 14 suites in total.
+
 ## 5.5.0 — Luma on Claude Haiku 5.5 via OpenRouter
 
 - **Luma now runs on Claude Haiku 5.5 through OpenRouter.** Every chat goes

@@ -9,9 +9,10 @@ const fs = require('fs');
 const { execFile, spawn } = require('child_process');
 const { state, config } = require('../state');
 const { assertAllowedFileActionPath, isSafeFileName } = require('../config/security');
-const { MANGA_EXTS, VIDEO_EXTS, assertPlayableMedia, parseEpisodeNumber } = require('../scanner/parsers');
+const { MANGA_EXTS, VIDEO_EXTS, assertPlayableMedia, parseChapterNumber, parseEpisodeNumber } = require('../scanner/parsers');
 const { VLC_HTTP_PASSWORD, VLC_HTTP_PORT, vlcGetStatus } = require('./vlc');
 const { MPV_IPC_PIPE, mpvGetPercentPos, resolveMpvPath } = require('./mpv');
+const { startReaderSession } = require('./readerTimer');
 
 // Detached spawns without an 'error' listener take down the entire main
 // process when the executable is missing (ENOENT arrives asynchronously).
@@ -154,6 +155,24 @@ function playerPrefArgs(player, cfg) {
   return args;
 }
 
+// Opens a chapter in the configured reader (or the system default app) and
+// starts the reading timer that marks it read; see readerTimer.js.
+async function openInReader(filePath, seriesName, chapterNum) {
+  const reader = config.readerPath;
+  let exePath = null;
+  if (reader && fs.existsSync(reader)) {
+    const res = await spawnDetached(reader, [filePath]);
+    if (!res.ok) return { error: 'Failed to launch the manga reader: ' + res.message };
+    exePath = reader;
+  } else {
+    const err = await shell.openPath(filePath);
+    if (err) return { error: 'No app could open this file: ' + err };
+  }
+  const num = chapterNum == null || chapterNum === '' ? parseChapterNumber(path.basename(filePath)) : Number(chapterNum);
+  const tracked = typeof seriesName === 'string' && seriesName ? startReaderSession({ exePath, filePath, seriesName, chapterNum: num }) : false;
+  return { tracked };
+}
+
 function register() {
   ipcMain.handle('player:play', async (_, filePath, seriesName, episodeNum) => {
     try {
@@ -162,15 +181,8 @@ function register() {
       const isManga = config.vaultMode === 'manga';
       const ext = path.extname(filePath).toLowerCase();
       if (isManga || MANGA_EXTS.includes(ext)) {
-        // Open with manga reader
-        const reader = config.readerPath;
-        if (reader && fs.existsSync(reader)) {
-          const res = await spawnDetached(reader, [filePath]);
-          if (!res.ok) return { error: 'Failed to launch the manga reader: ' + res.message };
-        } else {
-          await shell.openPath(filePath);
-        }
-        return { error: null };
+        const r = await openInReader(filePath, seriesName, episodeNum);
+        return { error: r.error || null, tracked: !!r.tracked };
       }
 
       const playerType = config.playerType || 'vlc';
@@ -282,29 +294,31 @@ function register() {
   // ================================================================
   //  MANGA
   // ================================================================
-  ipcMain.handle('manga:openFile', async (_, filePath) => {
+  ipcMain.handle('manga:openFile', async (_, filePath, seriesName, chapterNum) => {
     try {
       assertAllowedFileActionPath(filePath);
       assertPlayableMedia(filePath, MANGA_EXTS);
-      const reader = config.readerPath;
-      if (reader && fs.existsSync(reader)) {
-        const res = await spawnDetached(reader, [filePath]);
-        if (!res.ok) return { success: false, error: 'Failed to launch the manga reader: ' + res.message };
-      } else {
-        await shell.openPath(filePath);
-      }
-      return { success: true };
+      const r = await openInReader(filePath, seriesName, chapterNum);
+      if (r.error) return { success: false, error: r.error };
+      return { success: true, tracked: !!r.tracked };
     } catch (e) { return { success: false, error: e.message }; }
   });
 
   ipcMain.handle('manga:detectReaders', async () => {
+    const local = process.env.LOCALAPPDATA || '';
     const commonPaths = [
+      'C:\\Program Files\\CDisplayEx\\CDisplayEx.exe',
+      'C:\\Program Files (x86)\\CDisplayEx\\CDisplayEx.exe',
       'C:\\Program Files\\OpenComic\\OpenComic.exe',
       'C:\\Program Files (x86)\\OpenComic\\OpenComic.exe',
-      'C:\\Program Files\\CDisplayEx\\CDisplayEx.exe',
+      local && path.join(local, 'Programs', 'OpenComic', 'OpenComic.exe'),
       'C:\\Program Files\\SumatraPDF\\SumatraPDF.exe',
-      'C:\\Program Files\\Honeyview\\Honeyview.exe'
-    ];
+      local && path.join(local, 'SumatraPDF', 'SumatraPDF.exe'),
+      'C:\\Program Files\\Honeyview\\Honeyview.exe',
+      'C:\\Program Files\\Calibre2\\ebook-viewer.exe',
+      'C:\\Program Files\\YACReader\\YACReader.exe',
+      'C:\\Program Files\\MComix\\MComix.exe'
+    ].filter(Boolean);
     const readers = commonPaths.filter(p => { try { return fs.existsSync(p); } catch (e) { return false; } })
       .map(p => ({ name: path.basename(p, '.exe'), path: p }));
     return { path: readers.length ? readers[0].path : null, readers };

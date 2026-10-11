@@ -105,7 +105,8 @@ function wireIpcEvents(){
     var name=data&&data.seriesName,num=data&&data.episodeNum;
     if(!name||num===null||num===undefined||isNaN(num))return;
     var s=S.lib.find(function(x){return x.name===name;});if(!s)return;
-    toast('Marked '+epLabel()+' '+num+' as '+watchedLabel(),'s');
+    if(checkmarksLocked()){toast(epLabel()+' '+num+' not marked: MAL sync is paused','i');return;}
+    toast('Marked '+epLabel()+' '+num+' as '+watchedLabel()+(data.source==='reader'?' ('+Math.max(1,Math.round((data.seconds||0)/60))+' min of reading)':''),'s');
     var all=s.episodes.filter(function(e){return e.episodeNum!==null;}).map(function(e){return e.episodeNum;}).sort(function(a,b){return a-b;});
     var wd=await api.markUpTo(name,num,all);_patchLibWatchData(name,wd);
     if(S.cfg.watchAndDelete){var ep=s.episodes.find(function(e){return e.episodeNum===num;});if(ep)setTimeout(async function(){var r=await api.deleteEpisodeFile(ep.path);if(r&&r.success)toast('Deleted '+epLabel()+' '+num+' (watch & delete)','i');},5000);}
