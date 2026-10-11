@@ -15,11 +15,12 @@ const { app, ipcMain } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const https = require('https');
 const openrouter = require('../../openrouter');
 const { config } = require('../state');
 const reader = require('../players/reader');
 
-const PROMPT_VERSION = 2;          // bump when the prompt or the balloon numbering changes
+const PROMPT_VERSION = 3;          // bump when the prompt or the numbering of text changes
 const LANGS = ['English', 'Spanish', 'Portuguese', 'French', 'German', 'Italian', 'Indonesian', 'Vietnamese', 'Thai', 'Russian', 'Polish', 'Turkish', 'Arabic', 'Chinese (Simplified)', 'Korean', 'Japanese'];
 const MODELS = { haiku: 'haiku-5.5', sonnet: 'sonnet-5.5' };
 const KINDS = ['bubble', 'narration', 'sfx', 'sign'];
@@ -39,15 +40,15 @@ function modelChoice() { return config.translateModel === 'sonnet' ? 'sonnet' : 
 function buildPrompt(lang) {
   return [
     'You translate manga, manhwa and manhua pages into ' + lang + ' for a reader app that letters your translation into the page.',
-    'The speech balloons the app found are outlined with red dashes and numbered on red tags. The outlines and tags are not part of the page.',
-    'For every numbered balloon that holds text, give its number and the translation of the text inside it. Leave out numbered outlines with no text in them.',
-    'Text that is not inside a numbered balloon (narration or caption boxes, signs, notes, thoughts, balloons the app missed): give a box tight around the text itself, on a 0-1000 scale of the page width (x) and height (y) from the top-left corner.',
-    'Skip sound effects, page numbers, watermarks and scanlation credits, and anything already in ' + lang + '.',
-    'Translate the way an official ' + lang + ' release would: natural, in character, keeping names and honorifics. Use the whole page for context; Japanese reads right to left, top to bottom.',
+    'The text the app found is outlined with red dashes and numbered on red tags: usually one box per speech balloon, caption or sign. The outlines and tags are not part of the page.',
+    'For every numbered box that holds dialogue, thoughts, narration or a sign, give its number and the translation of the text inside it. Leave out boxes that hold only a sound effect, a page or chapter number, a watermark or credits, or no text.',
+    'When one word or sentence is spread over several boxes (shouted a character or two per balloon, or a line continued in the next balloon), split the translation across those boxes in the order the page is read (panels right to left, then top to bottom; this can differ from the box numbers), so that read in that order it says the whole line, for example "LAUN-" / "DRY!!".',
+    'Text the app missed (not inside any numbered box): give a box tight around the text itself, on a 0-1000 scale of the page width (x) and height (y) from the top-left corner.',
+    'Translate the way an official ' + lang + ' release would: natural, in character, keeping names and honorifics. Use the whole page for context; Japanese reads right to left, top to bottom. Skip anything already in ' + lang + '.',
     'Keep each translation about as long as the original line is in spoken ' + lang + ', since it has to fit the same balloon. No notes or explanations.',
     'Answer with JSON only:',
     '{"items":[{"region":1,"src":"original text","text":"translation"},{"x0":0,"y0":0,"x1":0,"y1":0,"kind":"narration|sign|bubble","src":"original text","text":"translation"}]}',
-    'in reading order. A page with no text to translate: {"items":[]}.',
+    'A page with nothing to translate: {"items":[]}.',
   ].join('\n');
 }
 
@@ -130,6 +131,72 @@ function pruneCache(dir) {
 function pageKey(index, lang, choice) { return index + '|' + lang + '|' + choice; }
 
 // ---- model -------------------------------------------------------------------
+// ---- text detector model -------------------------------------------------------
+// comic-text-detector (dmMaze, GPL-3.0), as exported to ONNX by
+// manga-image-translator. Not shipped with the app: downloaded once, on first
+// use, into userData/models and checked against its SHA-256.
+const DETECTOR = {
+  file: 'comictextdetector.onnx',
+  url: 'https://github.com/zyddnys/manga-image-translator/releases/download/beta-0.3/comictextdetector.pt.onnx',
+  size: 94669756,
+  sha256: '1a86ace74961413cbd650002e7bb4dcec4980ffa21b2f19b86933372071d718f',
+};
+function detectorPath() { return path.join(_deps.modelDir || path.join(app.getPath('userData'), 'models'), DETECTOR.file); }
+let _detectorJob = null;
+function sha256File(file) {
+  return new Promise((resolve, reject) => {
+    const h = crypto.createHash('sha256');
+    fs.createReadStream(file).on('data', d => h.update(d)).on('end', () => resolve(h.digest('hex'))).on('error', reject);
+  });
+}
+function download(url, dest, onProgress, redirects = 0) {
+  return new Promise((resolve, reject) => {
+    if (redirects > 5) return reject(new Error('Too many redirects'));
+    const req = (_deps.https || https).get(url, { headers: { 'User-Agent': 'Tsundoku' } }, (res) => {
+      if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location) {
+        res.resume();
+        return resolve(download(new URL(res.headers.location, url).href, dest, onProgress, redirects + 1));
+      }
+      if (res.statusCode !== 200) { res.resume(); return reject(new Error('HTTP ' + res.statusCode)); }
+      const total = Number(res.headers['content-length']) || DETECTOR.size;
+      let got = 0, last = 0;
+      const out = fs.createWriteStream(dest);
+      res.on('data', (c) => {
+        got += c.length;
+        if (got - last > 2 * 1024 * 1024) { last = got; onProgress(got / total); }
+      });
+      res.pipe(out);
+      out.on('finish', () => out.close(() => resolve()));
+      out.on('error', reject);
+      res.on('error', reject);
+    });
+    req.on('error', reject);
+    req.setTimeout(60000, () => req.destroy(new Error('The download stalled')));
+  });
+}
+// The model's bytes, downloading it first if needed. onProgress(0..1).
+function detectorModel(onProgress = () => {}) {
+  const file = detectorPath();
+  if (fs.existsSync(file) && fs.statSync(file).size === DETECTOR.size) return Promise.resolve(fs.readFileSync(file));
+  if (!_detectorJob) {
+    _detectorJob = (async () => {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      const tmp = file + '.part';
+      try {
+        await download(DETECTOR.url, tmp, onProgress);
+        const sum = await sha256File(tmp);
+        if (sum !== DETECTOR.sha256) throw new Error('The downloaded text detector is damaged');
+        fs.renameSync(tmp, file);
+      } finally {
+        try { if (fs.existsSync(tmp)) fs.unlinkSync(tmp); } catch (e) { /* in use: next time */ }
+      }
+      return fs.readFileSync(file);
+    })();
+    _detectorJob.catch(() => {}).then(() => { _detectorJob = null; });
+  }
+  return _detectorJob;
+}
+
 let _catalog = null;
 async function modelId(choice) {
   if (choice === 'haiku' && config.lumaModel) return openrouter.safeModelId(config.lumaModel);
@@ -194,8 +261,8 @@ async function translatePage(token, index, page) {
   const job = (async () => {
     const model = await modelId(choice);
     const ask = 'Page ' + (index + 1) + '. ' + (regions.length
-      ? 'Numbered balloons: ' + regions.map(r => r.id).join(', ') + '.'
-      : 'No balloons were found automatically; give boxes for all text.') + ' Translate into ' + lang + '.';
+      ? 'Numbered boxes: ' + regions.map(r => r.id).join(', ') + '.'
+      : 'No text was found automatically; give boxes for all text.') + ' Translate into ' + lang + '.';
     const body = {
       model,
       max_tokens: 4096,
@@ -258,13 +325,24 @@ function register() {
   ipcMain.handle('translate:setEnabled', (_, token, on) => {
     try { return setEnabled(String(token || ''), on === true); } catch (e) { return false; }
   });
+  // The text detector's model (bytes), downloaded on first use; progress goes
+  // to the window as translate:modelProgress (0..1).
+  ipcMain.handle('translate:detectorModel', async (e) => {
+    try {
+      return await detectorModel((f) => { try { e.sender.send('translate:modelProgress', f); } catch (err) { /* window closed */ } });
+    } catch (err) {
+      return { error: 'The text detector could not be downloaded (' + (err.message || err) + ')' };
+    }
+  });
   ipcMain.handle('translate:page', async (_, token, index, page) => {
     try { return await translatePage(String(token || ''), index, page && typeof page === 'object' ? page : null); } catch (e) { return { error: e.message, kind: e.kind || 'other' }; }
   });
 }
 
 module.exports = {
+  DETECTOR,
   LANGS,
+  detectorModel,
   buildPrompt,
   chapterState,
   parseTranslation,

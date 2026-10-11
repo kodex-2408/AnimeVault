@@ -15,7 +15,7 @@ User-facing release history lives in [CHANGELOG.md](CHANGELOG.md).
 | `main/config/` | `config.js` (config.json load/save, shrink guard, backups, Luma key, watch-history helpers, `config:*`), `security.js` (path containment, validators), `backup.js` (export/import, backup/restore) |
 | `main/scanner/` | `parsers.js` (filenames), `library.js` (layout, scan, index, `library:*`), `history.js` (`watch:*`), `organizer.js` (`manager:*`), `watcher.js`, `duplicates.js` |
 | `main/players/` | `player.js` (launch, auto-mark poller, thumbnails, manga reader), `readerTimer.js` (reading timer for external manga readers, via window titles), `reader.js` (built-in reader: comic archives, EPUB and MOBI parsing, PDF hand-off to pdf.js, `page://` protocol), `mpv.js`, `vlc.js` |
-| `main/services/` | `covers.js`, `anilist.js`, `mal.js`, `nyaa.js`, `downloads.js` (auto-download wiring), `ai.js` (Luma handlers), `translate.js` (reader page translation: prompt, answer checking against the numbered balloons, per-chapter cache in `userData/translations`) |
+| `main/services/` | `covers.js`, `anilist.js`, `mal.js`, `nyaa.js`, `downloads.js` (auto-download wiring), `ai.js` (Luma handlers), `translate.js` (reader page translation: prompt, answer checking against the numbered text, detector model download, per-chapter cache in `userData/translations`) |
 | `main/window/` | `window.js` (window + `window:*`), `tray.js`, `protocol.js` (`cover://` handler) |
 | `main/ipc/` | `registerHandlers.js` calls every module's `register()` (where its `ipcMain.handle` calls live); `system.js` holds dialog/shell handlers |
 | `preload.js` | `contextBridge` API surface (`window.api`) — every renderer capability is an explicit channel here |
@@ -278,33 +278,51 @@ recorded loss event (2026-08-22) had an off-screen cause that was never identifi
   and sticky children use `top: 0` (Chromium measures sticky offsets from the
   scroller's padding edge). Use `chromeTop()` when comparing positions.
 
-## Manga page translation (5.9)
+## Manga page translation (5.10)
 
-`renderer/typeset.js` does the image work, `main/services/translate.js` the
-model call and the cache. Placement never relies on the model's coordinates:
+Three parts: `renderer/textdetect.js` finds the letters, `renderer/typeset.js`
+turns them into units and letters the translation in, `main/services/translate.js`
+calls the model and keeps the answers. Placement never relies on the model's
+coordinates.
 
-1. `TS.detect` thresholds the page (paper >= 200 grey), erodes it by about
-   1/450 of the short side so thin leaks don't merge areas, labels white areas
-   and grows them back. A balloon fills >= 66% of its box, has a dark outline
-   around >= 75% of its edge (looked for a few pixels out), 1.2-55% of it is
-   enclosed holes with real ink, and the holes are several small blobs.
-2. `TS.annotate` draws dashed red outlines and number tags on a <= 1600 px copy;
-   the model answers `{region, text}` per balloon, or a 0-1000 box for text
-   outside them. `parseTranslation` drops unknown numbers and sound effects.
-3. `TS.render` erases inside each balloon's convex hull (inset so the outline
-   is never touched): enclosed text, plus pieces touching the edge band only
-   at a small contact and dense like lettering, plus off-white speckle near
-   them, in the balloon's median paper colour. It then fits the text into the
-   balloon's row spans (whole words, hyphen and CJK breaks), evens lines out,
-   caps each balloon at 1.2x the page median size, and draws in Comic Neue.
-   Box items land on an unclaimed balloon under them, or get a panel in their
-   own background colour.
+1. **Text detection** (`TD.detect`): comic-text-detector (dmMaze, GPL-3.0, as
+   exported to ONNX by manga-image-translator) on ONNX Runtime Web: WebGPU when
+   there is a GPU, else WebAssembly with threads (`SharedArrayBuffer` is switched
+   on in `main.js`; CSP allows `'wasm-unsafe-eval'`). The model is **not shipped**:
+   `translate:detectorModel` downloads it once into `userData/models` (95 MB,
+   SHA-256 checked) and hands its bytes to the renderer. Outputs used: `blk`
+   (text blocks), `det` (line map: drops empty blocks, adds missed lines) and
+   `seg` (per-pixel letter strokes). Port of the manga-translator extension's
+   detector.
+2. **Units** (`TS.plan`): every stroke pixel is owned by the white area that
+   encloses it (or touches it, for letters on the outline). A closed area is a
+   `balloon`; one whose white runs on is cut at thin necks (opening + keep what
+   reaches the text) and, if still open, clipped to the text (`open`). Letters
+   with no white area are `art`, split into compact clusters. Joined balloons
+   are split per lobe: first where the shape pinches (distance-transform cores),
+   then by groups of text more than about a character apart; recursively, so
+   three balloons run together become three units. Art pieces right next to a
+   balloon are merged into it. Ids run in reading order. Without the detector,
+   `TS.planLegacy` makes units from the white-area balloon finder (`TS.detect`).
+3. **The model** sees the page with each unit's text outlined and numbered and
+   answers `{region, text}` per unit, or a 0-1000 box for text it says the app
+   missed. Words spread over several balloons are split across them in reading
+   order (the prompt says so).
+4. **Lettering** (`TS.render`): a balloon or open unit is repainted whole in its
+   paper colour, plus the stroke pixels touching its edge and their fringe (never
+   dark outline pixels). Art text is inpainted: a flat fill on plain paper,
+   otherwise filled in from the edges. Text is fitted into the shape's row spans
+   (whole words; hyphen and CJK breaks), lines evened out; sizes capped at 1.2x
+   the page median, except shouted text (characters well above the usual size)
+   which may stay big. Art text goes into the light area around it when there is
+   one, otherwise a modestly widened area, with a halo. Model boxes the detector
+   missed are handled like art (their strokes inside the box), never as panels.
 
-The lettered page (JPEG, <= 2400 px) replaces the `<img>` src, so zoom and every
-mode just work. Bump `PROMPT_VERSION` in `translate.js` when the prompt or the
-numbering changes; saved answers are keyed by it. Tuning pages:
-`tests/manga-translation.test.js` covers the rules on a drawn page; real pages
-need a look by eye.
+The lettered page (JPEG, <= 2400 px) replaces the `<img>` src, so it stays put
+under zoom and in every mode. Bump `PROMPT_VERSION` in `translate.js` when the
+prompt or the numbering changes. `tests/manga-translation.test.js` covers both
+paths on drawn pages; real pages need a look by eye (the owner's test pages are
+in `manga-translator-copy.zip` on main).
 
 ## Main-process modules (5.2)
 

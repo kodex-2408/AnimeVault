@@ -36,7 +36,7 @@ assert.ok(renderer.files.length >= 10, 'renderer scripts must be referenced from
 const csp = (html.match(/Content-Security-Policy"\s+content="([^"]+)"/) || [])[1] || '';
 const scriptSrc = (csp.match(/script-src([^;]*)/) || [])[1] || '';
 assert.ok(scriptSrc.includes("'self'"), 'CSP must allow self-hosted scripts');
-assert.ok(!/unsafe-inline|unsafe-eval/.test(scriptSrc), 'CSP script-src must not allow inline or eval');
+assert.ok(!/'unsafe-inline'|'unsafe-eval'/.test(scriptSrc), 'CSP script-src must not allow inline or eval (WebAssembly compilation alone is allowed)');
 assert.ok(/object-src 'none'/.test(csp) && /base-uri 'none'/.test(csp), 'CSP must lock down object-src and base-uri');
 
 // Every file the renderer loads must be packaged.

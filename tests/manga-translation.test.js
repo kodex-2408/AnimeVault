@@ -99,7 +99,7 @@ config.folders = [];
   assert.deepStrictEqual(a, b); checks++;
   assert.strictEqual(a.items[0].text, 'Hello (anthropic/claude-haiku-5.5)'); checks++;
   assert.deepStrictEqual([a.items[0].region, a.items[0].x0, a.items[0].x1], [1, 100, 400], 'the balloon keeps the box the reader found'); checks++;
-  assert(/Numbered balloons: 1\./.test(calls[0].messages[1].content[0].text), 'malformed balloons are not offered to the model'); checks++;
+  assert(/Numbered boxes: 1\./.test(calls[0].messages[1].content[0].text), 'malformed boxes are not offered to the model'); checks++;
   const sentBody = calls[0];
   assert.strictEqual(sentBody.messages[1].content[1].image_url.url.slice(0, 22), 'data:image/png;base64,', 'the page picture goes with the request'); checks++;
   assert(/into English/.test(sentBody.messages[0].content)); checks++;
@@ -193,8 +193,9 @@ config.folders = [];
   for (let y = 420; y < 480; y++) for (let x = 120; x < 200; x++) put(x, y, 255);                               // a face
   for (const [x, y] of [[140, 440], [170, 440], [150, 460], [155, 460]]) put(x, y, 30);
   const drawnPage = { width: PW, height: PH, data: px };
-  const det = TS.detect(drawnPage);
+  const det = TS.planLegacy(drawnPage);
   assert.strictEqual(det.regions.length, 1, 'one balloon found: ' + JSON.stringify(det.regions.map(r => [r.x0, r.y0, r.x1, r.y1]))); checks++;
+  assert.strictEqual(det.units.length, 1); checks++;
   const RB = det.regions[0];
   assert(Math.abs(RB.cx - ecx) < 8 && RB.y0 < 90 && RB.y1 > 310, 'the balloon is the ellipse'); checks++;
   assert.strictEqual(Object.keys(TS.regionBoxes(det)[0]).join(), 'id,x0,y0,x1,y1'); checks++;
@@ -220,11 +221,53 @@ config.folders = [];
     }
   }
   checks++;
+  // ---------------------------- lettering with the text detector (TS.plan)
+  // Two balloons run together (two overlapping ellipses), each holding a
+  // column of text, found by the detector as ONE block; plus a line of text
+  // over hatching. The block must become one unit per balloon, the hatching
+  // text an "art" unit, and each translation must land in its own balloon.
+  const QW = 420, QH = 560, qx = new Uint8ClampedArray(QW * QH * 4).fill(255), strokes = new Uint8Array(QW * QH);
+  const qput = (x, y, v) => { if (x < 0 || y < 0 || x >= QW || y >= QH) return; const j = (y * QW + x) * 4; qx[j] = qx[j + 1] = qx[j + 2] = v; };
+  const lobes = [[150, 170, 70, 100], [270, 230, 70, 100]];
+  const inLobe = (x, y, [cx, cy, a, b], k = 1) => ((x - cx) / a) ** 2 + ((y - cy) / b) ** 2 < k;
+  for (let y = 0; y < QH; y++) for (let x = 0; x < QW; x++) {
+    const inside = lobes.some(L => inLobe(x, y, L)), ring = lobes.some(L => inLobe(x, y, L, 1.09));
+    if (ring && !inside) qput(x, y, 15);
+  }
+  const cols = [[144, 120], [264, 180]], textOf = [[], []];
+  cols.forEach(([cx0, cy0], li) => { for (let k = 0; k < 6; k++) for (let y = 0; y < 12; y++) for (let x = 0; x < 12; x++) {
+    if ((x + y) % 3 === 0 || x === 0 || y === 11) { const X = cx0 + x, Y = cy0 + k * 16 + y; qput(X, Y, 25); strokes[Y * QW + X] = 255; textOf[li].push([X, Y]); } } });
+  for (let y = 380; y < 540; y++) for (let x = 30; x < 400; x++) if ((x * 7 + y * 3) % 9 === 0) qput(x, y, 110);   // hatching
+  const artPx = [];
+  for (let k = 0; k < 5; k++) for (let y = 0; y < 12; y++) for (let x = 0; x < 12; x++) if ((x + 2 * y) % 4 === 0 || y === 0) {
+    const X = 150 + k * 16 + x, Y = 450 + y; qput(X, Y, 20); strokes[Y * QW + X] = 255; artPx.push([X, Y]); }
+  const qPage = { width: QW, height: QH, data: qx };
+  const td = { boxes: [{ x1: 140, y1: 116, x2: 280, y2: 280, conf: 0.9 }, { x1: 148, y1: 448, x2: 232, y2: 464, conf: 0.8 }], strokes };
+  const P2 = TS.plan(qPage, td);
+  const kinds = P2.units.map(u => u.kind).sort().join();
+  assert.strictEqual(kinds, 'art,balloon,balloon', 'one block over two joined balloons becomes two balloon units, and the hatching text an art unit: ' + kinds); checks++;
+  const unitOf = (pts) => P2.units.find(u => u.kind === 'balloon' && pts.every(([x, y]) => x >= u.tb.x1 && x <= u.tb.x2 && y >= u.tb.y1 && y <= u.tb.y2));
+  const U1 = unitOf(textOf[0]), U2 = unitOf(textOf[1]), UA = P2.units.find(u => u.kind === 'art');
+  assert(U1 && U2 && U1 !== U2, 'each balloon\'s column is its own unit'); checks++;
+  assert.strictEqual(TS.regionBoxes(P2).length, 3); checks++;
+  const drawn2 = [];
+  const ctx2 = Object.assign({}, fakeCtx, { fillText(t, x, y) { drawn2.push({ t, x, y }); } });
+  const outline2 = [];
+  for (let i = 0; i < QW * QH; i++) if (qx[i * 4] === 15) outline2.push(i);
+  TS.render(ctx2, qPage, P2, [{ region: U1.id, text: 'Honestly, I like that.' }, { region: U2.id, text: 'Personally, I mean...' }, { region: UA.id, text: 'Shrine' }]);
+  assert(textOf[0].concat(textOf[1]).every(([x, y]) => qx[(y * QW + x) * 4] > 240), 'both balloons\' text is erased'); checks++;
+  assert(outline2.every(i => qx[i * 4] === 15), 'the outlines are untouched'); checks++;
+  assert(artPx.every(([x, y]) => qx[(y * QW + x) * 4] > 60), 'text over the drawing is painted over'); checks++;
+  const lineAt = (txt) => drawn2.filter(d => txt.split(' ').includes(d.t.split(' ')[0]));
+  assert(drawn2.filter(d => /Honestly|like/.test(d.t)).every(d => inLobe(d.x, d.y, lobes[0])), 'the first translation sits in the first balloon'); checks++;
+  assert(drawn2.filter(d => /Personally|mean/.test(d.t)).every(d => inLobe(d.x, d.y, lobes[1])), 'the second translation sits in the second balloon'); checks++;
+  assert(drawn2.some(d => d.t === 'Shrine'), 'text over the drawing is lettered'); checks++;
+
   // words: hyphens may break, Japanese breaks between characters
   assert.strictEqual(JSON.stringify(TS.tokens('Kamiina-san!? first-year').map(t => t.t)), '["Kamiina-","san!?","first-","year"]'); checks++;
   assert.strictEqual(TS.tokens('寮長さんと話したい').length, 9); checks++;
   assert.strictEqual(TS.tokens('Wait...!').map(t => t.t).join('|'), 'Wait...!'); checks++;
 
   fs.rmSync(tmp, { recursive: true, force: true });
-  console.log('manga-translation checks passed: ' + checks + ' assertions (answers, cache, per-chapter switch, languages, models, errors, PDF, balloon detection, erasing, lettering)');
+  console.log('manga-translation checks passed: ' + checks + ' assertions (answers, cache, per-chapter switch, languages, models, errors, PDF, balloon detection, erasing, lettering, text-detector units and joined balloons)');
 })().catch(e => { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (_) {} console.error(e); process.exit(1); });

@@ -5,6 +5,28 @@ Tsundoku was called AnimeVault up to 5.7.0; older entries keep the old name.
 All notable changes, newest first. Engineering context — test guide, security
 posture, design decisions, open roadmap — lives in [DEVELOPMENT.md](DEVELOPMENT.md).
 
+## 5.10.0 — Manga translation with a text detector
+
+- **The translator now finds the text the way your manga-translator extension
+  does**: comic-text-detector, a model trained on manga, runs on your GPU
+  (WebGPU) or, without one, on the CPU. It is downloaded the first time you
+  press `T` (95 MB, once, checked) and is not part of the app.
+- **One balloon, one translation.** The detector's text blocks are split per
+  balloon before they are numbered for the model, so balloons that run
+  together (two lobes, a round balloon joined to a jagged one, three in a row)
+  each get their own line in the right place, instead of one combined
+  translation squeezed into a corner.
+- **Balloons that break out of a panel** into the white margin are cut where
+  they narrow, so the translation stays inside the balloon.
+- **Text over the drawing and signs** are no longer covered by a box: only the
+  letters are removed (a clean fill on plain paper, otherwise blended into the
+  art), and the translation sits in the light area around them, with a halo.
+- **Words shouted across several balloons** (せ・ん・た・く・も・の) are split
+  across them in reading order, and shouted text may stay big.
+- The extension's on-page overlays could lag behind the page while zooming;
+  Tsundoku letters the page image itself, so the text never moves off its spot.
+- If the detector can't start, the simpler balloon finder from 5.9 is used.
+
 ## 5.9.0 — Manga translation, safer deletes, accessibility
 
 - **Translate manga in the built-in reader.** The new Translate tool (`T`)

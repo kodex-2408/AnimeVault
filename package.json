@@ -1,6 +1,6 @@
 {
   "name": "tsundoku",
-  "version": "5.9.0",
+  "version": "5.10.0",
   "description": "Personal anime/manga library manager with MAL sync, Nyaa integration, and enhanced HEVC-aware auto-download",
   "main": "main.js",
   "author": "Kike",
@@ -25,6 +25,7 @@
   "dependencies": {
     "adm-zip": "^0.6.1",
     "node-unrar-js": "^2.0.2",
+    "onnxruntime-web": "^1.30.0",
     "pdfjs-dist": "^6.4.299"
   },
   "build": {
@@ -51,6 +52,14 @@
       "!node_modules/pdfjs-dist/{legacy,web,types,image_decoders}{,/**/*}",
       "!node_modules/pdfjs-dist/**/*.map",
       "!node_modules/pdfjs-dist/build/{pdf.mjs,pdf.worker.mjs,pdf.sandbox*}",
+      "!node_modules/onnxruntime-web/{lib,docs,types.d.ts}{,/**/*}",
+      "!node_modules/onnxruntime-web/dist/*.map",
+      "!node_modules/onnxruntime-web/dist/*.js",
+      "!node_modules/onnxruntime-web/dist/ort.{all,webgl,wasm,jspi,bundle,min,node}*",
+      "!node_modules/onnxruntime-web/dist/ort.webgpu.{mjs,bundle.min.mjs}",
+      "!node_modules/onnxruntime-web/dist/ort.mjs",
+      "!node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.{wasm,mjs,jsep.wasm,jsep.mjs,jspi.wasm,jspi.mjs}",
+      "!node_modules/onnxruntime-web/dist/*.{d.ts,cjs}",
       "!dist{,/**/*}",
       "!tests{,/**/*}",
       "!*.md",

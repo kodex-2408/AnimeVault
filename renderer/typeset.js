@@ -142,26 +142,271 @@ var TS=(function(){
     return {W:W,H:H,gray:g,L:L,st:st,regions:regions,rejected:rejected};
   }
 
-  // The page for the model: at most maxEdge pixels, balloons outlined in red
-  // with their number on a tag at the top-left corner.
-  function annotate(source,det,maxEdge){
-    var sc=Math.min(1,maxEdge/Math.max(det.W,det.H)),w=Math.round(det.W*sc),h=Math.round(det.H*sc);
+
+  // ------------------------------------------------ with the text detector --
+  // The detector (renderer/textdetect.js) says where the letters are; this turns
+  // its blocks into units, one per balloon (or per lobe of joined balloons):
+  //   balloon - text inside a closed white area: the whole inside is repainted
+  //             and the translation fills its shape;
+  //   open    - text on white that runs off into the margin or a plain panel:
+  //             only the part around the text is used;
+  //   art     - text over the drawing: only the letters are covered and the
+  //             translation gets a halo in the background colour.
+  var STROKE=110;           // stroke map value (0-255) that counts as a letter
+
+  // Chamfer (3-4) distance to the mask's edge, inside the mask.
+  function distIn(m,w,h){
+    var d=new Float32Array(w*h),x,y,i,INF=1e9;
+    for(i=0;i<w*h;i++)d[i]=m[i]?INF:0;
+    for(y=0;y<h;y++)for(x=0;x<w;x++){i=y*w+x;if(!d[i])continue;var v=d[i];
+      v=Math.min(v,x>0?d[i-1]+3:3,y>0?d[i-w]+3:3,x>0&&y>0?d[i-w-1]+4:4,x<w-1&&y>0?d[i-w+1]+4:4);d[i]=v;}
+    for(y=h-1;y>=0;y--)for(x=w-1;x>=0;x--){i=y*w+x;if(!d[i])continue;var u=d[i];
+      u=Math.min(u,x<w-1?d[i+1]+3:3,y<h-1?d[i+w]+3:3,x<w-1&&y<h-1?d[i+w+1]+4:4,x>0&&y<h-1?d[i+w-1]+4:4);d[i]=u;}
+    for(i=0;i<w*h;i++)d[i]/=3;
+    return d;
+  }
+  // Labels the 4-connected parts of a mask; returns {lab, sizes}.
+  function parts(m,w,h){
+    var lab=new Int32Array(w*h),st=new Int32Array(w*h),sizes=[0];
+    for(var s=0;s<w*h;s++){if(!m[s]||lab[s])continue;var id=sizes.length,sp=0,n=0;st[sp++]=s;lab[s]=id;
+      while(sp){var p=st[--sp];n++;var x=p%w;
+        if(x>0&&m[p-1]&&!lab[p-1]){lab[p-1]=id;st[sp++]=p-1;}if(x<w-1&&m[p+1]&&!lab[p+1]){lab[p+1]=id;st[sp++]=p+1;}
+        if(p>=w&&m[p-w]&&!lab[p-w]){lab[p-w]=id;st[sp++]=p-w;}if(p<w*(h-1)&&m[p+w]&&!lab[p+w]){lab[p+w]=id;st[sp++]=p+w;}}
+      sizes.push(n);}
+    return {lab:lab,sizes:sizes};
+  }
+  // Grows labelled seeds through the mask (multi-source BFS): each pixel goes to
+  // the seed it is closest to inside the shape.
+  function grow(seedLab,m,w,h){
+    var out=Int32Array.from(seedLab),q=new Int32Array(w*h),qh=0,qt=0,i;
+    for(i=0;i<w*h;i++)if(out[i])q[qt++]=i;
+    while(qh<qt){i=q[qh++];var x=i%w,nb=[x>0?i-1:-1,x<w-1?i+1:-1,i>=w?i-w:-1,i<w*(h-1)?i+w:-1];
+      for(var k=0;k<4;k++){var c=nb[k];if(c>=0&&m[c]&&!out[c]){out[c]=out[i];q[qt++]=c;}}}
+    return out;
+  }
+  // Joined balloons: the shape thins out between its lobes. Cut it at the
+  // lowest distance level where it falls apart into two or more cores that each
+  // hold a fair share of the text; every pixel then joins its nearest core.
+  // Returns a part label per pixel (1..n), or null for a single balloon.
+  function splitLobes(m,w,h,isText){
+    var d=distIn(m,w,h),max=0,i,total=0;
+    for(i=0;i<w*h;i++){if(d[i]>max)max=d[i];if(isText[i])total++;}
+    if(max<4||total<20)return null;
+    var fracs=[0.3,0.4,0.5,0.6,0.7];
+    for(var f=0;f<fracs.length;f++){
+      var t=max*fracs[f],core=new Uint8Array(w*h);
+      for(i=0;i<w*h;i++)core[i]=d[i]>t?1:0;
+      var P=parts(core,w,h);if(P.sizes.length<3)continue;
+      var big=Math.max.apply(null,P.sizes);
+      var seed=new Int32Array(w*h);for(i=0;i<w*h;i++)if(P.lab[i]&&P.sizes[P.lab[i]]>=big*0.12)seed[i]=P.lab[i];
+      var lab=grow(seed,m,w,h),count={};
+      for(i=0;i<w*h;i++)if(isText[i]&&lab[i])count[lab[i]]=(count[lab[i]]||0)+1;
+      var good=Object.keys(count).filter(function(k){return count[k]>=Math.max(30,total*0.12);});
+      if(good.length<2)continue;
+      // parts without much text join their neighbours
+      var keep=new Int32Array(w*h),map={};good.forEach(function(k,j){map[k]=j+1;});
+      for(i=0;i<w*h;i++)if(lab[i]&&map[lab[i]])keep[i]=map[lab[i]];
+      return {lab:grow(keep,m,w,h),n:good.length};
+    }
+    return splitByText(m,w,h,isText,total);
+  }
+  // Splits, then splits each part again (three balloons run together).
+  function splitDeep(m,w,h,isText,depth){
+    var r=splitLobes(m,w,h,isText);
+    if(!r||depth<=1)return r;
+    var out=new Int32Array(w*h),n=0,i;
+    for(var k=1;k<=r.n;k++){
+      var sm=new Uint8Array(w*h),st=new Uint8Array(w*h);
+      for(i=0;i<w*h;i++)if(r.lab[i]===k){sm[i]=1;if(isText[i])st[i]=1;}
+      var sub=splitDeep(sm,w,h,st,depth-1);
+      if(!sub){n++;for(i=0;i<w*h;i++)if(sm[i])out[i]=n;}
+      else{for(var j=1;j<=sub.n;j++){n++;for(i=0;i<w*h;i++)if(sm[i]&&sub.lab[i]===j)out[i]=n;}}
+    }
+    return {lab:out,n:n};
+  }
+  // Second chance: the text itself falls into groups more than about a
+  // character apart (two lines of dialogue in joined balloons whose lobes don't
+  // pinch, like a round balloon run into a jagged one). Each group gets the
+  // part of the shape nearest to it.
+  function splitByText(m,w,h,isText,total){
+    var P=parts(isText,w,h),sz=[],i;
+    for(i=1;i<P.sizes.length;i++)if(P.sizes[i]>=6){
+      var x1=w,y1=h,x2=0,y2=0;for(var j=0;j<w*h;j++)if(P.lab[j]===i){var x=j%w,y=j/w|0;if(x<x1)x1=x;if(x>x2)x2=x;if(y<y1)y1=y;if(y>y2)y2=y;}
+      sz.push(Math.max(x2-x1+1,y2-y1+1));}
+    if(sz.length<3)return null;
+    sz.sort(function(a,b){return a-b;});
+    var ch=sz[Math.floor(sz.length*0.75)],gap=Math.max(3,Math.round(ch*0.55));
+    var G=parts(dilateBits(isText,w,h,gap),w,h),count={};
+    for(i=0;i<w*h;i++)if(isText[i]&&G.lab[i])count[G.lab[i]]=(count[G.lab[i]]||0)+1;
+    var good=Object.keys(count).filter(function(k){return count[k]>=Math.max(30,total*0.12);});
+    if(good.length<2)return null;
+    var seed=new Int32Array(w*h),map={};good.forEach(function(k,j){map[k]=j+1;});
+    for(i=0;i<w*h;i++)if(isText[i]&&map[G.lab[i]])seed[i]=map[G.lab[i]];
+    return {lab:grow(seed,m,w,h),n:good.length};
+  }
+  function dilateBits(bits,w,h,r){
+    var inv=new Uint8Array(w*h),i;for(i=0;i<w*h;i++)inv[i]=bits[i]?0:1;
+    var e=erode(inv,w,h,r);for(i=0;i<w*h;i++)inv[i]=e[i]?0:1;return inv;
+  }
+  // Keeps the parts of a mask that reach into a rectangle (local coordinates)
+  // and are at least a quarter the size of the largest such part.
+  function keepTouching(m,w,h,rx1,ry1,rx2,ry2){
+    var P=parts(m,w,h),hit={},x,y,big=0;
+    rx1=Math.max(0,rx1|0);ry1=Math.max(0,ry1|0);rx2=Math.min(w-1,rx2|0);ry2=Math.min(h-1,ry2|0);
+    for(y=ry1;y<=ry2;y++)for(x=rx1;x<=rx2;x++){var l=P.lab[y*w+x];if(l){hit[l]=1;if(P.sizes[l]>big)big=P.sizes[l];}}
+    var out=new Uint8Array(w*h);for(var i=0;i<w*h;i++){var k=P.lab[i];if(k&&hit[k]&&P.sizes[k]>=big*0.25)out[i]=1;}
+    return out;
+  }
+
+  // Splits scattered letters into compact clusters (rain of sound effects
+  // across a margin, separate signs): groups more than about a character apart.
+  function clusters(pts,W){
+    if(pts.length<60)return [pts];
+    var x1=1e9,y1=1e9,x2=-1,y2=-1;pts.forEach(function(p){var x=p%W,y=p/W|0;if(x<x1)x1=x;if(x>x2)x2=x;if(y<y1)y1=y;if(y>y2)y2=y;});
+    var w=x2-x1+1,h=y2-y1+1,m=new Uint8Array(w*h);pts.forEach(function(p){m[((p/W|0)-y1)*w+p%W-x1]=1;});
+    var P=parts(m,w,h),sz=[];
+    for(var i=1;i<P.sizes.length;i++)if(P.sizes[i]>=6){var bx1=w,by1=h,bx2=0,by2=0;for(var j=0;j<w*h;j++)if(P.lab[j]===i){var x=j%w,y=j/w|0;if(x<bx1)bx1=x;if(x>bx2)bx2=x;if(y<by1)by1=y;if(y>by2)by2=y;}sz.push(Math.max(bx2-bx1+1,by2-by1+1));}
+    if(!sz.length)return [pts];
+    sz.sort(function(a,b){return a-b;});
+    var gap=Math.max(3,Math.round(sz[Math.floor(sz.length*0.75)]*0.55)),G=parts(dilateBits(m,w,h,gap),w,h),out={};
+    pts.forEach(function(p){var l=G.lab[((p/W|0)-y1)*w+p%W-x1];(out[l]=out[l]||[]).push(p);});
+    return Object.keys(out).map(function(k){return out[k];});
+  }
+
+  // How big the original characters are: the 75th percentile of the letters'
+  // connected pieces (kana break into several, kanji mostly hold together).
+  function charSize(pts,W){
+    if(pts.length<20)return 0;
+    var x1=1e9,y1=1e9,x2=-1,y2=-1;pts.forEach(function(p){var x=p%W,y=p/W|0;if(x<x1)x1=x;if(x>x2)x2=x;if(y<y1)y1=y;if(y>y2)y2=y;});
+    var w=x2-x1+1,h=y2-y1+1,m=new Uint8Array(w*h);pts.forEach(function(p){m[((p/W|0)-y1)*w+p%W-x1]=1;});
+    var P=parts(m,w,h),bx={};
+    for(var i=0;i<w*h;i++){var l=P.lab[i];if(!l||P.sizes[l]<8)continue;var x=i%w,y=i/w|0,b=bx[l]||(bx[l]=[x,y,x,y]);if(x<b[0])b[0]=x;if(y<b[1])b[1]=y;if(x>b[2])b[2]=x;if(y>b[3])b[3]=y;}
+    var sz=Object.keys(bx).map(function(k){var b=bx[k];return Math.max(b[2]-b[0]+1,b[3]-b[1]+1);}).sort(function(a,b){return a-b;});
+    return sz.length?sz[Math.floor(sz.length*0.75)]:0;
+  }
+
+  function plan(img,td,opts){
+    opts=opts||{};
+    var W=img.width,H=img.height,N=W*H,g=toGray(img.data,N),white=new Uint8Array(N),i,x,y;
+    for(i=0;i<N;i++)white[i]=g[i]>=WHITE?1:0;
+    var L=label(white,W,H,Math.max(1,Math.round(Math.min(W,H)/450))),st=stats(L,W,H),lab=L.lab,S=td.strokes;
+    var regionCache={},units=[];
+    function regionFor(c){if(!regionCache[c])regionCache[c]=regionOf(L,g,W,H,c,st);return regionCache[c];}
+    // 1. letters, by the white area that holds them
+    var groups={},near=Math.max(3,Math.round(Math.min(W,H)/250));
+    td.boxes.forEach(function(b,bi){
+      var x1=Math.max(0,Math.floor(b.x1)-2),y1=Math.max(0,Math.floor(b.y1)-2),x2=Math.min(W-1,Math.ceil(b.x2)+2),y2=Math.min(H-1,Math.ceil(b.y2)+2);
+      var counts={};
+      for(y=y1;y<=y2;y++)for(x=x1;x<=x2;x++){var c=lab[y*W+x];if(c)counts[c]=(counts[c]||0)+1;}
+      var cands=Object.keys(counts).filter(function(c){return counts[c]>=(x2-x1+1)*(y2-y1+1)*0.04&&st.area[c]<=N*0.45;}).map(Number);
+      for(y=y1;y<=y2;y++)for(x=x1;x<=x2;x++){var p=y*W+x;if(S[p]<STROKE)continue;
+        var owner=0;
+        for(var k=0;k<cands.length&&!owner;k++){var R=regionFor(cands[k]);var lx=x-R.x0,ly=y-R.y0;if(lx>=0&&ly>=0&&lx<R.w&&ly<R.h&&R.fill[ly*R.w+lx])owner=cands[k];}
+        if(!owner){ // touching the outline: the white area right next to it
+          for(var r=1;r<=near&&!owner;r++){var xs=[x-r,x+r,x,x],ys=[y,y,y-r,y+r];for(var q=0;q<4;q++){var xx=xs[q],yy=ys[q];if(xx<0||yy<0||xx>=W||yy>=H)continue;var cc=lab[yy*W+xx];if(cc&&cands.indexOf(cc)>=0){owner=cc;break;}}}
+        }
+        var key=owner?'w'+owner:'a'+bi;
+        (groups[key]=groups[key]||{owner:owner,box:bi,pts:[]}).pts.push(p);
+      }
+    });
+    // 2. each group becomes one or more units
+    var pending=Object.keys(groups);
+    for(var pi=0;pi<pending.length;pi++)(function(key){
+      var gp=groups[key];
+      if(gp.pts.length<25)return;                                  // specks
+      var tb=bounds(gp.pts,W);
+      if(!gp.owner){clusters(gp.pts,W).forEach(function(c){if(c.length>=25)units.push(artUnit(bounds(c,W),c));});return;}
+      var R=regionFor(gp.owner),tw=tb.x2-tb.x1+1,th=tb.y2-tb.y1+1;
+      var closed=R.w<=tw*3.2+40&&R.h<=th*3.2+40&&R.filled<=tw*th*15&&R.filled/(R.w*R.h)>=0.3&&!(R.touches&&R.filled>N*0.05);
+      var mask,mx,my,mw,mh;
+      if(closed){mask=new Uint8Array(R.w*R.h);for(i=0;i<mask.length;i++)mask[i]=R.fill[i]?1:0;mx=R.x0;my=R.y0;mw=R.w;mh=R.h;}
+      else{
+        // the white runs on: cut thin necks, keep what reaches the text
+        var m2=Math.round(Math.max(tw,th)*0.6)+8;mx=Math.max(R.x0,tb.x1-m2);my=Math.max(R.y0,tb.y1-m2);mw=Math.min(R.x1,tb.x2+m2)-mx+1;mh=Math.min(R.y1,tb.y2+m2)-my+1;
+        mask=new Uint8Array(mw*mh);
+        for(y=0;y<mh;y++)for(x=0;x<mw;x++){var lx2=mx+x-R.x0,ly2=my+y-R.y0;if(R.fill[ly2*R.w+lx2])mask[y*mw+x]=1;}
+        var rr=Math.max(3,Math.round(Math.min(tw,th)*0.06));
+        mask=keepTouching(dilateBits(erode(mask,mw,mh,rr),mw,mh,rr),mw,mh,tb.x1-mx,tb.y1-my,tb.x2-mx,tb.y2-my);
+        var leaks=false;for(y=0;y<mh&&!leaks;y++)for(x=0;x<mw;x++){if(!mask[y*mw+x])continue;if((x===0&&mx>0)||(y===0&&my>0)||(x===mw-1&&mx+mw<W)||(y===mh-1&&my+mh<H)){leaks=true;break;}}
+        if(leaks&&!gp.split){ // scattered letters on open white: one unit per cluster
+          var cl=clusters(gp.pts,W);
+          if(cl.length>1){cl.forEach(function(c,ci){if(c.length>=25){groups[key+'_'+ci]={owner:gp.owner,box:gp.box,pts:c,split:true};pending.push(key+'_'+ci);}});return;}
+        }
+        if(leaks){ // still open: only around the text
+          var cm=Math.round(Math.max(tw,th)*0.12)+3;
+          for(y=0;y<mh;y++)for(x=0;x<mw;x++){var gx=mx+x,gy=my+y;if(gx<tb.x1-cm||gx>tb.x2+cm||gy<tb.y1-cm||gy>tb.y2+cm)mask[y*mw+x]=0;}
+        }
+        closed=!leaks;
+      }
+      // the letters join the shape (holes, and letters touching the outline)
+      var isText=new Uint8Array(mw*mh);
+      gp.pts.forEach(function(p){var px=p%W-mx,py=(p/W|0)-my;if(px>=0&&py>=0&&px<mw&&py<mh){isText[py*mw+px]=1;mask[py*mw+px]=1;}});
+      var lobes=closed?splitDeep(mask,mw,mh,isText,3):null;
+      var n=lobes?lobes.n:1;
+      for(var li=1;li<=n;li++){
+        var um=new Uint8Array(mw*mh),pts=[];
+        for(i=0;i<mw*mh;i++)if(mask[i]&&(!lobes||lobes.lab[i]===li)){um[i]=1;if(isText[i])pts.push((my+(i/mw|0))*W+mx+i%mw);}
+        if(pts.length<25)continue;
+        units.push(shapeUnit(closed?'balloon':'open',um,mx,my,mw,mh,pts,bounds(pts,W),img));
+      }
+    })(pending[pi]);
+    // letters crossing a balloon's outline came out as text over the drawing:
+    // they belong to the balloon next to them
+    units=units.filter(function(a){
+      if(a.kind!=='art')return true;
+      var best=null,bn=0,pad=near*2;
+      units.forEach(function(u){if(!u.fill)return;var n=0;
+        if(!u._near)u._near=dilateBits(u.fill,u.w,u.h,pad);
+        a.pts.forEach(function(p){var x=p%W-u.x0,y=(p/W|0)-u.y0;if(x>=0&&y>=0&&x<u.w&&y<u.h&&u._near[y*u.w+x])n++;});
+        if(n>bn){bn=n;best=u;}});
+      if(!best||bn<a.pts.length*0.3)return true;
+      best.pts=best.pts.concat(a.pts);best.tb=bounds(best.pts,W);
+      return false;
+    });
+    // reading order: rows from the top, right to left (manga)
+    units.forEach(function(u){delete u._near;u.ch=charSize(u.pts,W);});
+    var band=H*0.08;
+    units.sort(function(a,b){var ra=Math.floor(a.tb.y1/band),rb=Math.floor(b.tb.y1/band);return ra!==rb?ra-rb:b.tb.x2-a.tb.x2;});
+    units.forEach(function(u,k){u.id=k+1;});
+    return {W:W,H:H,gray:g,strokes:S,units:units,detector:true};
+
+    function bounds(pts,Wd){var a={x1:1e9,y1:1e9,x2:-1,y2:-1};pts.forEach(function(p){var px=p%Wd,py=p/Wd|0;if(px<a.x1)a.x1=px;if(px>a.x2)a.x2=px;if(py<a.y1)a.y1=py;if(py>a.y2)a.y2=py;});return a;}
+    function artUnit(tb,pts){return {kind:'art',tb:tb,pts:pts};}
+    function shapeUnit(kind,m,mx,my,mw,mh,pts,tb,img){
+      var sx=0,sy=0,n=0,rs=[],gs=[],bs=[],d=img.data;
+      for(var i=0;i<mw*mh;i++){if(!m[i])continue;var px=mx+i%mw,py=my+(i/mw|0);sx+=px;sy+=py;n++;
+        if(n%5===0&&S[py*W+px]<40&&g[py*W+px]>=WHITE){var j=(py*W+px)*4;rs.push(d[j]);gs.push(d[j+1]);bs.push(d[j+2]);}}
+      return {kind:kind,tb:tb,pts:pts,x0:mx,y0:my,w:mw,h:mh,fill:m,cx:sx/Math.max(1,n),cy:sy/Math.max(1,n),paper:[median(rs),median(gs),median(bs)]};
+    }
+  }
+
+  // Without the detector: the balloons detect() finds, as units.
+  function planLegacy(img){
+    var det=detect(img);
+    det.units=det.regions.map(function(R){return {kind:'legacy',R:R,id:R.id,tb:{x1:R.x0,y1:R.y0,x2:R.x1,y2:R.y1}};});
+    return det;
+  }
+
+  // The page for the model: at most maxEdge pixels, each unit's text outlined
+  // in red with its number on a tag at the top-left corner.
+  function annotate(source,P,maxEdge){
+    var sc=Math.min(1,maxEdge/Math.max(P.W,P.H)),w=Math.round(P.W*sc),h=Math.round(P.H*sc);
     var cv=document.createElement('canvas');cv.width=w;cv.height=h;
     var ctx=cv.getContext('2d');ctx.drawImage(source,0,0,w,h);
     var fs=Math.max(13,Math.round(h*0.017)),lw=Math.max(2,Math.round(h/600));
     ctx.font='700 '+fs+'px sans-serif';ctx.textBaseline='middle';ctx.textAlign='center';
-    det.regions.forEach(function(R){
-      var x=R.x0*sc-2,y=R.y0*sc-2,bw=R.w*sc+4,bh=R.h*sc+4;
+    P.units.forEach(function(u){
+      var x=u.tb.x1*sc-3,y=u.tb.y1*sc-3,bw=(u.tb.x2-u.tb.x1+1)*sc+6,bh=(u.tb.y2-u.tb.y1+1)*sc+6;
       ctx.strokeStyle='#e0102e';ctx.lineWidth=lw;ctx.setLineDash([lw*3,lw*2]);ctx.strokeRect(x,y,bw,bh);ctx.setLineDash([]);
-      var t=String(R.id),tw=Math.max(fs*1.3,ctx.measureText(t).width+fs*0.6),th=fs*1.25;
-      var tx=Math.max(0,x-tw*0.35),ty=Math.max(0,y-th*0.55);
+      var t=String(u.id),tw=Math.max(fs*1.3,ctx.measureText(t).width+fs*0.6),th=fs*1.25;
+      var tx=Math.max(0,x-tw*0.6),ty=Math.max(0,y-th*0.7);
       ctx.fillStyle='#e0102e';ctx.fillRect(tx,ty,tw,th);ctx.fillStyle='#fff';ctx.fillText(t,tx+tw/2,ty+th/2+1);
     });
     return cv;
   }
-  // Region boxes on the model's 0-1000 scale.
-  function regionBoxes(det){
-    return det.regions.map(function(R){return {id:R.id,x0:Math.round(R.x0/det.W*1000),y0:Math.round(R.y0/det.H*1000),x1:Math.round((R.x1+1)/det.W*1000),y1:Math.round((R.y1+1)/det.H*1000)};});
+  // Unit boxes (the text) on the model's 0-1000 scale.
+  function regionBoxes(P){
+    return P.units.map(function(u){return {id:u.id,x0:Math.round(u.tb.x1/P.W*1000),y0:Math.round(u.tb.y1/P.H*1000),x1:Math.round((u.tb.x2+1)/P.W*1000),y1:Math.round((u.tb.y2+1)/P.H*1000)};});
   }
 
   // ------------------------------------------------------------ lettering --
@@ -363,56 +608,159 @@ var TS=(function(){
     return R;
   }
 
+  // Paints the masked pixels by filling in from their edges (each pass takes
+  // the average of the known neighbours), so screentone and gradients behind
+  // text over the drawing are continued instead of covered by a flat patch.
+  function inpaint(img,W,H,pts,r){
+    var d=img.data,set={},list=[],i,k;
+    pts.forEach(function(p){var px=p%W,py=p/W|0;for(var dy=-r;dy<=r;dy++)for(var dx=-r;dx<=r;dx++){var x=px+dx,y=py+dy;if(x<0||y<0||x>=W||y>=H)continue;var q=y*W+x;if(!set[q]){set[q]=1;list.push(q);}}});
+    // On plain paper (a sign, a caption on white) a flat fill in the paper's
+    // colour is cleaner than blending in nearby lines.
+    var ring=[];list.forEach(function(q){var x=q%W,y=q/W|0;for(var t=0;t<4;t++){var o=t===0?q-r-1:t===1?q+r+1:t===2?q-(r+1)*W:q+(r+1)*W;if(o>=0&&o<W*H&&!set[o])ring.push(o);}});
+    if(ring.length){
+      var lv=ring.map(function(o){var j=o*4;return (d[j]*77+d[j+1]*150+d[j+2]*29)>>8;}).sort(function(a,b){return a-b;});
+      var med=lv[lv.length>>1],light=lv.filter(function(v){return Math.abs(v-med)<24;}).length/lv.length;
+      if(med>=200&&light>=0.7){
+        var rs=[],gs=[],bs=[];ring.forEach(function(o){var j=o*4;if(Math.abs(((d[j]*77+d[j+1]*150+d[j+2]*29)>>8)-med)<24){rs.push(d[j]);gs.push(d[j+1]);bs.push(d[j+2]);}});
+        var pc=[median(rs),median(gs),median(bs)];
+        list.forEach(function(q){var j=q*4;d[j]=pc[0];d[j+1]=pc[1];d[j+2]=pc[2];});
+        return;
+      }
+    }
+    var known=function(q){return !set[q];};
+    for(var pass=0;pass<200&&list.length;pass++){
+      var next=[],fills=[];
+      for(k=0;k<list.length;k++){var q=list[k],x=q%W,y=q/W|0,rr=0,gg=0,bb=0,c=0;
+        var nb=[x>0?q-1:-1,x<W-1?q+1:-1,y>0?q-W:-1,y<H-1?q+W:-1,x>0&&y>0?q-W-1:-1,x<W-1&&y>0?q-W+1:-1,x>0&&y<H-1?q+W-1:-1,x<W-1&&y<H-1?q+W+1:-1];
+        for(var t=0;t<8;t++){var o=nb[t];if(o<0||!known(o))continue;var j=o*4;rr+=d[j];gg+=d[j+1];bb+=d[j+2];c++;}
+        if(c)fills.push([q,rr/c,gg/c,bb/c]);else next.push(q);}
+      fills.forEach(function(f){var j=f[0]*4;d[j]=f[1];d[j+1]=f[2];d[j+2]=f[3];delete set[f[0]];});
+      if(!fills.length)break;list=next;
+    }
+  }
+  function lum(c){return (c[0]*77+c[1]*150+c[2]*29)>>8;}
+
   // Letters the model's items into the page. items: {region, text} for a
-  // numbered balloon, or {x0,y0,x1,y1 (0-1000), kind, text} for other text.
-  function render(ctx,img,det,items,opts){
+  // numbered unit, or {x0,y0,x1,y1 (0-1000), kind, text} for other text.
+  function render(ctx,img,P,items,opts){
     opts=opts||{};
-    var W=det.W,H=det.H,byId={},taken={},jobs=[];
-    det.regions.forEach(function(R){byId[R.id]=R;});
+    var W=P.W,H=P.H,byId={},taken={},jobs=[],groups={};
+    P.units.forEach(function(u){byId[u.id]=u;});
     var maxS=Math.max(11,H*0.026),minS=Math.max(8,H*0.0105);
-    var groups={};
-    function claim(R,text){taken[R.lab]=true;if(!groups[R.lab])groups[R.lab]={R:R,texts:[]};groups[R.lab].texts.push(text);}
+    function claim(u,text){taken[u.id]=true;if(!groups[u.id])groups[u.id]={u:u,texts:[]};groups[u.id].texts.push(text);}
+    function ubox(u){return {x0:u.tb.x1/W*1000,y0:u.tb.y1/H*1000,x1:(u.tb.x2+1)/W*1000,y1:(u.tb.y2+1)/H*1000};}
     var boxed=[];
-    // numbered balloons first (one balloon may get two lines of dialogue)
     (items||[]).forEach(function(it){
       if(!it||!it.text)return;
       var box=it.box||(isFinite(it.x0)&&isFinite(it.x1)?{x0:+it.x0,y0:+it.y0,x1:+it.x1,y1:+it.y1}:null);
-      var R=it.region!=null?byId[it.region]:null;
-      // a saved answer from a page whose balloons were numbered differently
-      if(R&&box){var rb={x0:R.x0/W*1000,y0:R.y0/H*1000,x1:(R.x1+1)/W*1000,y1:(R.y1+1)/H*1000};if(overlap(rb,box)<0.5)R=null;}
-      if(R)claim(R,it.text);else if(box)boxed.push({it:it,box:box});
+      var u=it.region!=null?byId[it.region]:null;
+      // a saved answer from a page whose units were numbered differently
+      if(u&&box&&overlap(ubox(u),box)<0.5)u=null;
+      if(u)claim(u,it.text);else if(box)boxed.push({it:it,box:box});
     });
-    // then text given as a box: a balloon it sits on (unless that balloon is
-    // already lettered: then it is the same text twice), or a box of its own
+    // text given as a box: a unit under it (unless already lettered: then it is
+    // the same text twice), a balloon the old finder missed, or a box of its own
     boxed.forEach(function(b){
+      var bestU=null,bo=0;P.units.forEach(function(u){var o=overlap(ubox(u),b.box);if(o>bo){bo=o;bestU=u;}});
+      if(bo>=0.5){if(!taken[bestU.id])claim(bestU,b.it.text);return;}
       var px={x0:b.box.x0/1000*W,y0:b.box.y0/1000*H,x1:b.box.x1/1000*W,y1:b.box.y1/1000*H};
-      var bestR=null,bo=0;det.regions.forEach(function(Q){var o=overlap({x0:Q.x0,y0:Q.y0,x1:Q.x1,y1:Q.y1},px);if(o>bo){bo=o;bestR=Q;}});
-      if(bo>=0.5){if(!taken[bestR.lab])claim(bestR,b.it.text);return;}
-      var U=regionUnder(det,px,taken);
-      if(U)claim(U,b.it.text);else jobs.push({box:px,item:b.it});
+      if(P.L){var R=regionUnder(P,px,taken);if(R){var lu={kind:'legacy',R:R,id:'r'+R.lab,tb:{x1:R.x0,y1:R.y0,x2:R.x1,y2:R.y1}};claim(lu,b.it.text);return;}}
+      if(P.strokes){
+        // with the detector: the letters inside the box are covered, never a panel
+        var pts=[],x0=Math.max(0,Math.floor(px.x0)),x1=Math.min(W-1,Math.ceil(px.x1)),y0=Math.max(0,Math.floor(px.y0)),y1=Math.min(H-1,Math.ceil(px.y1));
+        for(var yy=y0;yy<=y1;yy++)for(var xx=x0;xx<=x1;xx++)if(P.strokes[yy*W+xx]>=60)pts.push(yy*W+xx);
+        var au={kind:'art',id:'b'+jobs.length+'_'+boxed.indexOf(b),pts:pts,tb:pts.length>=25?{x1:Infinity,y1:Infinity,x2:-1,y2:-1}:{x1:x0,y1:y0,x2:x1,y2:y1}};
+        if(pts.length>=25)pts.forEach(function(p){var x=p%W,y=p/W|0;if(x<au.tb.x1)au.tb.x1=x;if(x>au.tb.x2)au.tb.x2=x;if(y<au.tb.y1)au.tb.y1=y;if(y>au.tb.y2)au.tb.y2=y;});
+        claim(au,b.it.text);return;
+      }
+      jobs.push({box:px,item:b.it});
     });
-    // erase first, then letter (lettering must not be erased by a neighbour)
-    var reach=Math.round(H*0.03);
-    var regionJobs=Object.keys(groups).map(function(k){var g=groups[k];eraseRegion(img,g.R,det,reach);return g;});
+    // erase everything first, then letter (lettering must not be erased by a neighbour)
+    var reach=Math.round(H*0.03),list=Object.keys(groups).map(function(k){return groups[k];}),d=img.data;
+    list.forEach(function(gp){
+      var u=gp.u;
+      if(u.kind==='legacy'){u.paper=eraseRegion(img,u.R,P,reach);return;}
+      if(u.kind==='art'){
+        if(u.pts.length)inpaint(img,W,H,u.pts,Math.max(2,Math.round(Math.min(u.tb.x2-u.tb.x1,u.tb.y2-u.tb.y1)*0.05)));
+        u.paper=boxBackground(img,{x0:u.tb.x1,y0:u.tb.y1,x1:u.tb.x2,y1:u.tb.y2},W,H);
+        return;
+      }
+      // balloon / open: the whole shape in the paper colour, letters included
+      var pc=u.paper;
+      for(var i=0;i<u.w*u.h;i++){if(!u.fill[i])continue;var j=((u.y0+(i/u.w|0))*W+u.x0+i%u.w)*4;d[j]=pc[0];d[j+1]=pc[1];d[j+2]=pc[2];}
+      // letters touching the outline (the detector marked them as letters),
+      // and their anti-aliased fringe, but never the dark outline next to them
+      var isPt={};u.pts.forEach(function(p){isPt[p]=1;});
+      u.pts.forEach(function(p){
+        var j1=p*4;d[j1]=pc[0];d[j1+1]=pc[1];d[j1+2]=pc[2];
+        var px=p%W,py=p/W|0;
+        for(var dy=-2;dy<=2;dy++)for(var dx=-2;dx<=2;dx++){var x=px+dx,y=py+dy;if(x<0||y<0||x>=W||y>=H)continue;var q=y*W+x;if(isPt[q])continue;
+          var lx=x-u.x0,ly=y-u.y0,inside=lx>=0&&ly>=0&&lx<u.w&&ly<u.h&&u.fill[ly*u.w+lx];
+          if(!inside&&P.gray[q]<170)continue;var j2=q*4;d[j2]=pc[0];d[j2+1]=pc[1];d[j2+2]=pc[2];}});
+    });
     jobs.forEach(function(j){j.paper=boxBackground(img,j.box,W,H);});
     ctx.putImageData(img,0,0);
     // Each balloon at the largest size that fits, then the page evened out:
     // no balloon more than 1.2x the page's median size, like a letterer would.
-    var lays=regionJobs.map(function(gp){
-      var R=gp.R,margin=Math.max(2,Math.round(Math.min(R.w,R.h)*0.07)),shape=rowSpans(R,margin);
-      var text=gp.texts.join(' '),mS=Math.min(maxS,(shape.bottom-shape.top)*0.45);
-      gp.shape=shape;gp.text=text;
-      return fit(ctx,text,shape,R.cx,R.cy,Math.max(minS,mS),minS)||fitHard(ctx,text,shape,R.cx,R.cy,minS);
+    // Shouted text (characters well above the page's usual size) may be
+    // lettered bigger, up to most of its original size.
+    var chs=P.units.map(function(u){return u.ch||0;}).filter(Boolean).sort(function(a,b){return a-b;}),medCh=chs.length?chs[chs.length>>1]:0;
+    list.forEach(function(gp){var u=gp.u;gp.emph=!!(u.ch&&(u.ch*0.8>maxS||(medCh&&u.ch>medCh*1.35)));gp.maxS=gp.emph?Math.min(H*0.05,Math.max(maxS,u.ch*0.8)):maxS;});
+    var lays=list.map(function(gp){
+      var u=gp.u,text=gp.texts.join(' ');gp.text=text;
+      if(u.kind==='art'){gp.shape=null;return null;}
+      var S=u.kind==='legacy'?u.R:u,margin=Math.max(2,Math.round(Math.min(S.w,S.h)*0.07));
+      var shape=rowSpans(S,margin),mS=Math.min(gp.maxS,(shape.bottom-shape.top)*(gp.emph?0.6:0.45));
+      gp.shape=shape;gp.cx=S.cx;gp.cy=S.cy;
+      return fit(ctx,text,shape,S.cx,S.cy,Math.max(minS,mS),minS)||fitHard(ctx,text,shape,S.cx,S.cy,minS);
     });
-    var sizes=lays.filter(Boolean).map(function(l){return l.size;}).sort(function(a,b){return a-b;});
+    var sizes=lays.filter(function(l,k){return l&&!list[k].emph;}).map(function(l){return l.size;}).sort(function(a,b){return a-b;});
     var cap=sizes.length>=3?Math.max(minS,sizes[sizes.length>>1]*1.2):Infinity;
     lays.forEach(function(lay,k){
-      var gp=regionJobs[k];
-      if(lay&&lay.size>cap)lay=fit(ctx,gp.text,gp.shape,gp.R.cx,gp.R.cy,cap,minS)||lay;
-      if(lay)draw(ctx,lay,'#111');
+      var gp=list[k],u=gp.u;
+      if(u.kind==='art'){letterArt(ctx,gp,maxS,minS,W,H,P);return;}
+      if(lay&&lay.size>cap&&!gp.emph)lay=fit(ctx,gp.text,gp.shape,gp.cx,gp.cy,cap,minS)||lay;
+      if(lay)draw(ctx,lay,lum(u.paper||[255,255,255])>140?'#111':'#fff');
     });
     jobs.forEach(function(j){letterBox(ctx,j,maxS,minS,W,H);});
     return ctx;
+  }
+  // Text over the drawing: no balloon to fit, and a vertical Japanese column is
+  // far too narrow for a translation, so the area is widened to at least 80% of
+  // its height (and a small share of the page), centred on the original. The
+  // translation gets a halo in the background colour so it reads over the art.
+  // The light area around text outside balloons (a sign, a paper slip, a
+  // caption on white), as a shape to letter into; null over busy art.
+  function lightArea(P,u){
+    var W=P.W,H=P.H,G=P.gray,t=u.tb,tw=t.x2-t.x1+1,th=t.y2-t.y1+1,m=Math.round(Math.max(tw,th)*0.8)+6;
+    var x0=Math.max(0,t.x1-m),y0=Math.max(0,t.y1-m),x1=Math.min(W-1,t.x2+m),y1=Math.min(H-1,t.y2+m),w=x1-x0+1,h=y1-y0+1;
+    var isPt={};(u.pts||[]).forEach(function(p){isPt[p]=1;});
+    var ok=new Uint8Array(w*h),seen=new Uint8Array(w*h),q=new Int32Array(w*h),qh=0,qt=0,i,x,y;
+    for(y=0;y<h;y++)for(x=0;x<w;x++){var g=(y0+y)*W+x0+x;if(G[g]>=190||isPt[g])ok[y*w+x]=1;}
+    for(y=t.y1-y0;y<=t.y2-y0;y++)for(x=t.x1-x0;x<=t.x2-x0;x++){i=y*w+x;if(ok[i]&&!seen[i]){seen[i]=1;q[qt++]=i;}}
+    while(qh<qt){i=q[qh++];x=i%w;var nb=[x>0?i-1:-1,x<w-1?i+1:-1,i>=w?i-w:-1,i<w*(h-1)?i+w:-1];
+      for(var k=0;k<4;k++){var c=nb[k];if(c>=0&&ok[c]&&!seen[c]){seen[c]=1;q[qt++]=c;}}}
+    // a thin ring of light around the letters is just their own edge: not an area
+    var n=0,sx=0,sy=0;for(i=0;i<w*h;i++)if(seen[i]){n++;sx+=i%w;sy+=i/w|0;}
+    if(n<tw*th*2)return null;
+    var opened=dilateBits(erode(seen,w,h,2),w,h,2),R={x0:x0,y0:y0,w:w,h:h,fill:opened,cx:(t.x1+t.x2)/2,cy:(t.y1+t.y2)/2};
+    var sh=rowSpans(R,Math.max(2,Math.round(Math.min(tw,th)*0.15)));
+    var mid=sh.band(R.cy-4,R.cy+4);
+    return mid&&mid[1]-mid[0]>=Math.max(tw,th*0.6)?{shape:sh,cx:R.cx,cy:R.cy}:null;
+  }
+  function letterArt(ctx,gp,maxS,minS,W,H,P){
+    var la=P&&P.gray?lightArea(P,gp.u):null;
+    if(la){
+      var lay0=fit(ctx,gp.text,la.shape,la.cx,la.cy,Math.max(minS,maxS),Math.max(7,minS*0.85))||fitHard(ctx,gp.text,la.shape,la.cx,la.cy,Math.max(7,minS*0.85));
+      if(lay0){draw(ctx,lay0,'#111','rgba(255,255,255,0.95)');return;}
+    }
+    var t=gp.u.tb,x1=t.x1,x2=t.x2,y1=t.y1,y2=t.y2;
+    var minW=Math.max(x2-x1,Math.min((y2-y1)*0.8,W*0.11)),minH=Math.max(y2-y1,W*0.04);
+    if(x2-x1<minW){var cx=(x1+x2)/2;x1=Math.max(0,Math.min(W-minW,cx-minW/2));x2=Math.min(W,x1+minW);}
+    if(y2-y1<minH){var cy=(y1+y2)/2;y1=Math.max(0,Math.min(H-minH,cy-minH/2));y2=Math.min(H,y1+minH);}
+    var bg=gp.u.paper||[255,255,255],light=lum(bg)>140,shape=rectSpans(x1,y1,x2,y2);
+    var lay=fit(ctx,gp.text,shape,(x1+x2)/2,(y1+y2)/2,Math.max(minS,Math.min(maxS,(y2-y1)*0.5)),Math.max(7,minS*0.85))||fitHard(ctx,gp.text,shape,(x1+x2)/2,(y1+y2)/2,Math.max(7,minS*0.85));
+    if(lay)draw(ctx,lay,light?'#111':'#fff',light?'rgba(255,255,255,0.95)':'rgba(0,0,0,0.9)');
   }
   // Text on art or in a caption box: a panel in the box's own background
   // colour covers the original, and the translation goes on top.
@@ -434,5 +782,5 @@ var TS=(function(){
     if(lay)draw(ctx,lay,light?'#111':'#fff');
   }
 
-  return {detect:detect,annotate:annotate,regionBoxes:regionBoxes,render:render,fit:fit,tokens:tokens,FONT:FONT};
+  return {plan:plan,planLegacy:planLegacy,detect:detect,annotate:annotate,regionBoxes:regionBoxes,render:render,fit:fit,tokens:tokens,FONT:FONT};
 })();
