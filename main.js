@@ -82,6 +82,9 @@ function startApp() {
   // Every renderer runs sandboxed, whatever a future BrowserWindow forgets to set.
   // (An explicit --no-sandbox, needed only for root/CI runs, still opts out.)
   if (!app.commandLine.hasSwitch('no-sandbox')) app.enableSandbox();
+  // The manga translator's text detector runs on the CPU with several threads
+  // when there is no GPU for it; WebAssembly threads need SharedArrayBuffer.
+  app.commandLine.appendSwitch('enable-features', 'SharedArrayBuffer');
 
   protocol.registerSchemesAsPrivileged([
     { scheme: 'cover', privileges: { standard: false, secure: true, supportFetchAPI: false } },

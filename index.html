@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: cover: page: blob:; font-src 'self' data:; connect-src 'self'; media-src 'none'; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: cover: page: blob:; font-src 'self' data:; connect-src 'self'; media-src 'none'; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'">
 <meta name="color-scheme" content="dark light">
 <title>Tsundoku</title>
 <script src="theme-boot.js"></script>
@@ -78,6 +78,7 @@
 <script src="renderer/luma.js"></script>
 <script src="renderer/setup.js"></script>
 <script src="renderer/typeset.js"></script>
+<script src="renderer/textdetect.js"></script>
 <script src="renderer/reader.js"></script>
 <script src="renderer/bootstrap.js"></script>
 </body>

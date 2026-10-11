@@ -27,13 +27,18 @@ All nine "Next up" items, plus manga translation from "Later":
 
 ## Next up (in order)
 
-1. **Try translation on real chapters** (owner, with a key). Things to watch:
-   balloons on grey screentone or without an outline (they fall back to the
-   model's box), very small "!?" balloons, and whether Haiku 5.5 names the
-   balloon numbers reliably or Sonnet 5.5 should be the default.
-2. **Electron smoke test in CI** (below): it would have caught the CRLF
+1. **Try translation on real chapters** (owner, with a key). 5.10 uses the
+   extension's text detector and splits text per balloon; check it on the
+   owner's ARM64 PC (WebGPU should be used: the status line never says the
+   simpler balloon finder took over), and whether Haiku 5.5 follows the box
+   numbers and the split-word rule or Sonnet 5.5 should be the default.
+2. **Bring the improvements back to the extension** (owner asked for one shared
+   algorithm): per-balloon splitting, neck cutting, stroke-map erasing and the
+   curve-following fit in `renderer/typeset.js` are plain functions on ImageData
+   and can move into the extension's `engine/layout.js`.
+3. **Electron smoke test in CI** (below): it would have caught the CRLF
    problem and would cover the reader, translation overlay and protocols.
-3. **Unescaped HTML check**, then the **empty `catch` pass**.
+4. **Unescaped HTML check**, then the **empty `catch` pass**.
 
 ## Later
 

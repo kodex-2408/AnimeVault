@@ -2,7 +2,7 @@
 
 *積ん読: the pile you mean to get to.* A desktop library for your anime and manga, built with Electron (formerly **AnimeVault**). Organize your local collection, track what you've watched and read, read manga in the built-in reader, find new releases on Nyaa.si and keep everything in sync with MyAnimeList.
 
-**Current version: 5.9.0 — Manga translation, safer deletes, accessibility.** See [docs/CHANGELOG.md](docs/CHANGELOG.md) for release history and [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for engineering notes.
+**Current version: 5.10.0 — Manga translation with a text detector.** See [docs/CHANGELOG.md](docs/CHANGELOG.md) for release history and [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for engineering notes.
 
 ---
 
@@ -14,7 +14,7 @@ Toggle the **Anime / Manga** switch in the title bar (or press `Ctrl+Shift+M`):
 - **MAL manga sync** — manga mode uses MyAnimeList's manga endpoints (chapters read, manga list, manga details)
 - **File support** — `.cbz`, `.cbr`, `.zip`, `.pdf`, `.epub` and `.mobi`; chapter numbers and titles are read from the file names
 - **Built-in reader** — single page, double page or long strip, left-to-right or right-to-left, zoom (Ctrl + wheel or the − / % / + control), whole-window fullscreen; marks a chapter read when you reach a share of its pages (default 90%)
-- **Translate pages** — the reader's Translate tool (`T`) finds the speech balloons, erases the original text and letters the translation into each balloon's shape (Claude on OpenRouter with your Luma key; 16 languages; Claude Haiku 5.5 or Sonnet 5.5). `T` again shows the original. Switched on per chapter, since each new page is a paid request; translated pages are saved, so reading them again is free
+- **Translate pages** — the reader's Translate tool (`T`) finds the text with a manga text detector (downloaded once, 95 MB; runs on your GPU), erases it and letters the translation into each balloon's shape, one balloon at a time, even where balloons run together (Claude on OpenRouter with your Luma key; 16 languages; Claude Haiku 5.5 or Sonnet 5.5). `T` again shows the original. Switched on per chapter, since each new page is a paid request; translated pages are saved, so reading them again is free
 - **Reader apps** — or open chapters in CDisplayEx, OpenComic, SumatraPDF, calibre and others; a chapter is marked read after it has been open for a reading time you choose (default 120 seconds)
 - **Clean chapter names** — cards show a chapter's real title, or just its number; new manga series are renamed to `Series - Ch 012 - Title.cbz` on import (optional, undoable)
 - **Nyaa manga** — searches Nyaa category `c=3_1` (English-translated manga)
@@ -165,7 +165,7 @@ Settings → Notifications → toggle categories individually. Turning a categor
 ## Tech Stack
 - **Electron** ^44 — desktop runtime
 - **Plain HTML/CSS/JS** — no framework; the renderer is split into one script per area (`renderer/`), the main process into modules (`main/`)
-- **pdf.js** — PDF pages in the built-in reader; **adm-zip** and **node-unrar-js** — comic archives
+- **pdf.js** — PDF pages in the built-in reader; **ONNX Runtime Web** — the translator's text detector ([comic-text-detector](https://github.com/dmMaze/comic-text-detector), downloaded on first use, GPL-3.0); **adm-zip** and **node-unrar-js** — comic archives
 - **Figtree**, **Bricolage Grotesque** and **Comic Neue** (manga lettering) — bundled typefaces (SIL Open Font License)
 - **MyAnimeList API v2** — anime/manga data and list sync
 - **AniList GraphQL** — cover art and search

@@ -490,8 +490,31 @@ async function rdTrPageBlob(R,i){
   var bytes=await api.readerPageData(R.token,i);
   return bytes?new Blob([bytes]):null;
 }
-// Finds the balloons, asks for the translation (unless it is saved), letters
-// it in and returns the translated page as an image URL.
+// The text detector's model, fetched once per session (the main process
+// downloads it the first time, about 95 MB).
+var _rdTrModel=null,_rdTrModelPct=null;
+function rdTrModel(){
+  if(!_rdTrModel){
+    _rdTrModel=api.translateDetectorModel().then(function(r){if(!r||r.error)throw new Error((r&&r.error)||'The text detector is not available');_rdTrModelPct=null;return r;});
+    _rdTrModel.catch(function(){_rdTrModel=null;_rdTrModelPct=null;rdTrStatus();});
+  }
+  return _rdTrModel;
+}
+if(api.onTranslateModelProgress)api.onTranslateModelProgress(function(f){_rdTrModelPct=Math.max(0,Math.min(99,Math.round(f*100)));rdTrStatus();});
+// Where the text is: the detector when it can run, otherwise the balloons
+// the page's own pixels show (renderer/typeset.js).
+async function rdTrPlan(cv,img,W,H){
+  try{
+    var d=await TD.detect(cv,W,H,rdTrModel,true);
+    return TS.plan(img,d);
+  }catch(e){
+    console.warn('[Translate] text detector unavailable, using the balloon finder:',e&&e.message||e);
+    if(!rdTrPlan.told){rdTrPlan.told=true;toast('The text detector could not start ('+(e&&e.message||e)+'). Using the simpler balloon finder.','i');}
+    return TS.planLegacy(img);
+  }
+}
+// Finds the text, asks for the translation (unless it is saved), letters it
+// in and returns the translated page as an image URL.
 async function rdTrLetter(R,i){
   var blob=await rdTrPageBlob(R,i);
   if(!blob)throw new Error('This page could not be read');
@@ -500,7 +523,7 @@ async function rdTrLetter(R,i){
     var sc=Math.min(1,RD_TR_MAX_EDGE/Math.max(bmp.width,bmp.height)),W=Math.round(bmp.width*sc),H=Math.round(bmp.height*sc);
     var cv=document.createElement('canvas');cv.width=W;cv.height=H;
     var ctx=cv.getContext('2d',{willReadFrequently:true});ctx.drawImage(bmp,0,0,W,H);
-    var img=ctx.getImageData(0,0,W,H),det=TS.detect(img),items=R.tr.pages[i];
+    var img=ctx.getImageData(0,0,W,H),det=await rdTrPlan(cv,img,W,H),items=R.tr.pages[i];
     if(!items){
       var ann=TS.annotate(cv,det,1600);
       var jpg=await new Promise(function(res){ann.toBlob(res,'image/jpeg',0.88);});
@@ -534,7 +557,8 @@ function rdTrStatus(){
   var T=RD&&RD.tr;
   if(!T||!T.on){el.textContent='';el.classList.remove('on');return;}
   var busy=Object.keys(T.pending).length,failed=Object.keys(T.errors).length,txt;
-  if(busy)txt='Translating '+(busy===1?'1 page':busy+' pages')+'…';
+  if(busy&&_rdTrModelPct!==null)txt='Downloading the text detector (95 MB, once): '+_rdTrModelPct+'%';
+  else if(busy)txt='Translating '+(busy===1?'1 page':busy+' pages')+'…';
   else if(T.halted)txt='Translation stopped: '+T.errors[Object.keys(T.errors)[0]];
   else if(failed)txt=(failed===1?'1 page':failed+' pages')+' not translated. Press T twice to retry.';
   else txt='Translated into '+T.lang+' · T shows the original';
