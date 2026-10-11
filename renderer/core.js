@@ -263,11 +263,13 @@ var _modalStack=[];
 function openModal(o){
   o=o||{};
   if(o.id){var prev=document.getElementById(o.id);if(prev&&prev._modal)prev._modal.close(true);}
+  var opener=document.activeElement;
   var layer=document.createElement('div');layer.className='modal-layer';if(o.id)layer.id=o.id;
-  var h='<div class="modal-backdrop"></div><div class="modal'+(o.className?' '+o.className:'')+'" role="dialog" aria-modal="true" style="--mw:'+(o.width||520)+'px">';
+  var titleId='modalTitle'+(++_modalSeq);
+  var h='<div class="modal-backdrop"></div><div class="modal'+(o.className?' '+o.className:'')+'" role="dialog" aria-modal="true" tabindex="-1"'+(o.title?' aria-labelledby="'+titleId+'"':'')+' style="--mw:'+(o.width||520)+'px">';
   if(o.title||o.icon){
     h+='<div class="modal-head">'+(o.icon?'<div class="modal-icon'+(o.tone?' '+o.tone:'')+'">'+ic(o.icon)+'</div>':'')
-      +'<div class="modal-titles"><div class="modal-title">'+E(o.title||'')+'</div>'+(o.sub?'<div class="modal-sub">'+o.sub+'</div>':'')+'</div>'
+      +'<div class="modal-titles"><div class="modal-title" id="'+titleId+'">'+E(o.title||'')+'</div>'+(o.sub?'<div class="modal-sub">'+o.sub+'</div>':'')+'</div>'
       +(o.dismissable===false?'':'<button class="icon-btn sm plain" data-modal-close aria-label="Close">'+ic('x')+'</button>')+'</div>';
   }
   h+='<div class="modal-body">'+(o.body||'')+'</div>';
@@ -282,10 +284,12 @@ function openModal(o){
       if(handle.closed)return;handle.closed=true;
       var i=_modalStack.indexOf(handle);if(i>=0)_modalStack.splice(i,1);
       if(typeof o.onClose==='function'){try{o.onClose();}catch(e){console.error(e);}}
+      if(layer.contains(document.activeElement)||document.activeElement===document.body)restoreModalFocus(opener);
       if(immediate){layer.remove();return;}
       layer.classList.add('closing');setTimeout(function(){layer.remove();},200);
     }};
   layer._modal=handle;
+  layer.addEventListener('keydown',function(e){if(e.key==='Tab'&&_modalStack[_modalStack.length-1]===handle)trapModalTab(layer.querySelector('.modal'),e);});
   layer.addEventListener('click',function(e){
     if(e.target.closest('[data-modal-close]')){handle.close();return;}
     if(e.target.classList.contains('modal-backdrop')&&o.dismissable!==false)handle.close();
@@ -294,8 +298,28 @@ function openModal(o){
   _modalStack.push(handle);
   updateSegThumbs(layer);
   var focusEl=layer.querySelector('[autofocus]')||layer.querySelector('.modal-body input,.modal-body select');
-  if(focusEl)setTimeout(function(){try{focusEl.focus();if(focusEl.select)focusEl.select();}catch(e){}},60);
+  setTimeout(function(){if(handle.closed)return;try{if(focusEl){focusEl.focus();if(focusEl.select)focusEl.select();}else if(!layer.contains(document.activeElement))layer.querySelector('.modal').focus({preventScroll:true});}catch(e){}},60);
   return handle;
+}
+// Tab and Shift+Tab stay inside the open dialog.
+var _modalSeq=0;
+var MODAL_FOCUSABLE='a[href],button:not([disabled]),input:not([disabled]):not([type="hidden"]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"]),[contenteditable="true"]';
+function trapModalTab(box,e){
+  if(!box)return;
+  var items=[].filter.call(box.querySelectorAll(MODAL_FOCUSABLE),function(el){return el.offsetParent!==null||el===document.activeElement;});
+  if(!items.length){e.preventDefault();box.focus({preventScroll:true});return;}
+  var first=items[0],last=items[items.length-1],cur=document.activeElement;
+  if(e.shiftKey&&(cur===first||!box.contains(cur))){e.preventDefault();last.focus();}
+  else if(!e.shiftKey&&(cur===last||!box.contains(cur))){e.preventDefault();first.focus();}
+}
+// Focus goes back to what opened the dialog (when it is still on screen),
+// or into the dialog now on top.
+function restoreModalFocus(opener){
+  setTimeout(function(){
+    var top=_modalStack[_modalStack.length-1];
+    if(top){var box=top.el.querySelector('.modal');if(box&&!box.contains(document.activeElement))box.focus({preventScroll:true});return;}
+    if(opener&&opener.isConnected&&opener!==document.body&&typeof opener.focus==='function'&&opener.offsetParent!==null){try{opener.focus({preventScroll:true});}catch(e){}}
+  },0);
 }
 function closeTopModal(){var m=_modalStack[_modalStack.length-1];if(m){m.close();return true;}return false;}
 function closeModalById(id){var el=document.getElementById(id);if(el&&el._modal){el._modal.close();return true;}if(el)el.remove();return false;}

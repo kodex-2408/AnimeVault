@@ -39,7 +39,7 @@ async function init(){
   if(S.cfg.schedView)S.schedView=S.cfg.schedView;
   if(S.cfg.sidebarCollapsed)document.querySelector('.app').classList.add('sidebar-collapsed');
   restoreImportInbox();persistActivities();
-  applyTheme();applyPerformanceMode(S.cfg.performanceMode);applyAnimSpeed(S.cfg.animSpeed||'default');
+  applyTheme();applyPerformanceMode(S.cfg.performanceMode);applyAnimSpeed(motionSpeed());watchSystemMotion();
   updateModeUI();uMal();initLuma();
   wireIpcEvents();
   if(!S.cfg.setupDone){showSetupWizard();if(!S.cfg.folders||!S.cfg.folders.length)go('settings');else{go('library');await loadLib(true);}}

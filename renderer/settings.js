@@ -169,7 +169,7 @@ function applySettingsFilter(){
 }
 act('setSearchInput',function(el){S.setQ=el.value;el.closest('.search').classList.toggle('has-value',!!el.value);applySettingsFilter();});
 act('setSearchClear',function(){S.setQ='';var i=document.getElementById('setSearch');if(i){i.value='';i.closest('.search').classList.remove('has-value');}applySettingsFilter();});
-act('scrollToSection',function(el,ev,id){S.setSection=id;var sec=document.getElementById('set-'+id);if(sec)sec.scrollIntoView({behavior:S.cfg.animSpeed==='none'?'auto':'smooth',block:'start'});document.querySelectorAll('.set-nav[data-sec]').forEach(function(b){b.classList.toggle('active',b===el);});});
+act('scrollToSection',function(el,ev,id){S.setSection=id;var sec=document.getElementById('set-'+id);if(sec)sec.scrollIntoView({behavior:motionSpeed()==='none'?'auto':'smooth',block:'start'});document.querySelectorAll('.set-nav[data-sec]').forEach(function(b){b.classList.toggle('active',b===el);});});
 act('setNyaaQuality',function(el,ev,v){S.cfg.nyaaQuality=v;api.setConfig('nyaaQuality',v);});
 // Which manual downloads open the release picker (all of them by default).
 var RELEASE_PICKER_SCOPES=[['latest','Latest episode','The “Download latest episode” button.'],['episode','Chosen episodes','Downloading a specific episode from a series page.'],['series','Full series & batches','Whole-season and complete-series downloads.']];

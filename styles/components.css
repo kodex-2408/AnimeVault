@@ -455,6 +455,7 @@ input[type="color"].color::-webkit-color-swatch { border: 0; border-radius: 50%;
 }
 .modal::before { content: ''; position: absolute; inset: 0; background: var(--glass-sheen); pointer-events: none; border-radius: inherit; }
 .modal.closing, .modal-layer.closing .modal { animation: modalOut var(--dur-2) var(--ease-soft) both; }
+.modal:focus, .modal:focus-visible { outline: none; }
 .modal-layer.closing .modal-backdrop { animation: fadeOut var(--dur-2) var(--ease-soft) both; }
 @keyframes modalIn { from { opacity: 0; transform: translateY(14px) scale(.955); } to { opacity: 1; transform: none; } }
 @keyframes modalOut { to { opacity: 0; transform: translateY(8px) scale(.97); } }
