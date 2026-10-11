@@ -52,7 +52,7 @@ function register() {
     try {
       // Legacy channel: the renderer imports AniList data directly over GraphQL.
       // If an explicit file path is ever passed, it must be inside userData and JSON.
-      if (!filePath || !isAllowedFileActionPath(filePath, true)) return { success: false, error: 'File is outside AnimeVault folders' };
+      if (!filePath || !isAllowedFileActionPath(filePath, true)) return { success: false, error: 'File is outside Tsundoku folders' };
       if (path.extname(filePath).toLowerCase() !== '.json') return { success: false, error: 'Expected a .json file' };
       const raw = fs.readFileSync(filePath, 'utf-8');
       if (raw.length > 50 * 1024 * 1024) return { success: false, error: 'File too large' };
@@ -93,7 +93,7 @@ function register() {
         if (path.extname(outPath).toLowerCase() !== '.zip') return { success: false, error: 'Backup must end in .zip' };
         if (fs.existsSync(outPath)) return { success: false, error: 'A file with that name already exists' };
       } else {
-        outPath = path.join(app.getPath('downloads'), `AnimeVault-Backup-${new Date().toISOString().slice(0,10)}.zip`);
+        outPath = path.join(app.getPath('downloads'), `Tsundoku-Backup-${new Date().toISOString().slice(0,10)}.zip`);
       }
       fs.mkdirSync(path.dirname(outPath), { recursive: true });
       zip.writeZip(outPath);

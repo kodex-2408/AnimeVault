@@ -1,4 +1,4 @@
-/* AnimeVault renderer — core framework.
+/* Tsundoku renderer — core framework.
  * CSP: script-src 'self'. There are NO inline event handlers anywhere; markup
  * declares intent with data-act / data-change / data-input / data-enter /
  * data-ctx attributes, and one delegated listener per event type dispatches to

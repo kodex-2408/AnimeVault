@@ -1,7 +1,36 @@
-# AnimeVault Changelog
+# Tsundoku Changelog
+
+Tsundoku was called AnimeVault up to 5.7.0; older entries keep the old name.
 
 All notable changes, newest first. Engineering context — test guide, security
 posture, design decisions, open roadmap — lives in [DEVELOPMENT.md](DEVELOPMENT.md).
+
+## 5.8.0 — Tsundoku: new name, logo and type
+
+- **AnimeVault is now Tsundoku** (積ん読, the pile you mean to get to). The
+  title bar, window title, tray, setup guide, dialogs, exports
+  (`tsundoku_library.json/.csv`), backups (`Tsundoku-Backup-<date>.zip`) and
+  build files (`Tsundoku-x64.exe`, `Tsundoku-arm64.zip`,
+  `Tsundoku-Setup-<arch>.exe`) use the new name. "MangaVault" is gone: the
+  Anime / Manga switch changes the mode, the name stays the same.
+- **Your data comes along.** On the first start, `%APPDATA%\AnimeVault`
+  (settings, library, MyAnimeList sign-in, Luma key) is moved to
+  `%APPDATA%\Tsundoku`; if it can't be moved, Tsundoku keeps using it where
+  it is. Installed copies update in place (same installer ID).
+- **New logo**: a teal tile with a small stack of books, in the title bar
+  and as the app icon (now 512 px).
+- **New type**: Figtree for the interface and Bricolage Grotesque for
+  headings and the wordmark, bundled with the app (SIL Open Font License),
+  so they look the same on every PC. Settings → Appearance → Font still
+  offers the other fonts.
+- **Sync activity log works.** Settings → MyAnimeList → Sync activity now
+  lists the last 100 changes sent to MyAnimeList (what changed, from and
+  to, and any error), newest first. Until now nothing was ever written to it.
+- **README brought up to date**: the bundled-MPV build step and `bin\`
+  folder are gone (no player has been bundled since 5.3.0), the audio delay
+  is described as the millisecond setting it is, the watcher interval
+  (30 seconds), the schedule time zone (yours), supported file types,
+  Windows ARM64, the test suites and the tech stack are corrected.
 
 ## 5.7.0 — Reader zoom, PDF / EPUB / MOBI, real fullscreen, visual fixes
 

@@ -189,7 +189,7 @@ function register() {
 
   // Legacy: rename files inside each series subfolder of a root (not used by the 5.x UI).
   ipcMain.handle('manager:rename', async (_, rootFolder, dryRun = true) => {
-    if (!isAllowedFileActionPath(rootFolder)) return { error: 'Folder is outside configured AnimeVault folders' };
+    if (!isAllowedFileActionPath(rootFolder)) return { error: 'Folder is outside configured Tsundoku folders' };
     if (!fs.existsSync(rootFolder)) return { error: 'Folder not found' };
     const results = [], moves = [];
     try {
@@ -213,7 +213,7 @@ function register() {
 
   // Legacy: group loose files of a folder into per-series folders (not used by the 5.x UI).
   ipcMain.handle('manager:group', async (_, rootFolder, seasonalFolder, dryRun = true) => {
-    if (!isAllowedFileActionPath(rootFolder) || (seasonalFolder && !isAllowedFileActionPath(seasonalFolder))) return { error: 'Folder is outside configured AnimeVault folders' };
+    if (!isAllowedFileActionPath(rootFolder) || (seasonalFolder && !isAllowedFileActionPath(seasonalFolder))) return { error: 'Folder is outside configured Tsundoku folders' };
     if (!fs.existsSync(rootFolder)) return { error: 'Folder not found' };
     const results = [], moves = [];
     try {
@@ -262,7 +262,7 @@ function register() {
   // Batch: for every series subfolder of `batchFolder`, clean the folder name
   // and rename the media files inside to match it.
   ipcMain.handle('manager:batch', async (_, batchFolder, dryRun = true) => {
-    if (!isAllowedFileActionPath(batchFolder)) return { error: 'Folder is outside configured AnimeVault folders' };
+    if (!isAllowedFileActionPath(batchFolder)) return { error: 'Folder is outside configured Tsundoku folders' };
     if (!fs.existsSync(batchFolder)) return { error: 'Folder not found' };
     const results = [], moves = [];
     try {
@@ -292,7 +292,7 @@ function register() {
   // <destFolder>/<Series>/<clean name>.
   ipcMain.handle('manager:format', async (_, sourceFolder, destFolder) => {
     const dest = destFolder || sourceFolder;
-    if (!isAllowedFileActionPath(sourceFolder) || !isAllowedFileActionPath(dest)) return { error: 'Folder is outside configured AnimeVault folders' };
+    if (!isAllowedFileActionPath(sourceFolder) || !isAllowedFileActionPath(dest)) return { error: 'Folder is outside configured Tsundoku folders' };
     if (!fs.existsSync(sourceFolder)) return { error: 'Source folder not found' };
     const results = [], moves = [];
     try {

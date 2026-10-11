@@ -50,7 +50,7 @@ function safeEpisodeNumber(n) {
 }
 
 // Changed only through their own IPC handlers (autoDownload:*, downloads:*).
-const MAIN_OWNED_KEYS = new Set(['autoDownloadWatchlist', 'downloadHistory', 'openRouterApiKey', 'lumaModel', 'mangaSeenSeries']);
+const MAIN_OWNED_KEYS = new Set(['autoDownloadWatchlist', 'downloadHistory', 'openRouterApiKey', 'lumaModel', 'mangaSeenSeries', 'tsundokuFontApplied']);
 
 const STATIC_CONFIG_KEYS = new Set([
   'folders', 'mangaFolders', 'vlcPath', 'mpvPath', 'readerPath', 'playerType',
@@ -67,7 +67,7 @@ const STATIC_CONFIG_KEYS = new Set([
   'notificationPrefs', 'syncPaused', 'hideDonghua', 'audioDelay', 'audioDelayMs', 'animSpeed', 'backgroundEffects',
   'backgroundType', 'backgroundIntensity', 'maximized', 'setupDone', 'importAutoMatch', 'lumaMascot', 'lumaSparkles', 'lumaSize', 'lumaSpeed',
   'untrackOnDelete', 'mutedDupSeries', 'lumaModel', 'hasOpenRouterKey', 'lumaWebSearch',
-  'mangaAutoRename', 'mangaSeenSeries', 'readerTimerEnabled', 'readerTimerSeconds',
+  'mangaAutoRename', 'mangaSeenSeries', 'tsundokuFontApplied', 'readerTimerEnabled', 'readerTimerSeconds',
   'mangaReader', 'readerMode', 'readerDir', 'readerFit', 'readerMarkPercent', 'readerZoom',
   // 5.0 UI preferences
   'glassLevel', 'lastDarkTheme', 'lastLightTheme', 'sidebarCollapsed', 'schedView', 'heroTone'
@@ -175,6 +175,9 @@ function loadConfig() {
         if (storeErr.code !== 'MODULE_NOT_FOUND') console.error('[Config] electron-store fallback failed:', storeErr.message);
       }
     }
+    // 5.8.0 (Tsundoku): the bundled Figtree becomes the interface font once, for
+    // everyone, including those who had the old default or a font from the picker.
+    if (!config.tsundokuFontApplied) { config.fontFamily = 'System'; config.tsundokuFontApplied = true; }
     if (config.watchHistory === undefined) config.watchHistory = {};
     if (config.mangaWatchHistory === undefined) config.mangaWatchHistory = {};
     if (config.theme === undefined) config.theme = 'dark';

@@ -1,4 +1,4 @@
-/* AnimeVault renderer — shell: navigation, rendering, sidebar, keyboard, palette. */
+/* Tsundoku renderer — shell: navigation, rendering, sidebar, keyboard, palette. */
 
 var _VIEW_LABELS={library:'Collection',explore:'Explore',mylist:'My List',continue:'Continue',completed:'Completed',filemgmt:'File Management',hub:'Library Hub',mal:'MyAnimeList',appearance:'Appearance',settings:'Settings',schedule:'Schedule',stats:'Stats'};
 var NAV=[
@@ -84,7 +84,7 @@ function _show(v){
   S.view=v;S.tab=v;
   document.querySelectorAll('.ni').forEach(function(e){e.classList.toggle('active',e.getAttribute('data-view')===v);});
   positionNavIndicator(false);
-  document.title=(_VIEW_LABELS[v]||'')+' · '+VM('AnimeVault','MangaVault');
+  document.title=(_VIEW_LABELS[v]||'')+' · Tsundoku';
   var mc=document.getElementById('mc');
   if(changed&&mc){setScrollInstant(mc,0);mc.classList.remove('is-entering');void mc.offsetWidth;mc.classList.add('is-entering');clearTimeout(window._enterT);window._enterT=setTimeout(function(){mc.classList.remove('is-entering');},900);}
   render();
@@ -138,7 +138,6 @@ function switchCtl(checked,action,args){
 function updateModeUI(){
   var m=document.getElementById('modeSeg');
   if(m){m.querySelectorAll('button').forEach(function(b){b.classList.toggle('active',b.getAttribute('data-mode')===S.vaultMode);});updateSegThumbs(m.parentElement);}
-  var t=document.getElementById('appTitle');if(t)t.textContent=isManga()?'MangaVault':'AnimeVault';
   renderSidebar();
 }
 async function switchMode(mode){
@@ -157,7 +156,7 @@ async function switchMode(mode){
   if((S.cfg.folders&&S.cfg.folders.length)||(S.cfg.mangaFolders&&S.cfg.mangaFolders.length)){await loadLib(true);}
   scheduleStartupLibraryMaintenance();
   go(S.view||'library');
-  toast('Switched to '+VM('AnimeVault','MangaVault'),'s');
+  toast('Switched to '+VM('anime','manga')+' mode','s');
 }
 
 // ----------------------------------------------------------------- MAL chip --
@@ -240,7 +239,7 @@ function _palBuildIndex(){
     ['Review Import Inbox','New and unlinked titles','inbox',function(){openImportReviewer();}],
     ['Refresh MAL links','Refresh linked metadata; send unlinked series to the inbox','link',function(){autoSyncAll();}],
     ['Sync Health','Review MAL links, metadata and conflicts','heartPulse',function(){runSyncHealth();}],
-    ['Switch to '+VM('Manga','Anime')+' mode','Toggle MangaVault / AnimeVault',VM('manga','anime'),function(){switchMode(isManga()?'anime':'manga');}],
+    ['Switch to '+VM('Manga','Anime')+' mode','Toggle anime / manga mode',VM('manga','anime'),function(){switchMode(isManga()?'anime':'manga');}],
     [(S.cfg&&S.cfg.syncPaused?'Resume':'Pause')+' MAL sync','Real-time progress sync','pause',function(){toggleSync();}],
     ['Toggle light / dark','Quick theme switch','sun',function(){toggleQuickTheme();}],
     ['Fetch missing covers','AniList cover lookup','image',function(){fetchAll();}],

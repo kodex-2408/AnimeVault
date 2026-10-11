@@ -1,4 +1,4 @@
-/* AnimeVault renderer — startup, IPC event wiring, duplicate-file prompt. */
+/* Tsundoku renderer — startup, IPC event wiring, duplicate-file prompt. */
 
 // ------------------------------------------------------- duplicate prompt --
 var _dupQueue=[],_dupCurrent=null,_dupTimer=null;
@@ -118,7 +118,7 @@ function wireIpcEvents(){
 
 document.addEventListener('DOMContentLoaded',function(){
   renderSidebar();
-  init().catch(function(e){console.error('[init]',e);var mc=document.getElementById('mc');if(mc)mc.innerHTML='<div class="view">'+emptyState('alert','AnimeVault couldn’t start',E(e&&e.message||String(e)),'<button class="btn btn-primary"'+A('reloadApp')+'>Reload</button>')+'</div>';});
+  init().catch(function(e){console.error('[init]',e);var mc=document.getElementById('mc');if(mc)mc.innerHTML='<div class="view">'+emptyState('alert','Tsundoku couldn’t start',E(e&&e.message||String(e)),'<button class="btn btn-primary"'+A('reloadApp')+'>Reload</button>')+'</div>';});
   setTimeout(initBackgroundEffects,120);
 });
 act('reloadApp',function(){location.reload();});

@@ -178,7 +178,7 @@ function requestStream(apiKey, body, onText) {
         'Accept': 'text/event-stream',
         'Content-Length': Buffer.byteLength(postData),
         'HTTP-Referer': APP_REFERER,
-        'X-Title': 'AnimeVault',
+        'X-Title': 'Tsundoku',
       },
     }, (res) => {
       if (res.statusCode !== 200) {

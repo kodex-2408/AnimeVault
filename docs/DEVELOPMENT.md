@@ -1,4 +1,4 @@
-# AnimeVault — Development Guide
+# Tsundoku — Development Guide
 
 Engineering-facing documentation: how the codebase is organized, how to verify
 changes, what the security posture is, and which design decisions are load-bearing.
@@ -23,13 +23,23 @@ User-facing release history lives in [CHANGELOG.md](CHANGELOG.md).
 | `openrouter.js` | Electron-free module: streaming OpenRouter client for Luma. Sends every chat to Claude Haiku 5.5 with low reasoning effort, using the user's own OpenRouter key (SSE from main process; the renderer never sees the key or the network). Required directly by tests |
 | `index.html` | App shell only: titlebar, sidebar, overlay hosts, strict CSP, and the ordered `<script src>` list. No inline code |
 | `theme-boot.js` | Applies the cached theme before first paint (no flash of the wrong theme) |
-| `styles/` | `tokens.css` (colors, glass, shadows, radii, motion) → `base.css` (shell, sidebar, titlebar) → `components.css` (buttons, cards, menus, modals…) → `views.css` (per-page layouts) → `reader.css` (built-in manga reader) |
+| `styles/` | `fonts.css` (bundled Figtree + Bricolage Grotesque, files in `fonts/`) → `tokens.css` (colors, glass, shadows, radii, motion) → `base.css` (shell, sidebar, titlebar) → `components.css` (buttons, cards, menus, modals…) → `views.css` (per-page layouts) → `reader.css` (built-in manga reader) |
 | `renderer/core.js` | State `S` (a small reactive store: `Store.subscribe` / `Store.notify` / `Store.set`), escapers `E()`/`A()`/`On()`/`Tip()`, the delegated action dispatcher, icons, toasts, promise dialogs, menus, tooltips, segmented controls |
 | `renderer/helpers.js` | Pure logic: parsers, MAL/status helpers, title matching, schedule math, analyzers |
 | `renderer/data.js` | Library/MAL/download data layer and sync queues |
 | `renderer/app.js` | Navigation, sidebar, routing, shortcuts, command palette |
 | `renderer/<view>.js` | One file per area: `library`, `detail`, `explore`, `schedule`, `stats`, `hub`, `filemgmt`, `mal`, `settings`, `appearance`, `luma`, `setup`, `reader` (built-in manga reader); `bootstrap.js` runs last |
 | `tests/` | Fourteen Node suites, no Electron or network needed (`npm test`); `source-extract.js` is the shared function extractor, `main-source.js` concatenates `main.js` + `main/**` for extraction |
+
+**Name, data folder and installer ID.** The app was called AnimeVault until
+5.8.0. `productName` (and so `%APPDATA%\Tsundoku`, the window title and the
+build artifacts) is now Tsundoku; `adoptPreviousDataFolder()` at the top of
+`main.js` moves an existing `%APPDATA%\AnimeVault` there on the first start,
+or points `userData` at it when the move fails. `build.appId` deliberately
+stays `com.animevault.app`: it is the installer's upgrade key and the
+taskbar/notification identity, and changing it would install a second copy
+next to the old one instead of updating it. The GitHub repository is still
+named AnimeVault (`openrouter.js` sends it as the HTTP referer).
 
 Runtime split matters for testing: anything pure lives in `autoDownload.js` and is
 requireable; everything touching Electron/IPC/DOM is tested by *extracting real
@@ -117,12 +127,12 @@ run these inside the packaged app after meaningful changes (~5 minutes):
    authorize the *newest* browser tab → themed success page → app toasts
    Connected. Negative path: authorize an older tab → explanatory
    "Stale authorization tab" page. Every attempt appends to
-   `%APPDATA%\animevault\auth-debug.log` (boot version, binds, inbound requests,
+   `%APPDATA%\Tsundoku\auth-debug.log` (boot version, binds, inbound requests,
    state decisions, exchange result) — check it first when the flow fails;
    it never logs code/state values, only shapes and prefixes.
 3. **Shrink guard** — Settings → Reset All Preferences → expect
-   `%APPDATA%\animevault\config.json.lost-<timestamp>`.
-4. **Daily snapshots** — after any save, `%APPDATA%\animevault\backups\config-<today>.json`
+   `%APPDATA%\Tsundoku\config.json.lost-<timestamp>`.
+4. **Daily snapshots** — after any save, `%APPDATA%\Tsundoku\backups\config-<today>.json`
    exists; >7-day-old snapshots pruned.
 5. **Recursive delete** — deleting a series folder containing subfolders succeeds.
 6. **Playback without a player** — with a bogus VLC path in Settings, playing an
@@ -137,7 +147,7 @@ run these inside the packaged app after meaningful changes (~5 minutes):
 
 ## Config durability chain
 
-Order of defense for `%APPDATA%\animevault\config.json`:
+Order of defense for `%APPDATA%\Tsundoku\config.json`:
 
 1. Primary write is atomic (temp file + rename; copy fallback on Windows rename races).
 2. Rotation keeps `.bak` (previous good generation) and `.bak.old` (generation before that);
@@ -225,20 +235,20 @@ recorded loss event (2026-08-22) had an off-screen cause that was never identifi
   electron-builder 26; the packaged Windows ARM64 portable build then exited
   before any app code ran (no startup.log), while `npm start` worked. Packaging
   is back to the 5.0 setup (electron-builder 25, no fuses). Re-enable fuses only
-  after `dist\win-arm64-unpacked\AnimeVault.exe` is confirmed to start on real
+  after `dist\win-arm64-unpacked\Tsundoku.exe` is confirmed to start on real
   Windows ARM64 hardware. Build-time tools still show `npm audit` advisories;
   none ship in the app (`npm audit --omit=dev` is clean).
 - **Windows ARM64 is built as a folder/zip, not a portable .exe.** The
   electron-builder "portable" target wraps the app in an x86 NSIS launcher that
   stays running as the app's parent, so Windows shows it as emulated even though
-  `win-arm64-unpacked\AnimeVault.exe` and every DLL in it are ARM64 (checked
+  `win-arm64-unpacked\Tsundoku.exe` and every DLL in it are ARM64 (checked
   from the PE headers: machine 0xAA64; the portable stub is 0x014C). `npm run
   build-arm64` builds `zip` (and leaves `dist\win-arm64-unpacked`). The NSIS
   setup program is x86 too, but it only runs during install.
 - **MAL credentials** (`malAccessToken`, `malRefreshToken`, `malClientSecret`)
   live in `mal-credentials.enc` (safeStorage), not in config.json or its
   backups/snapshots; refreshes are single-flight (refresh tokens are one-use).
-- **startup.log** (`%APPDATA%\animevault`) records every start, fatal
+- **startup.log** (`%APPDATA%\Tsundoku`) records every start, fatal
   main-process errors and single-instance hand-offs. If a build shows no
   window and writes no line here, the failure is below the app code
   (packaging, launcher, OS).

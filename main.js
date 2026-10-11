@@ -1,6 +1,6 @@
 'use strict';
 
-// AnimeVault main process entry. Startup logging, sandbox and protocol setup
+// Tsundoku main process entry. Startup logging, sandbox and protocol setup
 // and the app lifecycle live here; everything else is in main/:
 //   main/state.js            settings object + shared runtime handles
 //   main/config/             config.json, path security, backup/restore
@@ -14,8 +14,31 @@ const { app, BrowserWindow, dialog, shell, protocol } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
+// Tsundoku used to be called AnimeVault, so settings, the MyAnimeList sign-in
+// and the Luma key may still be in %APPDATA%\AnimeVault. The first start
+// under the new name moves that folder to %APPDATA%\Tsundoku; if it cannot be
+// moved (an old copy still running, a locked file) the app keeps using it
+// where it is. Runs before anything else touches the data folder.
+function adoptPreviousDataFolder() {
+  try {
+    const current = app.getPath('userData');
+    if (fs.existsSync(path.join(current, 'config.json'))) return;
+    const appData = app.getPath('appData');
+    const old = ['AnimeVault', 'animevault'].map(n => path.join(appData, n))
+      .find(p => p.toLowerCase() !== current.toLowerCase() && fs.existsSync(path.join(p, 'config.json')));
+    if (!old) return;
+    try {
+      if (fs.existsSync(current)) fs.rmdirSync(current); // only succeeds while it is still empty
+      fs.renameSync(old, current);
+    } catch (e) {
+      app.setPath('userData', old);
+    }
+  } catch (e) { /* never block startup over this */ }
+}
+adoptPreviousDataFolder();
+
 // Packaged builds have no console. Anything that stops the app from starting
-// is recorded in %APPDATA%\animevault\startup.log so a silent launch failure
+// is recorded in %APPDATA%\Tsundoku\startup.log so a silent launch failure
 // can be diagnosed (and a fatal error is shown instead of vanishing).
 function logStartup(line) {
   try {
@@ -28,14 +51,14 @@ function logStartup(line) {
 
 process.on('uncaughtException', (err) => {
   logStartup('FATAL ' + (err && err.stack || err));
-  try { dialog.showErrorBox('AnimeVault ran into a problem', String(err && err.message || err) + '\n\nDetails were saved to startup.log in %APPDATA%\\animevault.'); } catch (e) {}
+  try { dialog.showErrorBox('Tsundoku ran into a problem', String(err && err.message || err) + '\n\nDetails were saved to startup.log in %APPDATA%\\Tsundoku.'); } catch (e) {}
 });
 
-// One AnimeVault at a time. The lock is taken before any app module loads, so
+// One Tsundoku at a time. The lock is taken before any app module loads, so
 // a second launch (npm start next to a built copy, a hidden tray window) never
 // registers handlers or starts its own watcher and poller - it just hands over.
 if (!app.requestSingleInstanceLock()) {
-  logStartup('another AnimeVault instance is already running (npm start, a hidden tray window, or another build) - handing over to it');
+  logStartup('another Tsundoku instance is already running (npm start, a hidden tray window, or another build) - handing over to it');
   app.quit();
 } else {
   startApp();

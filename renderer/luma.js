@@ -1,4 +1,4 @@
-/* AnimeVault renderer — Luma: AI chat dock (Claude Haiku 5.5 through OpenRouter with the user's own key, via the main process) and the floating mascot. */
+/* Tsundoku renderer — Luma: AI chat dock (Claude Haiku 5.5 through OpenRouter with the user's own key, via the main process) and the floating mascot. */
 
 var AI_KEY_PAGE='https://openrouter.ai/keys';
 var AI_CREDITS_PAGE='https://openrouter.ai/credits';

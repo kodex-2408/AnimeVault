@@ -140,7 +140,7 @@ async function trashOrDelete(p) {
 
 function assertAllowedFileActionPath(p, includeUserData = false) {
   if (!isAllowedFileActionPath(p, includeUserData)) {
-    throw new Error('Path is outside configured AnimeVault folders');
+    throw new Error('Path is outside configured Tsundoku folders');
   }
 }
 
@@ -153,7 +153,7 @@ function assertAllowedChildFileActionPath(p) {
     return resolvedRoot && target && target !== resolvedRoot && isInsidePath(resolvedRoot, target) &&
       realTarget !== realRoot && isInsidePath(realRoot, realTarget);
   });
-  if (!ok) throw new Error('Path is outside configured AnimeVault folders');
+  if (!ok) throw new Error('Path is outside configured Tsundoku folders');
 }
 
 // Only cached artwork and thumbnails inside userData are servable as images;

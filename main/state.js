@@ -38,7 +38,7 @@ const config = {
   accentColor: '#c0792a',
   themeAccents: {},
   customThemeColors: {},
-  fontFamily: 'Segoe UI',
+  fontFamily: 'System', // the bundled Figtree (styles/fonts.css)
   themePreset: 'default',
   // Auto-mark
   autoMarkEnabled: true,

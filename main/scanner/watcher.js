@@ -144,7 +144,7 @@ function watcherPoll() {
     const libraryRoots = new Set([].concat(config.folders || [], config.mangaFolders || []).map(f => f && f.path && normalizeFsPath(f.path)).filter(Boolean).map(p => p.toLowerCase()));
     if (config.watcherDest) libraryRoots.add(normalizeFsPath(config.watcherDest).toLowerCase());
     const rootDirs = fs.readdirSync(watchFolder, { withFileTypes: true })
-      .filter(d => d.isDirectory() && !d.name.startsWith('.') && d.name !== 'animevault-torrents')
+      .filter(d => d.isDirectory() && !d.name.startsWith('.') && !['tsundoku-torrents', 'animevault-torrents'].includes(d.name))
       .filter(d => !categoryForName(d.name) && !libraryRoots.has(normalizeFsPath(path.join(watchFolder, d.name)).toLowerCase()));
     console.log('[Watcher] Subdirectories to scan:', rootDirs.length);
 
@@ -333,7 +333,7 @@ function register() {
     const df = typeof destFolder === 'string' ? destFolder.trim() : wf;
     if (!wf || !path.isAbsolute(wf) || !fs.existsSync(wf)) return { error: 'Watch folder does not exist' };
     if (isForbiddenRoot(wf) || (df && isForbiddenRoot(df))) return { error: 'That folder can’t be watched — pick a downloads or library folder' };
-    if (df !== wf && !isAllowedFileActionPath(df)) return { error: 'Destination folder is outside configured AnimeVault folders' };
+    if (df !== wf && !isAllowedFileActionPath(df)) return { error: 'Destination folder is outside configured Tsundoku folders' };
     config.watcherFolder = wf;
     config.watcherDest = df;
     saveConfig();
@@ -359,8 +359,8 @@ function register() {
     try {
       if (!item || typeof item !== 'object' || !item.series || !item.originalPath) throw new Error('Invalid placement item');
       const baseDest = destFolder || config.watcherDest || config.folders[0]?.path || '';
-      if (!baseDest || !isAllowedFileActionPath(baseDest)) throw new Error('Destination is outside configured AnimeVault folders');
-      if (!isAllowedFileActionPath(item.originalPath)) throw new Error('Source is outside configured AnimeVault folders');
+      if (!baseDest || !isAllowedFileActionPath(baseDest)) throw new Error('Destination is outside configured Tsundoku folders');
+      if (!isAllowedFileActionPath(item.originalPath)) throw new Error('Source is outside configured Tsundoku folders');
       if (!isSafeFileName(item.series)) throw new Error('Invalid series name');
       if (!item.isFolder && !isSafeFileName(item.newName)) throw new Error('Invalid file name');
       const targetDir = path.join(baseDest, item.series);

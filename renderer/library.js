@@ -1,4 +1,4 @@
-/* AnimeVault renderer — Collection, Continue, Completed. */
+/* Tsundoku renderer — Collection, Continue, Completed. */
 
 function seriesProgress(s){
   var watched=s.watchData&&s.watchData.episodesWatched?s.watchData.episodesWatched:[];
@@ -134,8 +134,8 @@ function vLib(){
   if(S.loading&&!S.lib.length)return '<div class="view">'+'<div class="skeleton" style="height:340px;border-radius:var(--r-xl);margin-bottom:28px"></div>'+skeletonGrid(12)+'</div>';
   var all=librarySeries();
   if(!all.length){
-    return '<div class="view">'+emptyState(VM('film','book'),'Welcome to '+VM('AnimeVault','MangaVault'),
-      VM('Your library is empty. Add the folders where your anime lives and AnimeVault will organize it, fetch artwork and keep your MyAnimeList progress in sync.','Your manga library is empty. Add your manga folders and MangaVault will track your reading progress with MyAnimeList.'),
+    return '<div class="view">'+emptyState(VM('film','book'),'Welcome to Tsundoku',
+      VM('Your library is empty. Add the folders where your anime lives and Tsundoku will organize it, fetch artwork and keep your MyAnimeList progress in sync.','Your manga library is empty. Add your manga folders and Tsundoku will track your reading progress with MyAnimeList.'),
       '<button class="btn btn-primary"'+A('go','settings')+'>'+ic('folderPlus')+'Add library folders</button>'
       +((S.pendingNewSeries||[]).length?'<button class="btn btn-secondary"'+A('openImportReviewer')+'>'+ic('inbox')+'Review imports</button>':'')
       +(S.mal?'':'<button class="btn btn-secondary"'+A('go','mal')+'>'+ic('link')+'Connect MyAnimeList</button>'))+'</div>';

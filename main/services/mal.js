@@ -176,6 +176,16 @@ function malDetailsCacheKey(malId) { return (config.vaultMode === 'manga' ? 'man
 // - both timestamped → only if MAL's is newer
 // - stored one has no timestamp → yes (MAL is the source of truth; every app
 //   edit is a PATCH whose response carries updated_at)
+// The last changes sent to MyAnimeList, shown under Settings → MyAnimeList →
+// Sync activity. Kept in config.json, newest last, at most SYNC_LOG_MAX.
+const SYNC_LOG_MAX = 100;
+function recordSyncLog(entry) {
+  if (!Array.isArray(config.malSyncLog)) config.malSyncLog = [];
+  config.malSyncLog.push({ timestamp: Date.now(), ...entry });
+  if (config.malSyncLog.length > SYNC_LOG_MAX) config.malSyncLog.splice(0, config.malSyncLog.length - SYNC_LOG_MAX);
+  saveConfig();
+}
+
 function shouldAdoptRemoteListStatus(local, remote) {
   if (!remote || typeof remote !== 'object' || !remote.status) return false;
   const usable = local && typeof local === 'object' && (local.status || local.score != null ||
@@ -280,8 +290,8 @@ function register() {
           const reason = !codeOk
             ? '<h2>Invalid authorization code</h2><p>MAL returned something unexpected. Press Connect again.</p>'
             : state
-              ? '<h2>Stale authorization tab</h2><p>This tab came from an earlier Connect attempt. Close all AnimeVault authorization tabs and press Connect again, then use the newest one.</p>'
-              : '<h2>No authorization code</h2><p>Open AnimeVault and press Connect again.</p>';
+              ? '<h2>Stale authorization tab</h2><p>This tab came from an earlier Connect attempt. Close all Tsundoku authorization tabs and press Connect again, then use the newest one.</p>'
+              : '<h2>No authorization code</h2><p>Open Tsundoku and press Connect again.</p>';
           appendAuthDebug('callback rejected (' + (!codeOk ? 'bad code length ' + String(code || '').length : state ? 'state mismatch' : 'no code') + ')');
           res.end('<html><body style="font-family:sans-serif;background:#12121c;color:#e8e4dc;text-align:center;padding-top:48px">' + reason + '</body></html>');
         }
@@ -459,7 +469,17 @@ function register() {
       }
     }
 
+    // What MAL had before, for the Sync activity log (Settings → MyAnimeList).
+    const prevEntry = seriesName ? getWatchHistoryStore()[safeHistoryKey(seriesName)] : null;
+    const prev = (prevEntry && prevEntry.malData && prevEntry.malData.my_list_status) || {};
     const r = await malRequestWithRetry(endpoint, 'PATCH', body);
+    recordSyncLog({
+      seriesName: seriesName || String(id), malId: id, success: !!r.data, error: r.data ? null : (r.error || 'MyAnimeList did not accept the change'),
+      changes: Object.keys(body || {}).map(field => {
+        const from = field === 'num_watched_episodes' ? (prev.num_episodes_watched ?? prev.num_watched_episodes) : prev[field];
+        return { field, from: from == null ? '—' : from, to: body[field] };
+      }).filter(c => String(c.from) !== String(c.to)),
+    });
     if (r.data && seriesName) {
       const key = safeHistoryKey(seriesName);
       const history = getWatchHistoryStore();
@@ -686,7 +706,7 @@ function register() {
   });
 
   ipcMain.handle('mal:getSyncLog', () => {
-    return (config.malSyncLog || []).slice(-100);
+    return (config.malSyncLog || []).slice(-SYNC_LOG_MAX).reverse(); // most recent first
   });
 
   ipcMain.handle('mal:clearSyncLog', () => {

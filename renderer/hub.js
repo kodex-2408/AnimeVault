@@ -1,4 +1,4 @@
-/* AnimeVault renderer — Library Hub: Import review, Activity, Downloads. */
+/* Tsundoku renderer — Library Hub: Import review, Activity, Downloads. */
 
 if(S._impSel==null)S._impSel=0;
 S._impDest=S._impDest||{};

@@ -1,10 +1,10 @@
-/* AnimeVault renderer — MyAnimeList account page. */
+/* Tsundoku renderer — MyAnimeList account page. */
 
 function vMal(){
   var h='<div class="view">'+pageHead('MyAnimeList','Connect your account to sync progress, scores and airing data.');
   if(!S.mal){
     h+='<div class="mal-connect panel"><div class="mal-connect-art">'+ic('layers')+'</div><div class="grow">'
-      +'<div class="panel-title" style="font-size:17px">Connect MyAnimeList</div><div class="panel-sub" style="margin:4px 0 18px">AnimeVault uses your own MAL API app, so your credentials stay on this computer.</div>'
+      +'<div class="panel-title" style="font-size:17px">Connect MyAnimeList</div><div class="panel-sub" style="margin:4px 0 18px">Tsundoku uses your own MAL API app, so your credentials stay on this computer.</div>'
       +'<ol class="steps">'
       +'<li><div class="step-title">Create an API app</div><div class="field-hint">Open the MAL API page, create a client and set the redirect URL below.</div><div class="row wrap" style="margin-top:8px"><button class="btn btn-secondary btn-sm"'+A('openUrl','https://myanimelist.net/apiconfig')+'>'+ic('external')+'Open myanimelist.net/apiconfig</button>'
         +'<button class="btn btn-ghost btn-sm"'+A('copyText','http://localhost:19876/callback')+'>'+ic('copy')+'Copy redirect URL</button></div><code class="code-chip">http://localhost:19876/callback</code></li>'

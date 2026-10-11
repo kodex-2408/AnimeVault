@@ -1,4 +1,4 @@
-/* AnimeVault renderer — Schedule (TV guide). */
+/* Tsundoku renderer — Schedule (TV guide). */
 
 if(!S.schedView)S.schedView='week';
 var _schedTick=null;

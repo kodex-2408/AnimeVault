@@ -1,4 +1,4 @@
-/* AnimeVault renderer — Appearance. */
+/* Tsundoku renderer — Appearance. */
 
 function themeSwatch(t){
   var acc=themeAccent(t);var active=currentTheme().id===t.id;
@@ -22,13 +22,13 @@ function vAppearance(){
     +'</div></div>';
   h+='<div class="sec-head"><div class="sec-title">Dark themes</div></div><div class="theme-grid">'+FULL_THEMES.filter(function(x){return x.dark;}).map(themeSwatch).join('')+'</div>';
   h+='<div class="sec-head"><div class="sec-title">Light themes</div></div><div class="theme-grid">'+FULL_THEMES.filter(function(x){return !x.dark;}).map(themeSwatch).join('')+'</div>';
-  var fonts=[['System','System (Segoe UI)'],['Segoe UI','Segoe UI'],['Inter','Inter'],['Roboto','Roboto'],['Nunito','Nunito'],['Outfit','Outfit'],['Plus Jakarta Sans','Plus Jakarta Sans'],['DM Sans','DM Sans'],['Lexend','Lexend'],['Poppins','Poppins'],['Space Grotesk','Space Grotesk'],['JetBrains Mono','JetBrains Mono']];
+  var fonts=[['System','Figtree (Tsundoku default)'],['Segoe UI','Segoe UI'],['Inter','Inter'],['Roboto','Roboto'],['Nunito','Nunito'],['Outfit','Outfit'],['Plus Jakarta Sans','Plus Jakarta Sans'],['DM Sans','DM Sans'],['Lexend','Lexend'],['Poppins','Poppins'],['Space Grotesk','Space Grotesk'],['JetBrains Mono','JetBrains Mono']];
   var cur=S.cfg.fontFamily||'System';
   h+='<div class="sec-head"><div class="sec-title">Interface</div></div><div class="list-group">'
     +setRow({icon:'layers',color:'var(--accent)',title:'Transparency',desc:'Glass blurs what’s behind panels and menus. Solid is fastest.',ctrl:seg('glass',[{v:'glass',label:'Glass'},{v:'frosted',label:'Frosted'},{v:'solid',label:'Solid'}],S.cfg.glassLevel||'glass','setGlassLevel')})
     +setRow({icon:'image',color:'#ff9f0a',title:'Featured card',desc:'Tone of the blurred artwork behind the big card on Collection. Auto follows the theme.',ctrl:seg('heroTone',[{v:'auto',label:'Auto'},{v:'light',label:'Light'},{v:'dark',label:'Dark'}],S.cfg.heroTone||'auto','setHeroTone')})
     +setRow({icon:'activity',color:'#30d158',title:'Motion',desc:'Speed of transitions, springs and hovers. “None” turns animation off.',ctrl:seg('motion',[{v:'none',label:'None'},{v:'slow',label:'Relaxed'},{v:'default',label:'Normal'},{v:'fast',label:'Snappy'}],S.cfg.animSpeed||'default','setAnimSpeed')})
-    +setRow({icon:'type',color:'#0a84ff',title:'Font',desc:'Fonts other than the system font must be installed on this computer.',ctrl:'<select class="select sm"'+On('change','setFontSel')+'>'+fonts.map(function(f){return '<option value="'+E(f[0])+'"'+(cur===f[0]?' selected':'')+'>'+E(f[1])+'</option>';}).join('')+'</select>'})
+    +setRow({icon:'type',color:'#0a84ff',title:'Font',desc:'Figtree comes with the app; the other fonts must be installed on this computer.',ctrl:'<select class="select sm"'+On('change','setFontSel')+'>'+fonts.map(function(f){return '<option value="'+E(f[0])+'"'+(cur===f[0]?' selected':'')+'>'+E(f[1])+'</option>';}).join('')+'</select>'})
     +setRow({icon:'sparkles',color:'#bf5af2',title:'Background effects',desc:'Soft light behind the interface.',ctrl:switchCtl(S.cfg.backgroundEffects!==false,'setBgEffects')})
     +(S.cfg.backgroundEffects!==false?setRow({title:'Effect',ctrl:seg('bgType',[{v:'ambient',label:'Ambient'},{v:'orbs',label:'Orbs'},{v:'particles',label:'Particles'},{v:'mesh',label:'Mesh'}],S.cfg.backgroundType||'ambient','setBgType')})
       +setRow({title:'Intensity',ctrl:seg('bgInt',[{v:'subtle',label:'Subtle'},{v:'medium',label:'Medium'},{v:'vivid',label:'Vivid'}],S.cfg.backgroundIntensity||'medium','setBgIntensity')}):'')
