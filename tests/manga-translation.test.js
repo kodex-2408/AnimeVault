@@ -263,6 +263,19 @@ config.folders = [];
   assert(drawn2.filter(d => /Personally|mean/.test(d.t)).every(d => inLobe(d.x, d.y, lobes[1])), 'the second translation sits in the second balloon'); checks++;
   assert(drawn2.some(d => d.t === 'Shrine'), 'text over the drawing is lettered'); checks++;
 
+  // the text size preference (opts.scale) makes the lettering smaller or bigger
+  const sizesAt = (scale) => {
+    const out = [];
+    const c = Object.assign({}, fakeCtx, { fillText(t) { out.push(parseFloat(/(\d+(?:\.\d+)?)px/.exec(this.font)[1])); } });
+    TS.render(c, { width: QW, height: QH, data: new Uint8ClampedArray(qx) }, P2, [{ region: U1.id, text: 'Honestly, I like that.' }], { scale });
+    return Math.max(...out);
+  };
+  assert(sizesAt(0.6) < sizesAt(1) * 0.8, 'a smaller text size letters smaller: ' + sizesAt(0.6) + ' vs ' + sizesAt(1)); checks++;
+
+  // the browser extension (manga-translator/) letters with the same file
+  assert.strictEqual(fs.readFileSync(path.join(__dirname, '..', 'manga-translator', 'extension', 'engine', 'typeset.js'), 'utf8'),
+    fs.readFileSync(path.join(__dirname, '..', 'renderer', 'typeset.js'), 'utf8'), 'manga-translator/extension/engine/typeset.js is a copy of renderer/typeset.js: keep them identical'); checks++;
+
   // words: hyphens may break, Japanese breaks between characters
   assert.strictEqual(JSON.stringify(TS.tokens('Kamiina-san!? first-year').map(t => t.t)), '["Kamiina-","san!?","first-","year"]'); checks++;
   assert.strictEqual(TS.tokens('寮長さんと話したい').length, 9); checks++;

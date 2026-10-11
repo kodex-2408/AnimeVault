@@ -646,7 +646,10 @@ var TS=(function(){
     opts=opts||{};
     var W=P.W,H=P.H,byId={},taken={},jobs=[],groups={};
     P.units.forEach(function(u){byId[u.id]=u;});
-    var maxS=Math.max(11,H*0.026),minS=Math.max(8,H*0.0105);
+    // opts.scale: the reader's text size preference (1 = as large as fits, up
+    // to the page's usual size)
+    var sc=opts.scale>0?Math.max(0.5,Math.min(1.5,opts.scale)):1;
+    var maxS=Math.max(11,H*0.026)*Math.max(1,sc),minS=Math.max(8,H*0.0105)*Math.min(1,sc);
     function claim(u,text){taken[u.id]=true;if(!groups[u.id])groups[u.id]={u:u,texts:[]};groups[u.id].texts.push(text);}
     function ubox(u){return {x0:u.tb.x1/W*1000,y0:u.tb.y1/H*1000,x1:(u.tb.x2+1)/W*1000,y1:(u.tb.y2+1)/H*1000};}
     var boxed=[];
@@ -720,6 +723,7 @@ var TS=(function(){
       var gp=list[k],u=gp.u;
       if(u.kind==='art'){letterArt(ctx,gp,maxS,minS,W,H,P);return;}
       if(lay&&lay.size>cap&&!gp.emph)lay=fit(ctx,gp.text,gp.shape,gp.cx,gp.cy,cap,minS)||lay;
+      if(lay&&sc<1)lay=fit(ctx,gp.text,gp.shape,gp.cx,gp.cy,Math.max(minS,lay.size*sc),minS)||lay;
       if(lay)draw(ctx,lay,lum(u.paper||[255,255,255])>140?'#111':'#fff');
     });
     jobs.forEach(function(j){letterBox(ctx,j,maxS,minS,W,H);});

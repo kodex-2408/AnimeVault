@@ -321,8 +321,15 @@ coordinates.
 The lettered page (JPEG, <= 2400 px) replaces the `<img>` src, so it stays put
 under zoom and in every mode. Bump `PROMPT_VERSION` in `translate.js` when the
 prompt or the numbering changes. `tests/manga-translation.test.js` covers both
-paths on drawn pages; real pages need a look by eye (the owner's test pages are
-in `manga-translator-copy.zip` on main).
+paths on drawn pages; real pages need a look by eye.
+
+The browser extension in `manga-translator/` runs the same pipeline (its own
+README, "How it works"): `manga-translator/extension/engine/typeset.js` is a
+copy of `renderer/typeset.js` and the test fails when they differ, so change
+`renderer/typeset.js` and copy it over. The extension keeps its own detector
+wrapper (`engine/detector.js`, fp16 or fp32 model, not in Git) and draws the
+lettered page as a transparent canvas over the site's image. It is not part of
+the app build (`build.files` is a whitelist).
 
 ## Main-process modules (5.2)
 

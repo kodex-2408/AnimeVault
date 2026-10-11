@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Popup designs · Manga Translator</title>
+  <style>
+    :root { --bg: #f4eff0; --text: #1d1a1c; --muted: #6e676b; --card: #ffffff; --line: #e3dadd; color-scheme: light; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #110e0f; --text: #f1ecee; --muted: #a39a9e; --card: #1c1819; --line: #322b2d; color-scheme: dark; } }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 24px 16px 48px; background: var(--bg); color: var(--text); font: 14px/1.5 "Segoe UI", system-ui, sans-serif; }
+    header { max-width: 1500px; margin: 0 auto 20px; }
+    h1 { margin: 0 0 4px; font-size: 22px; }
+    header p { margin: 0; color: var(--muted); max-width: 72ch; }
+    code { font: 12.5px ui-monospace, Consolas, monospace; background: var(--card); border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; }
+    .controls { margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap; }
+    .controls button { border: 1px solid var(--line); background: var(--card); color: var(--text); border-radius: 999px; padding: 5px 12px; font: inherit; cursor: pointer; }
+    .controls button[aria-pressed="true"] { background: #e5484d; border-color: #e5484d; color: #fff; }
+    .grid { max-width: 1500px; margin: 0 auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 20px; }
+    figure { margin: 0; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+    figcaption b { display: block; font-size: 15px; }
+    figcaption span { color: var(--muted); font-size: 13px; }
+    iframe { width: 100%; height: 600px; border: 1px solid var(--line); border-radius: 10px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Popup designs</h1>
+    <p>Three new designs with Fuki, next to the current popup. They all work here with test data and don't touch the extension. To use one, run <code>apply-design.bat 2-fuki</code> (or <code>1-polished</code>, <code>3-panel</code>, <code>0-original</code>) and reload the extension.</p>
+    <div class="controls" role="group" aria-label="Engine status">
+      <button type="button" data-server="ok" aria-pressed="true">Ready</button>
+      <button type="button" data-server="nokey" aria-pressed="false">No Gemini key</button>
+      <button type="button" data-server="down" aria-pressed="false">Engine error</button>
+    </div>
+  </header>
+  <div class="grid">
+    <figure><figcaption><b>0 · Original</b><span>The current popup.</span></figcaption><iframe data-design="0-original" title="Original"></iframe></figure>
+    <figure><figcaption><b>1 · Polished</b><span>Same layout, cleaner, with Fuki saying the server status.</span></figcaption><iframe data-design="1-polished" title="Polished"></iframe></figure>
+    <figure><figcaption><b>2 · Fuki</b><span>Fuki front and center; one big Translate button.</span></figcaption><iframe data-design="2-fuki" title="Fuki"></iframe></figure>
+    <figure><figcaption><b>3 · Panel</b><span>A manga page: ink borders, screentone, comic lettering.</span></figcaption><iframe data-design="3-panel" title="Panel"></iframe></figure>
+  </div>
+  <script>
+    const frames = document.querySelectorAll('iframe');
+    function show(server) {
+      frames.forEach((f) => (f.src = `${f.dataset.design}/popup.html?server=${server}`));
+      document.querySelectorAll('.controls button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.server === server)));
+    }
+    document.querySelectorAll('.controls button').forEach((b) => b.addEventListener('click', () => show(b.dataset.server)));
+    show('ok');
+  </script>
+</body>
+</html>

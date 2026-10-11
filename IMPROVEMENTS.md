@@ -32,10 +32,9 @@ All nine "Next up" items, plus manga translation from "Later":
    owner's ARM64 PC (WebGPU should be used: the status line never says the
    simpler balloon finder took over), and whether Haiku 5.5 follows the box
    numbers and the split-word rule or Sonnet 5.5 should be the default.
-2. **Bring the improvements back to the extension** (owner asked for one shared
-   algorithm): per-balloon splitting, neck cutting, stroke-map erasing and the
-   curve-following fit in `renderer/typeset.js` are plain functions on ImageData
-   and can move into the extension's `engine/layout.js`.
+2. **Try the extension 0.7** (`manga-translator/`, owner): it now uses the
+   reader's `typeset.js`; check a few reader sites, zooming, and the Text size
+   slider.
 3. **Electron smoke test in CI** (below): it would have caught the CRLF
    problem and would cover the reader, translation overlay and protocols.
 4. **Unescaped HTML check**, then the **empty `catch` pass**.

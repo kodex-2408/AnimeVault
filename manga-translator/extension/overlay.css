@@ -1,0 +1,119 @@
+/* A layer attached to the page (or to the reader's scroll box): overlays inside it
+   scroll together with the images. It's zero-sized; overlays overflow it. */
+.mt-layer {
+  all: initial;
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 2147483646;
+}
+
+/* Alt+Shift+T, and while a screenshot of the page is taken. Every element inside the
+   layer resets its styles (all: initial), visibility included, so it isn't inherited
+   from the layer: hide them all explicitly. */
+html.mt-hide .mt-layer,
+html.mt-hide .mt-layer *,
+html.mt-capturing .mt-layer,
+html.mt-capturing .mt-layer * {
+  visibility: hidden !important;
+}
+
+.mt-layer .mt-ov {
+  all: initial;
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  will-change: transform;
+}
+
+/* The lettered page from the engine: transparent except where balloons were erased
+   and re-lettered. Sized in % of the overlay (set by content.js), so it scales with the
+   image. */
+.mt-layer .mt-page {
+  all: initial;
+  position: absolute;
+  display: block;
+  pointer-events: none;
+}
+
+.mt-layer .mt-badge {
+  all: initial;
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  max-width: 80%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 4px 3px 10px;
+  border-radius: 999px;
+  font: 600 12px/1.3 "Segoe UI", system-ui, sans-serif;
+  color: #fff;
+  background: rgba(30, 30, 40, 0.82);
+  pointer-events: none;
+}
+
+.mt-layer .mt-badge[data-kind="busy"],
+.mt-layer .mt-badge[data-kind="queued"] {
+  padding-right: 10px;
+}
+
+.mt-layer .mt-badge[data-kind="queued"] {
+  background: rgba(30, 30, 40, 0.5);
+  font-weight: 500;
+}
+
+.mt-layer .mt-badge-text {
+  all: initial;
+  font: inherit;
+  color: inherit;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mt-layer .mt-retry {
+  all: initial;
+  display: none;
+  flex: none;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font: 700 12px/1.3 "Segoe UI", system-ui, sans-serif;
+  color: #9b1c2a;
+  background: #fff;
+  cursor: pointer;
+}
+
+.mt-layer .mt-retry:hover {
+  background: #ffe3e6;
+}
+
+.mt-layer .mt-badge[data-kind="error"] {
+  background: rgba(190, 30, 45, 0.94);
+  pointer-events: auto;
+}
+
+.mt-layer .mt-badge[data-kind="error"] .mt-retry {
+  display: block;
+}
+
+#mt-stale {
+  all: initial;
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2147483647;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font: 600 13px/1.4 "Segoe UI", system-ui, sans-serif;
+  color: #fff;
+  background: rgba(30, 30, 40, 0.92);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+}
