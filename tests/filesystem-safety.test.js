@@ -199,6 +199,27 @@ const plain = (v) => JSON.parse(JSON.stringify(v));
   r = await handlers['manager:formatFolder'](null, outside, 'x');
   assert(!r.success && /outside/.test(r.error)); checks++;
 
+  // ------------------------------- Recycle Bin: no silent permanent delete
+  const trashCtx = vm.createContext({ require, path, fs, process: { platform: 'win32' }, shell: null });
+  vm.runInContext(fn('trashUnavailable') + '\n' + 'async ' + fn('trashOrDelete') + '\nthis.trashOrDelete = trashOrDelete; this.trashUnavailable = trashUnavailable;', trashCtx);
+  const victim = path.join(lib, 'trash-me.mkv');
+  touch(victim);
+  trashCtx.shell = { trashItem: async () => { throw new Error('The process cannot access the file because it is being used by another process.'); } };
+  let threw = null;
+  try { await trashCtx.trashOrDelete(victim); } catch (e) { threw = e; }
+  assert(threw && /nothing was deleted/.test(threw.message), 'a failed trash on Windows must throw, not delete'); checks++;
+  assert(fs.existsSync(victim), 'the file stays when the Recycle Bin refuses it'); checks++;
+  assert.strictEqual(trashCtx.trashUnavailable(new Error('Unable to find or create trash directory'), 'win32'), false); checks++;
+  assert.strictEqual(trashCtx.trashUnavailable(new Error('Unable to find or create trash directory'), 'linux'), true); checks++;
+  assert.strictEqual(trashCtx.trashUnavailable(new Error('Permission denied'), 'linux'), false); checks++;
+  trashCtx.shell = { trashItem: async () => { throw new Error('Unable to find or create trash directory'); } };
+  trashCtx.process.platform = 'linux';
+  assert.strictEqual(await trashCtx.trashOrDelete(victim), 'deleted'); checks++;
+  assert(!fs.existsSync(victim), 'a drive with no trash still deletes'); checks++;
+  touch(victim);
+  trashCtx.shell = { trashItem: async (p) => { fs.rmSync(p); } };
+  assert.strictEqual(await trashCtx.trashOrDelete(victim), 'trash'); checks++;
+
   fs.rmSync(tmp, { recursive: true, force: true });
   console.log('filesystem-safety checks passed: ' + checks + ' assertions (containment, roots, names, organizer, undo)');
 })().catch(e => { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (_) {} console.error(e); process.exit(1); });

@@ -127,12 +127,28 @@ function moveNoClobber(from, to) {
 // Deletes through the Recycle Bin so a mistake can be undone. Drives without
 // one (network shares, some USB drives) fall back to a permanent delete.
 // Resolves 'trash' or 'deleted'.
+// True when trashItem failed because the drive has no Recycle Bin (trash).
+// Windows already deletes such files itself inside trashItem, so there an
+// error always means something else: a file in use, a long path, a cloud
+// placeholder. Elsewhere only a missing trash folder counts.
+function trashUnavailable(err, platform = process.platform) {
+  if (platform === 'win32') return false;
+  return /trash/i.test(String(err && err.message || err || ''));
+}
+
+// Moves a file or folder to the Recycle Bin. It is deleted permanently only
+// on a drive that has no Recycle Bin; any other failure keeps the files and
+// throws, so the caller can show why.
 async function trashOrDelete(p) {
   if (!fs.existsSync(p)) return 'deleted';
   try {
     await shell.trashItem(p);
     return 'trash';
   } catch (e) {
+    if (!trashUnavailable(e)) {
+      const why = String(e && e.message || e || 'unknown error').replace(/\s+$/, '');
+      throw new Error(`Couldn't move "${path.basename(p)}" to the Recycle Bin, so nothing was deleted (${why}). Close any app using it and try again.`);
+    }
     fs.rmSync(p, { recursive: true, force: true });
     return 'deleted';
   }
@@ -217,7 +233,7 @@ function validateRendererConfigValue(key, value) {
     if (value != null && (!Number.isInteger(value) || value < 10 || value > 100)) throw new Error('Mark-read share must be 10-100%');
     return;
   }
-  const READER_CHOICES = { mangaReader: ['builtin', 'external'], readerMode: ['single', 'double', 'strip'], readerDir: ['ltr', 'rtl'], readerFit: ['height', 'width', 'original'] };
+  const READER_CHOICES = { mangaReader: ['builtin', 'external'], readerMode: ['single', 'double', 'strip'], readerDir: ['ltr', 'rtl'], readerFit: ['height', 'width', 'original'], translateModel: ['haiku', 'sonnet'], translateLang: require('../services/translate').LANGS };
   if (READER_CHOICES[key]) {
     if (value != null && !READER_CHOICES[key].includes(value)) throw new Error('Unknown ' + key + ': ' + value);
     return;
@@ -253,6 +269,7 @@ module.exports = {
   moveNoClobber,
   movePath,
   trashOrDelete,
+  trashUnavailable,
   normalizeFsPath,
   validateRendererConfigValue,
 };

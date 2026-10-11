@@ -126,6 +126,7 @@ document.addEventListener('keydown',function(e){
 
 // ------------------------------------------------------------------- icons --
 var ICONS={
+  translate:'<path d="M4 5h9M8.5 3v2M6 5c.6 3.4 2.6 6 6 7.5M11 5c-.7 3.6-3 6.6-7 8"/><path d="M12.5 21l4-9 4 9M14 17.5h5"/>',
   home:'<path d="M3.5 10.5L12 3.5l8.5 7V20a1 1 0 0 1-1 1H15v-6.5H9V21H4.5a1 1 0 0 1-1-1z"/>',
   bookOpen:'<path d="M2.5 5.5c3-1.3 6.2-1.3 9.5 1 3.3-2.3 6.5-2.3 9.5-1v13c-3-1.3-6.2-1.3-9.5 1-3.3-2.3-6.5-2.3-9.5-1z"/><path d="M12 6.5v13"/>',
   fitWidth:'<path d="M3.5 4v16M20.5 4v16M7.5 12h9M10 9.5L7.5 12l2.5 2.5M14 9.5l2.5 2.5-2.5 2.5"/>',
@@ -263,11 +264,13 @@ var _modalStack=[];
 function openModal(o){
   o=o||{};
   if(o.id){var prev=document.getElementById(o.id);if(prev&&prev._modal)prev._modal.close(true);}
+  var opener=document.activeElement;
   var layer=document.createElement('div');layer.className='modal-layer';if(o.id)layer.id=o.id;
-  var h='<div class="modal-backdrop"></div><div class="modal'+(o.className?' '+o.className:'')+'" role="dialog" aria-modal="true" style="--mw:'+(o.width||520)+'px">';
+  var titleId='modalTitle'+(++_modalSeq);
+  var h='<div class="modal-backdrop"></div><div class="modal'+(o.className?' '+o.className:'')+'" role="dialog" aria-modal="true" tabindex="-1"'+(o.title?' aria-labelledby="'+titleId+'"':'')+' style="--mw:'+(o.width||520)+'px">';
   if(o.title||o.icon){
     h+='<div class="modal-head">'+(o.icon?'<div class="modal-icon'+(o.tone?' '+o.tone:'')+'">'+ic(o.icon)+'</div>':'')
-      +'<div class="modal-titles"><div class="modal-title">'+E(o.title||'')+'</div>'+(o.sub?'<div class="modal-sub">'+o.sub+'</div>':'')+'</div>'
+      +'<div class="modal-titles"><div class="modal-title" id="'+titleId+'">'+E(o.title||'')+'</div>'+(o.sub?'<div class="modal-sub">'+o.sub+'</div>':'')+'</div>'
       +(o.dismissable===false?'':'<button class="icon-btn sm plain" data-modal-close aria-label="Close">'+ic('x')+'</button>')+'</div>';
   }
   h+='<div class="modal-body">'+(o.body||'')+'</div>';
@@ -282,10 +285,12 @@ function openModal(o){
       if(handle.closed)return;handle.closed=true;
       var i=_modalStack.indexOf(handle);if(i>=0)_modalStack.splice(i,1);
       if(typeof o.onClose==='function'){try{o.onClose();}catch(e){console.error(e);}}
+      if(layer.contains(document.activeElement)||document.activeElement===document.body)restoreModalFocus(opener);
       if(immediate){layer.remove();return;}
       layer.classList.add('closing');setTimeout(function(){layer.remove();},200);
     }};
   layer._modal=handle;
+  layer.addEventListener('keydown',function(e){if(e.key==='Tab'&&_modalStack[_modalStack.length-1]===handle)trapModalTab(layer.querySelector('.modal'),e);});
   layer.addEventListener('click',function(e){
     if(e.target.closest('[data-modal-close]')){handle.close();return;}
     if(e.target.classList.contains('modal-backdrop')&&o.dismissable!==false)handle.close();
@@ -294,8 +299,28 @@ function openModal(o){
   _modalStack.push(handle);
   updateSegThumbs(layer);
   var focusEl=layer.querySelector('[autofocus]')||layer.querySelector('.modal-body input,.modal-body select');
-  if(focusEl)setTimeout(function(){try{focusEl.focus();if(focusEl.select)focusEl.select();}catch(e){}},60);
+  setTimeout(function(){if(handle.closed)return;try{if(focusEl){focusEl.focus();if(focusEl.select)focusEl.select();}else if(!layer.contains(document.activeElement))layer.querySelector('.modal').focus({preventScroll:true});}catch(e){}},60);
   return handle;
+}
+// Tab and Shift+Tab stay inside the open dialog.
+var _modalSeq=0;
+var MODAL_FOCUSABLE='a[href],button:not([disabled]),input:not([disabled]):not([type="hidden"]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"]),[contenteditable="true"]';
+function trapModalTab(box,e){
+  if(!box)return;
+  var items=[].filter.call(box.querySelectorAll(MODAL_FOCUSABLE),function(el){return el.offsetParent!==null||el===document.activeElement;});
+  if(!items.length){e.preventDefault();box.focus({preventScroll:true});return;}
+  var first=items[0],last=items[items.length-1],cur=document.activeElement;
+  if(e.shiftKey&&(cur===first||!box.contains(cur))){e.preventDefault();last.focus();}
+  else if(!e.shiftKey&&(cur===last||!box.contains(cur))){e.preventDefault();first.focus();}
+}
+// Focus goes back to what opened the dialog (when it is still on screen),
+// or into the dialog now on top.
+function restoreModalFocus(opener){
+  setTimeout(function(){
+    var top=_modalStack[_modalStack.length-1];
+    if(top){var box=top.el.querySelector('.modal');if(box&&!box.contains(document.activeElement))box.focus({preventScroll:true});return;}
+    if(opener&&opener.isConnected&&opener!==document.body&&typeof opener.focus==='function'&&opener.offsetParent!==null){try{opener.focus({preventScroll:true});}catch(e){}}
+  },0);
 }
 function closeTopModal(){var m=_modalStack[_modalStack.length-1];if(m){m.close();return true;}return false;}
 function closeModalById(id){var el=document.getElementById(id);if(el&&el._modal){el._modal.close();return true;}if(el)el.remove();return false;}

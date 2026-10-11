@@ -1,0 +1,8 @@
+# Source stays LF on every platform (the tests read source text and expect LF);
+# Windows batch files stay CRLF.
+* text=auto eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.png binary
+*.ico binary
+*.woff2 binary

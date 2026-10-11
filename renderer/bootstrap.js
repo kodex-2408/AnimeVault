@@ -26,7 +26,7 @@ function muteDupSeries(series){if(!Array.isArray(S.cfg.mutedDupSeries))S.cfg.mut
 function resolveDupByCodec(c){if(!_dupCurrent)return;var keep=_dupCurrent.files.find(function(f){return f.codec===c;})||_dupCurrent.files[0];doResolveDup(keep.path,_dupCurrent.files.filter(function(f){return f.path!==keep.path;}).map(function(f){return f.path;}));}
 function resolveDupBySize(){if(!_dupCurrent)return;var keep=_dupCurrent.files.reduce(function(b,f){return (f.size||0)>(b.size||0)?f:b;},_dupCurrent.files[0]);doResolveDup(keep.path,_dupCurrent.files.filter(function(f){return f.path!==keep.path;}).map(function(f){return f.path;}));}
 function resolveDupManual(){if(!_dupCurrent)return;var row=document.querySelector('#dupPopup .dup-file.on');var idx=row?+row.getAttribute('data-dup-idx'):0;var keep=_dupCurrent.files[idx];doResolveDup(keep.path,_dupCurrent.files.filter(function(f,i){return i!==idx;}).map(function(f){return f.path;}));}
-function doResolveDup(keep,dels){api.duplicateResolve({keep:keep,delete:Array.isArray(dels)?dels:(dels?[dels]:[])});closeDuplicatePopup();}
+function doResolveDup(keep,dels){api.duplicateResolve({keep:keep,delete:Array.isArray(dels)?dels:(dels?[dels]:[])}).then(function(r){if(r&&r.error)toast(r.error,'e');}).catch(function(){});closeDuplicatePopup();}
 
 // ------------------------------------------------------------------- init --
 async function init(){
@@ -39,7 +39,7 @@ async function init(){
   if(S.cfg.schedView)S.schedView=S.cfg.schedView;
   if(S.cfg.sidebarCollapsed)document.querySelector('.app').classList.add('sidebar-collapsed');
   restoreImportInbox();persistActivities();
-  applyTheme();applyPerformanceMode(S.cfg.performanceMode);applyAnimSpeed(S.cfg.animSpeed||'default');
+  applyTheme();applyPerformanceMode(S.cfg.performanceMode);applyAnimSpeed(motionSpeed());watchSystemMotion();
   updateModeUI();uMal();initLuma();
   wireIpcEvents();
   if(!S.cfg.setupDone){showSetupWizard();if(!S.cfg.folders||!S.cfg.folders.length)go('settings');else{go('library');await loadLib(true);}}
@@ -109,7 +109,7 @@ function wireIpcEvents(){
     toast('Marked '+epLabel()+' '+num+' as '+watchedLabel()+(data.source==='reader'?' ('+Math.max(1,Math.round((data.seconds||0)/60))+' min of reading)':''),'s');
     var all=s.episodes.filter(function(e){return e.episodeNum!==null;}).map(function(e){return e.episodeNum;}).sort(function(a,b){return a-b;});
     var wd=await api.markUpTo(name,num,all);_patchLibWatchData(name,wd);
-    if(S.cfg.watchAndDelete){var ep=s.episodes.find(function(e){return e.episodeNum===num;});if(ep)setTimeout(async function(){var r=await api.deleteEpisodeFile(ep.path);if(r&&r.success)toast('Deleted '+epLabel()+' '+num+' (watch & delete)','i');},5000);}
+    if(S.cfg.watchAndDelete){var ep=s.episodes.find(function(e){return e.episodeNum===num;});if(ep)setTimeout(async function(){var r=await api.deleteEpisodeFile(ep.path);if(r&&r.success)toast('Deleted '+epLabel()+' '+num+' (watch & delete)','i');else if(r&&r.error)toast(r.error,'e');},5000);}
     await autoSyncSeries(name);
     if(S.cur&&S.cur.name===name)odtl(name);
     if(S.view==='library'||S.view==='continue'||S.view==='completed')render();

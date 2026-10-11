@@ -202,14 +202,23 @@ function initLuma(){
   var img=root.querySelector('#lumaImg');img.className='luma-sprite '+lumaSizeClass();
   var prev=_lumaState;
   _lumaState={el:root,img:img,x:prev?prev.x:window.innerWidth*.55,y:prev?prev.y:window.innerHeight*.6,tx:0,ty:0,dir:1,paused:false,frontTimer:0,bob:0,raf:null,src:'',last:0};
+  if(lumaStill()){_lumaDrawStill(_lumaState);return;}
   _lumaState.raf=requestAnimationFrame(_lumaTick);
+}
+// Luma stands still, with no animation loop, in Performance Mode or with motion off.
+function lumaStill(){return !!S.cfg.performanceMode||motionSpeed()==='none';}
+function lumaSyncMotion(){if(S.cfg.lumaMascot)initLuma();}
+function _lumaDrawStill(st){
+  st.x=Math.max(90,Math.min(window.innerWidth-90,st.x));st.y=Math.max(110,Math.min(window.innerHeight-130,st.y));
+  st.src=LUMA_FRAMES.front;st.img.src=st.src;
+  st.img.style.transform='translate3d('+st.x.toFixed(1)+'px,'+st.y.toFixed(1)+'px,0) translate(-50%,-50%)';
 }
 function _lumaTick(ts){
   var st=_lumaState;if(!st||!st.img)return;
   st.raf=requestAnimationFrame(_lumaTick);
   if(document.hidden)return;
   var dt=st.last?Math.min(50,ts-st.last):16;st.last=ts;var k=dt/16.67;
-  var speed=S.cfg.animSpeed==='none'?0:(S.cfg.lumaSpeed==='slow'?.55:S.cfg.lumaSpeed==='fast'?1.5:1)*(S.cfg.performanceMode?.7:1);
+  var speed=S.cfg.lumaSpeed==='slow'?.55:S.cfg.lumaSpeed==='fast'?1.5:1;
   st.bob+=.035*k;var bobY=Math.sin(st.bob)*10*speed;var moving=false;
   if(!st.paused){
     if((!st.tx&&!st.ty)||(Math.abs(st.x-st.tx)<4&&Math.abs(st.y-st.ty)<4)||Math.random()<.004*k){st.tx=90+Math.random()*(window.innerWidth-180);st.ty=110+Math.random()*(window.innerHeight-240);}

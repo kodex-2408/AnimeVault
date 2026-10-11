@@ -2,7 +2,7 @@
 
 *積ん読: the pile you mean to get to.* A desktop library for your anime and manga, built with Electron (formerly **AnimeVault**). Organize your local collection, track what you've watched and read, read manga in the built-in reader, find new releases on Nyaa.si and keep everything in sync with MyAnimeList.
 
-**Current version: 5.8.0 — Tsundoku: new name, logo and type.** See [docs/CHANGELOG.md](docs/CHANGELOG.md) for release history and [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for engineering notes.
+**Current version: 5.9.0 — Manga translation, safer deletes, accessibility.** See [docs/CHANGELOG.md](docs/CHANGELOG.md) for release history and [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for engineering notes.
 
 ---
 
@@ -14,6 +14,7 @@ Toggle the **Anime / Manga** switch in the title bar (or press `Ctrl+Shift+M`):
 - **MAL manga sync** — manga mode uses MyAnimeList's manga endpoints (chapters read, manga list, manga details)
 - **File support** — `.cbz`, `.cbr`, `.zip`, `.pdf`, `.epub` and `.mobi`; chapter numbers and titles are read from the file names
 - **Built-in reader** — single page, double page or long strip, left-to-right or right-to-left, zoom (Ctrl + wheel or the − / % / + control), whole-window fullscreen; marks a chapter read when you reach a share of its pages (default 90%)
+- **Translate pages** — the reader's Translate tool (`T`) draws translated text over each page with Claude on OpenRouter (your Luma key; 16 languages; Claude Haiku 5.5 or Sonnet 5.5). Switched on per chapter, since each new page is a paid request; translated pages are saved, so reading them again is free
 - **Reader apps** — or open chapters in CDisplayEx, OpenComic, SumatraPDF, calibre and others; a chapter is marked read after it has been open for a reading time you choose (default 120 seconds)
 - **Clean chapter names** — cards show a chapter's real title, or just its number; new manga series are renamed to `Series - Ch 012 - Title.cbz` on import (optional, undoable)
 - **Nyaa manga** — searches Nyaa category `c=3_1` (English-translated manga)
@@ -77,7 +78,7 @@ Toggle the **Anime / Manga** switch in the title bar (or press `Ctrl+Shift+M`):
 - **Format loose files** — rename and organize video/manga files
 - **Safe series rename** — renames the folder and files while keeping the MAL link and history
 - **Rename in folder**, **batch process** with undo, **group/ungroup folders**
-- **Delete series** — to the Recycle Bin, with path guards
+- **Delete series** — to the Recycle Bin, with path guards; if Windows can't recycle a file (in use, path too long, OneDrive placeholder), nothing is deleted and you're told why
 - **Download watcher** — checks a watch folder every 30 seconds and files new downloads into your library
 - **Root-level folder handling** — processes whole dropped folders
 
@@ -88,6 +89,7 @@ Toggle the **Anime / Manga** switch in the title bar (or press `Ctrl+Shift+M`):
 - **Notification preferences** per category
 - **Background Activity Center** — status and retry history for scans, imports, covers, sync, watcher and downloads
 - **Performance mode** — less blur and motion for lower-power PCs or very large libraries
+- **Accessible by default** — follows the Windows animation setting until you pick a Motion speed, readable secondary text in every theme, and dialogs that keep keyboard focus
 - **Animated backgrounds** — ambient, orbs, particles or mesh, with intensity control
 - **Right-click menus** on cards
 - **Luma assistant** — chat about your library, powered by Claude Haiku 5.5 through OpenRouter with your own OpenRouter key (paid per use; low reasoning effort), with optional web search
@@ -112,7 +114,7 @@ npm start
 ```bat
 npm test
 ```
-Fourteen suites covering the IPC contract and CSP, search matching, MAL data and sync, state integrity, file safety and moves, library layout, playback and tracking, the renderer store, Luma's OpenRouter client, and the manga reader (titles, renames, reading timer, EPUB/MOBI/PDF). Details in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+Fifteen suites (run on Windows and Ubuntu in CI) covering the IPC contract and CSP, search matching, MAL data and sync, state integrity, file safety and moves, library layout, playback and tracking, the renderer store, Luma's OpenRouter client, the manga reader (titles, renames, reading timer, EPUB/MOBI/PDF) and page translation. Details in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ---
 
@@ -167,7 +169,7 @@ Settings → Notifications → toggle categories individually. Turning a categor
 - **Figtree** and **Bricolage Grotesque** — bundled typefaces (SIL Open Font License)
 - **MyAnimeList API v2** — anime/manga data and list sync
 - **AniList GraphQL** — cover art and search
-- **OpenRouter** — Luma (Claude Haiku 5.5)
+- **OpenRouter** — Luma (Claude Haiku 5.5) and page translation (Claude Haiku 5.5 or Sonnet 5.5)
 
 ## License
 Personal use. The bundled fonts are under the SIL Open Font License (see `fonts/`).

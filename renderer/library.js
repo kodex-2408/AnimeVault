@@ -98,7 +98,7 @@ function heroSlides(list,cw){
 }
 
 var _heroTimer=null;
-function heroStartRotation(ms){heroStopRotation();if(S.cfg.animSpeed==='none')return;_heroTimer=setInterval(function(){if(document.hidden)return;heroAdvance(1);},ms||8000);}
+function heroStartRotation(ms){heroStopRotation();if(motionSpeed()==='none')return;_heroTimer=setInterval(function(){if(document.hidden)return;heroAdvance(1);},ms||8000);}
 function heroStopRotation(){if(_heroTimer){clearInterval(_heroTimer);_heroTimer=null;}}
 function heroPause(){heroStopRotation();var h=document.getElementById('heroCarousel');if(h)h.classList.add('paused');}
 function heroResume(){var h=document.getElementById('heroCarousel');if(h){h.classList.remove('paused');if(h.querySelectorAll('.hero-slide').length>1)heroStartRotation(8000);}}

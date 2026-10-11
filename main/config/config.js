@@ -69,6 +69,7 @@ const STATIC_CONFIG_KEYS = new Set([
   'untrackOnDelete', 'mutedDupSeries', 'lumaModel', 'hasOpenRouterKey', 'lumaWebSearch',
   'mangaAutoRename', 'mangaSeenSeries', 'tsundokuFontApplied', 'readerTimerEnabled', 'readerTimerSeconds',
   'mangaReader', 'readerMode', 'readerDir', 'readerFit', 'readerMarkPercent', 'readerZoom',
+  'translateLang', 'translateModel',
   // 5.0 UI preferences
   'glassLevel', 'lastDarkTheme', 'lastLightTheme', 'sidebarCollapsed', 'schedView', 'heroTone'
 ]);
@@ -159,20 +160,6 @@ function loadConfig() {
         }
       } catch (backupOldErr) {
         console.error('[Config] Second-generation backup corrupted:', backupOldErr.message);
-      }
-    }
-    if (!loaded) {
-      try {
-        const Store = require('electron-store');
-        const store = new Store({ name: 'config' });
-        const data = store.store;
-        if (data && typeof data === 'object') {
-          Object.assign(config, data);
-          loaded = true;
-          console.log('[Config] Loaded from electron-store');
-        }
-      } catch (storeErr) {
-        if (storeErr.code !== 'MODULE_NOT_FOUND') console.error('[Config] electron-store fallback failed:', storeErr.message);
       }
     }
     // 5.8.0 (Tsundoku): the bundled Figtree becomes the interface font once, for
