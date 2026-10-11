@@ -1,4 +1,4 @@
-/* AnimeVault renderer — Settings (two-pane, searchable, grouped rows). */
+/* Tsundoku renderer — Settings (two-pane, searchable, grouped rows). */
 
 var SETTINGS_SECTIONS=[
   {id:'library',label:'Library',icon:'folder',color:'var(--accent)'},
@@ -46,7 +46,7 @@ function sectionHtml(id){
     var ext=S.cfg.mangaReader==='external';
     h+=setRow({icon:'book',color:'#ff9f0a',title:'Open chapters in',desc:ext?'Your reader app opens every chapter.':'The built-in reader opens .cbz, .cbr, .pdf, .epub and .mobi files.',ctrl:cfgSelect('mangaReader',[['builtin','Built-in reader'],['external','Reader app']],'builtin'),kw:'reader built-in builtin external app'});
     if(!ext)h+=setRow({icon:'check',color:'#30d158',title:'Mark read at',desc:'In the built-in reader, a chapter is marked read once you reach this share of its pages.',ctrl:'<input class="input sm pct-input" type="number" min="10" max="100" step="5" value="'+readerMarkPctValue()+'"'+On('change','setReaderMarkPct')+'><span class="muted">%</span>',kw:'reader mark read percent pages'});
-    h+=setRow({block:'<div class="field"><label class="field-label">Reader application</label><div class="input-row"><input class="input mono" id="sReaderPath" value="'+E(S.cfg.readerPath||'')+'" placeholder="Leave empty to use the system default"'+On('change','cfgText','readerPath')+'><button class="btn btn-secondary btn-sm"'+A('brsReader')+'>Browse…</button><button class="btn btn-ghost btn-sm"'+A('detectReader')+'>'+ic('search')+'Detect</button></div><div class="field-hint" id="readerDetectHint">Opens .cbz / .cbr / .pdf files in MangaVault mode. CDisplayEx, OpenComic, SumatraPDF, Honeyview, calibre, YACReader and MComix are detected automatically.</div></div>',kw:'reader cbz cbr opencomic sumatra cdisplayex calibre'});
+    h+=setRow({block:'<div class="field"><label class="field-label">Reader application</label><div class="input-row"><input class="input mono" id="sReaderPath" value="'+E(S.cfg.readerPath||'')+'" placeholder="Leave empty to use the system default"'+On('change','cfgText','readerPath')+'><button class="btn btn-secondary btn-sm"'+A('brsReader')+'>Browse…</button><button class="btn btn-ghost btn-sm"'+A('detectReader')+'>'+ic('search')+'Detect</button></div><div class="field-hint" id="readerDetectHint">Opens .cbz / .cbr / .pdf files in Manga mode. CDisplayEx, OpenComic, SumatraPDF, Honeyview, calibre, YACReader and MComix are detected automatically.</div></div>',kw:'reader cbz cbr opencomic sumatra cdisplayex calibre'});
     h+=setRow({icon:'clock',color:'#30d158',title:'Reading time for reader apps',desc:'With a reader app (CDisplayEx, SumatraPDF…), a chapter is marked read once it has been open this long. 120 s is recommended. Off: chapters are marked read as soon as they open.',ctrl:'<input class="input sm pct-input" type="number" min="15" max="3600" step="5" value="'+readerTimerValue()+'"'+On('change','setReaderTimer')+(S.cfg.readerTimerEnabled===false?' disabled':'')+Tip('Recommended: 120 seconds')+'><span class="muted">s</span>'+cfgSwitch('readerTimerEnabled',true),kw:'reader timer read mark chapter cdisplayex seconds minutes'});
     h+=setRow({icon:'pencil',color:'#ff9f0a',title:'Rename new manga chapters',desc:'When a new series folder appears, its files are renamed to “Series - Ch 012 - Title.cbz”. Chapter titles are kept. Series already in your library are never renamed. Undo from File management.',ctrl:cfgSwitch('mangaAutoRename',true),kw:'rename chapters format auto'});
   }else if(id==='playback'){
@@ -105,7 +105,7 @@ function sectionHtml(id){
     h+=setRow({icon:'wand',color:'#8e8e93',title:'Setup guide',desc:'Walk through the first-run setup again: library folders, player, MyAnimeList and Luma.',ctrl:'<button class="btn btn-secondary btn-sm"'+A('showSetupWizard')+'>'+ic('wand')+'Open setup guide</button>',kw:'setup wizard guide intro onboarding first run tutorial'});
     h+=setRow({icon:'cpu',color:'#8e8e93',title:'Performance mode',desc:'Turns off blur, glass and ambient effects and shortens motion — ideal for large libraries or older GPUs.',ctrl:switchCtl(!!S.cfg.performanceMode,'setPerformanceModeSw'),kw:'performance speed gpu blur'});
     h+=setRow({icon:'database',color:'#8e8e93',title:'Incremental library index',desc:'Only re-reads folders that changed since the last scan.',ctrl:'<button class="btn btn-ghost btn-sm"'+A('rebuildLibraryIndex')+'>Rebuild</button>'+cfgSwitch('incrementalScan',true),kw:'index cache scan incremental'});
-    h+=setRow({icon:'window',color:'#8e8e93',title:'Minimize to tray',desc:'Closing or minimizing hides AnimeVault in the system tray.',ctrl:switchCtl(!!S.cfg.minimizeToTray,'setTraySw'),kw:'tray minimize close window'});
+    h+=setRow({icon:'window',color:'#8e8e93',title:'Minimize to tray',desc:'Closing or minimizing hides Tsundoku in the system tray.',ctrl:switchCtl(!!S.cfg.minimizeToTray,'setTraySw'),kw:'tray minimize close window'});
   }else if(id==='data'){
     h+=setRow({icon:'download',color:'#5e5ce6',title:'Export library',desc:'Metadata as JSON, or a spreadsheet-friendly CSV.',ctrl:'<button class="btn btn-secondary btn-sm"'+A('exportLibraryJSON')+'>JSON</button><button class="btn btn-secondary btn-sm"'+A('exportLibraryCSV')+'>CSV</button>',kw:'export json csv'});
     h+=setRow({icon:'database',color:'#5e5ce6',title:'Backup & restore',desc:'Saves settings, watch history and cached covers to a .zip in Downloads.',ctrl:'<button class="btn btn-secondary btn-sm"'+A('backupAppData')+'>Back up</button><button class="btn btn-ghost btn-sm"'+A('restoreAppData')+'>Restore…</button>',kw:'backup restore zip'});
@@ -194,7 +194,7 @@ act('setTraySw',function(el){return toggleMinimizeToTray(el.checked);});
 act('setLumaSize',function(el,ev,v){setLumaSize(v);});
 act('setLumaSpeed',function(el,ev,v){setLumaSpeed(v);});
 act('resetAllConfirm',async function(){
-  if(!await askConfirm({title:'Reset everything?',danger:true,confirm:'Reset AnimeVault',text:'Preferences, library folders, the MyAnimeList connection and watch history will be cleared. Cover art on disk is kept. A copy of your current config is archived automatically.'}))return;
+  if(!await askConfirm({title:'Reset everything?',danger:true,confirm:'Reset Tsundoku',text:'Preferences, library folders, the MyAnimeList connection and watch history will be cleared. Cover art on disk is kept. A copy of your current config is archived automatically.'}))return;
   return resetAllPreferences();
 });
 act('browseInto',async function(el,ev,id){var f=await api.browseFolder();if(f){var i=document.getElementById(id);if(i)i.value=f;}});
@@ -214,7 +214,7 @@ act('setFolderType',function(el,ev,key,i){
 });
 act('removeFolder',async function(el,ev,key,i){
   var f=(S.cfg[key]||[])[i];if(!f)return;
-  if(!await askConfirm({title:'Remove “'+(f.label||f.type)+'”?',text:'The folder is only removed from AnimeVault — nothing is deleted from disk.',confirm:'Remove',icon:'folder'}))return;
+  if(!await askConfirm({title:'Remove “'+(f.label||f.type)+'”?',text:'The folder is only removed from Tsundoku — nothing is deleted from disk.',confirm:'Remove',icon:'folder'}))return;
   S.cfg[key].splice(i,1);return afterFoldersChanged(key,'Folder removed');
 });
 act('moveFolder',function(el,ev,i,dir,manga){var key=manga?'mangaFolders':'folders';var f=S.cfg[key];var ni=i+dir;if(!f||ni<0||ni>=f.length)return;var t=f[i];f[i]=f[ni];f[ni]=t;api.setConfig(key,f);render();});
@@ -263,8 +263,8 @@ function deleteTitleAlias(name){delete aliasModeMap()[name];api.setConfig('title
 function setNotifPref(key,enabled){if(!S.cfg.notificationPrefs)S.cfg.notificationPrefs={};S.cfg.notificationPrefs[key]=enabled;api.setConfig('notificationPrefs',S.cfg.notificationPrefs);}
 function resetNotifPrefs(){S.cfg.notificationPrefs={};api.setConfig('notificationPrefs',{});render();toast('Notifications reset','s');}
 
-async function exportLibraryJSON(){try{var data=await api.exportLibraryMetadata();downloadBlob(JSON.stringify(data,null,2),'application/json','animevault_library.json');toast('Exported JSON','s');}catch(e){toast('Export failed','e');}}
-async function exportLibraryCSV(){try{var csv=await api.exportLibraryCSV();downloadBlob(csv,'text/csv','animevault_library.csv');toast('Exported CSV','s');}catch(e){toast('Export failed','e');}}
+async function exportLibraryJSON(){try{var data=await api.exportLibraryMetadata();downloadBlob(JSON.stringify(data,null,2),'application/json','tsundoku_library.json');toast('Exported JSON','s');}catch(e){toast('Export failed','e');}}
+async function exportLibraryCSV(){try{var csv=await api.exportLibraryCSV();downloadBlob(csv,'text/csv','tsundoku_library.csv');toast('Exported CSV','s');}catch(e){toast('Export failed','e');}}
 function downloadBlob(content,type,name){var blob=new Blob([content],{type:type});var url=URL.createObjectURL(blob);var a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(url);},1000);}
 // AniList list status -> MAL list fields for the current vault mode.
 function anilistToMalFields(e,manga){
@@ -317,7 +317,7 @@ async function backupAppData(){
   else{activityFinish(id,'error',r&&r.error);toast('Backup failed: '+(r&&r.error),'e');}
 }
 async function restoreAppData(){
-  var f=await api.openFile([{name:'AnimeVault backup',extensions:['zip']}]);if(!f)return;
+  var f=await api.openFile([{name:'Tsundoku backup',extensions:['zip']}]);if(!f)return;
   if(!await askConfirm({title:'Restore this backup?',text:'Your current settings and watch history will be replaced by the backup. The app reloads afterwards.',confirm:'Restore',danger:true,icon:'database'}))return;
   var id=activityStart('backup','Restore app data',f);
   var r=await api.restoreAppData(f);

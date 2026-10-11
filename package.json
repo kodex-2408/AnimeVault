@@ -1,6 +1,6 @@
 {
-  "name": "animevault",
-  "version": "5.7.0",
+  "name": "tsundoku",
+  "version": "5.8.0",
   "description": "Personal anime/manga library manager with MAL sync, Nyaa integration, and enhanced HEVC-aware auto-download",
   "main": "main.js",
   "author": "Kike",
@@ -29,7 +29,7 @@
   },
   "build": {
     "appId": "com.animevault.app",
-    "productName": "AnimeVault",
+    "productName": "Tsundoku",
     "compression": "normal",
     "directories": {
       "output": "dist"
@@ -47,6 +47,7 @@
       "package.json",
       "icon.png",
       "luma/**/*",
+      "fonts/**/*",
       "!node_modules/pdfjs-dist/{legacy,web,types,image_decoders}{,/**/*}",
       "!node_modules/pdfjs-dist/**/*.map",
       "!node_modules/pdfjs-dist/build/{pdf.mjs,pdf.worker.mjs,pdf.sandbox*}",
@@ -57,7 +58,7 @@
     ],
     "win": {
       "icon": "icon.png",
-      "artifactName": "AnimeVault-${arch}.${ext}",
+      "artifactName": "Tsundoku-${arch}.${ext}",
       "target": [
         "portable"
       ]
@@ -65,10 +66,10 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "artifactName": "AnimeVault-Setup-${arch}.${ext}"
+      "artifactName": "Tsundoku-Setup-${arch}.${ext}"
     },
     "portable": {
-      "artifactName": "AnimeVault-${arch}.${ext}"
+      "artifactName": "Tsundoku-${arch}.${ext}"
     }
   }
 }

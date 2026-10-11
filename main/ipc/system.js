@@ -31,7 +31,7 @@ function register() {
     return shell.openExternal(url);
   });
   ipcMain.handle('shell:openFolder', (_, p) => {
-    if (!isAllowedFileActionPath(p, true)) return { success: false, error: 'Path is outside configured AnimeVault folders' };
+    if (!isAllowedFileActionPath(p, true)) return { success: false, error: 'Path is outside configured Tsundoku folders' };
     // Only ever *reveal* things: a file path is shown in its folder instead of
     // being opened, so this channel can't be used to launch executables.
     try {

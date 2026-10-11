@@ -1,4 +1,4 @@
-/* AnimeVault renderer — Explore (MAL discovery) and My List. */
+/* Tsundoku renderer — Explore (MAL discovery) and My List. */
 
 function mediaCard(a,i,opts){
   opts=opts||{};

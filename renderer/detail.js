@@ -1,4 +1,4 @@
-/* AnimeVault renderer — series detail sheet, MAL linking/editing, covers, downloads. */
+/* Tsundoku renderer — series detail sheet, MAL linking/editing, covers, downloads. */
 
 if(!S.epView)S.epView='grid';
 

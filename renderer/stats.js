@@ -1,4 +1,4 @@
-/* AnimeVault renderer — Stats dashboard.
+/* Tsundoku renderer — Stats dashboard.
    Color by job: entities (formats, categories) keep a fixed palette slot so a
    format is the same color whatever its rank; magnitude charts use one hue
    each; MAL scores use a light→dark ramp of one hue. Palette: --viz-* tokens. */

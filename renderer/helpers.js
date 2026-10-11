@@ -1,4 +1,4 @@
-/* AnimeVault renderer — domain helpers (ported logic; behavior unchanged unless noted). */
+/* Tsundoku renderer — domain helpers (ported logic; behavior unchanged unless noted). */
 function isManga(){return S.vaultMode==='manga';}
 function malStatusOptions(){return isManga()
   ?[['reading',watchingLabel()],['completed','Completed'],['on_hold','On Hold'],['dropped','Dropped'],['plan_to_read',planLabel()]]
@@ -381,7 +381,7 @@ function buildAiSystem(){
     var score=wd.malData&&wd.malData.mean?(' · MAL '+wd.malData.mean):'';
     lines.push('- '+s.name+' ('+(s.category||'custom')+') - '+watched+'/'+(s.episodeCount||0)+' '+(isManga()?'ch':'ep')+score);
   });
-  return 'You are Luma, the cute, enthusiastic star companion and anime library assistant for AnimeVault!'
+  return 'You are Luma, the cute, enthusiastic star companion and anime library assistant for Tsundoku!'
     +' Personality: Cheerful, friendly, smart, and anime-savvy. You sprinkle star and cute expressions naturally (★, (｡•̀ᴗ-)✧, ✨, 🌟).'
     +' Answer clearly and concisely with short paragraphs or bullet points.'
     +' You have direct capabilities in the app and can trigger navigation and actions by including these exact tags in your reply when helpful:'

@@ -69,4 +69,30 @@ assert(main.includes('function isPrivateHost') && main.includes('if (isPrivateHo
 assert(main.includes("ipcMain.handle('anilist:userList'") && preload.includes('anilistUserList') && main.includes('MediaListCollection(userName: $user, type: $type)'), 'AniList import runs in main with GraphQL variables and follows the vault mode');
 ['glassLevel', 'lastDarkTheme', 'lastLightTheme', 'sidebarCollapsed', 'schedView'].forEach(k => assert(main.includes("'" + k + "'"), k + ' must be a whitelisted config key'));
 
+// ---- AnimeVault → Tsundoku: the old data folder is adopted on first start
+{
+  const vm = require('vm');
+  const os = require('os');
+  const { extractFunction } = require('./source-extract');
+  const mainJs = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'av-rename-'));
+  const run = (setup) => {
+    fs.rmSync(tmp, { recursive: true, force: true }); fs.mkdirSync(tmp);
+    setup();
+    const paths = { appData: tmp, userData: path.join(tmp, 'Tsundoku') };
+    const app = { getPath: (k) => paths[k], setPath: (k, v) => { paths[k] = v; } };
+    vm.runInNewContext(extractFunction(mainJs, 'adoptPreviousDataFolder') + '\nadoptPreviousDataFolder();', { app, fs, path });
+    return paths.userData;
+  };
+  const old = path.join(tmp, 'AnimeVault');
+  let ud = run(() => { fs.mkdirSync(old); fs.writeFileSync(path.join(old, 'config.json'), '{"a":1}'); });
+  assert(ud === path.join(tmp, 'Tsundoku') && fs.existsSync(path.join(ud, 'config.json')) && !fs.existsSync(old), 'old AnimeVault data folder is moved to Tsundoku');
+  ud = run(() => { fs.mkdirSync(old); fs.writeFileSync(path.join(old, 'config.json'), '{}'); fs.mkdirSync(path.join(tmp, 'Tsundoku')); fs.writeFileSync(path.join(tmp, 'Tsundoku', 'Cache'), 'x'); });
+  assert(ud === old, 'when the move is impossible the old folder keeps being used');
+  ud = run(() => { fs.mkdirSync(old); fs.writeFileSync(path.join(old, 'config.json'), '{"old":1}'); fs.mkdirSync(path.join(tmp, 'Tsundoku')); fs.writeFileSync(path.join(tmp, 'Tsundoku', 'config.json'), '{"new":1}'); });
+  assert(ud === path.join(tmp, 'Tsundoku') && fs.existsSync(old), 'an existing Tsundoku folder is never replaced');
+  fs.rmSync(tmp, { recursive: true, force: true });
+}
+assert(main.includes('recordSyncLog({') && main.includes("ipcMain.handle('mal:getSyncLog'") && /slice\(-SYNC_LOG_MAX\)\.reverse\(\)/.test(main), 'MAL edits are written to the sync activity log, newest first');
+
 console.log('state-integrity regression checks passed');

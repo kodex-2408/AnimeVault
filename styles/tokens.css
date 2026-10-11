@@ -1,5 +1,5 @@
 /* ==========================================================================
-   AnimeVault 5 — Design tokens
+   Tsundoku — Design tokens
    One source of truth for color, glass, elevation, shape and motion.
    Theme colors (bg/surfaces/text) are overwritten at runtime by applyTheme();
    everything else derives from them, so every theme stays consistent.
@@ -8,8 +8,8 @@
   color-scheme: dark;
 
   /* Type */
-  --font: "Segoe UI Variable Text", "Segoe UI", "Inter Variable", Inter, system-ui, -apple-system, sans-serif;
-  --font-display: "Segoe UI Variable Display", "Segoe UI", "Inter Variable", Inter, system-ui, -apple-system, sans-serif;
+  --font: "Figtree", "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-display: "Bricolage Grotesque", "Figtree", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
   --font-mono: "Cascadia Code", "Cascadia Mono", Consolas, "DejaVu Sans Mono", monospace;
   --fs-xs: 11px; --fs-sm: 12px; --fs-md: 13px; --fs-lg: 15px; --fs-xl: 18px; --fs-2xl: 24px; --fs-3xl: 32px;
 

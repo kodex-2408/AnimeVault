@@ -13,7 +13,7 @@ function resolveMpvPath() {
   return config.mpvPath || 'mpv';
 }
 
-const MPV_IPC_PIPE = process.platform === 'win32' ? '\\\\.\\pipe\\mpv-animevault' : path.join(app.getPath('temp'), 'mpv-animevault.sock');
+const MPV_IPC_PIPE = process.platform === 'win32' ? '\\\\.\\pipe\\mpv-tsundoku' : path.join(app.getPath('temp'), 'mpv-tsundoku.sock');
 
 // --- MPV IPC polling ---
 function mpvGetPercentPos() {

@@ -1,11 +1,11 @@
 @echo off
 setlocal enabledelayedexpansion
-title AnimeVault Builder
+title Tsundoku Builder
 
 cls
 echo.
 echo  +--------------------------------------------------+
-echo  ^|    AnimeVault  ^|  Portable Builder               ^|
+echo  ^|    Tsundoku  ^|  Portable Builder               ^|
 echo  +--------------------------------------------------+
 echo.
 
@@ -66,7 +66,7 @@ if %errorlevel% neq 0 (
     echo  [ERROR]  Build failed.
     echo           Fixes:
     echo             - Review the build error above
-    echo             - Close any running AnimeVault, then retry
+    echo             - Close any running Tsundoku, then retry
     echo.
     pause & exit /b 1
 )
@@ -78,13 +78,13 @@ echo  ^|  DONE!   Output is in the  dist\  folder         ^|
 echo  +--------------------------------------------------+
 echo.
 if "%arch%"=="1" (
-    echo  File:    dist\AnimeVault-x64.exe
+    echo  File:    dist\Tsundoku-x64.exe
     echo  Usage:   No install required. Share or run directly.
 )
 if not "%arch%"=="1" (
-    if "%arch%"=="3" echo  x64:     dist\AnimeVault-x64.exe   ^(portable, run directly^)
-    echo  ARM64:   dist\win-arm64-unpacked\AnimeVault.exe   ^(run this^)
-    echo           dist\AnimeVault-arm64.zip   ^(same app - extract anywhere and run AnimeVault.exe^)
+    if "%arch%"=="3" echo  x64:     dist\Tsundoku-x64.exe   ^(portable, run directly^)
+    echo  ARM64:   dist\win-arm64-unpacked\Tsundoku.exe   ^(run this^)
+    echo           dist\Tsundoku-arm64.zip   ^(same app - extract anywhere and run Tsundoku.exe^)
     echo.
     echo  Why no single ARM64 .exe: the one-file portable format starts through an
     echo  x86 launcher that Windows runs emulated. The folder / zip app is native ARM64.

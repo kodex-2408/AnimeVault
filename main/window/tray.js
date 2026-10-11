@@ -65,7 +65,7 @@ function createTray() {
     resized = icon;
   }
   state.tray = new Tray(resized);
-  state.tray.setToolTip('AnimeVault');
+  state.tray.setToolTip('Tsundoku');
   updateTrayMenu();
 
   state.tray.on('click', () => {

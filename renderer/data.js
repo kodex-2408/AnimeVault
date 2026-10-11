@@ -1,4 +1,4 @@
-/* AnimeVault renderer — data & sync layer (ported from 4.x; UI hooks rewired to the new components). */
+/* Tsundoku renderer — data & sync layer (ported from 4.x; UI hooks rewired to the new components). */
 var _persistInboxTimer=null,_activitySaveTimer=null,_pendingMalQueueRunning=false,_coverRenderTimer=null,_lastCoverRenderAt=0,_malBackfillTimer=null,_startupMaintenanceTimer=null;
 
 

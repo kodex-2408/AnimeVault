@@ -63,7 +63,7 @@ function register() {
     return new Promise((resolve) => {
       const q = encodeURIComponent(query.trim().slice(0, 200));
       const req = https.get('https://api.duckduckgo.com/?q=' + q + '&format=json&no_html=1&skip_disambig=1', {
-        headers: { 'User-Agent': 'AnimeVault/' + app.getVersion() + ' (Desktop App)' }
+        headers: { 'User-Agent': 'Tsundoku/' + app.getVersion() + ' (Desktop App)' }
       }, (res) => {
         let data = '';
         res.on('data', c => { if (data.length < 50000) data += c; });

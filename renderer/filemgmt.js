@@ -1,4 +1,4 @@
-/* AnimeVault renderer — File Management, watcher, maintenance reports. */
+/* Tsundoku renderer — File Management, watcher, maintenance reports. */
 
 function toolTile(o){
   // o:{icon,color,title,desc,actions:[html]}

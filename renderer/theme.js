@@ -1,4 +1,4 @@
-/* AnimeVault renderer — themes, accent, motion, transparency, backgrounds. */
+/* Tsundoku renderer — themes, accent, motion, transparency, backgrounds. */
 
 // Eight dark and eight light themes, each from its own color family.
 // Ids from 4.x are reused where a theme kept its slot; retired ids map to

@@ -1,12 +1,12 @@
-/* AnimeVault renderer — first-run setup. */
+/* Tsundoku renderer — first-run setup. */
 
 var SETUP_STEPS=[
-  {title:'Welcome to AnimeVault',icon:'sparkles',body:function(){
+  {title:'Welcome to Tsundoku',icon:'sparkles',body:function(){
     return '<p class="setup-lead">Your personal anime & manga library — organized, tracked and synced with MyAnimeList.</p><div class="setup-feats">'
       +feat('folder','Organizes your folders','Renames files and sorts new downloads automatically.')
       +feat('layers','Syncs with MyAnimeList','Progress, scores and airing times stay in step.')
       +feat('download','Finds new episodes','Opt in per series and new releases are handed to your torrent client.')
-      +'</div><p class="field-hint" style="text-align:center;margin-top:16px">Switch between AnimeVault and MangaVault any time from the title bar or with <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>M</kbd>.</p>';
+      +'</div><p class="field-hint" style="text-align:center;margin-top:16px">Switch between anime and manga any time from the title bar or with <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>M</kbd>.</p>';
   }},
   {title:'Pick a look',icon:'palette',body:function(){
     var h='<div class="theme-grid compact">'+FULL_THEMES.map(themeSwatch).join('')+'</div>';
@@ -15,7 +15,7 @@ var SETUP_STEPS=[
   }},
   {title:'Add your library',icon:'folderPlus',body:function(){
     var list=S.cfg.folders||[];
-    var h='<p class="setup-lead">Point AnimeVault at the folders that hold your anime. You can add more later in Settings.</p>'
+    var h='<p class="setup-lead">Point Tsundoku at the folders that hold your anime. You can add more later in Settings.</p>'
       +'<p class="field-hint" style="text-align:center;margin:-4px 0 12px">One folder with <b>Seasonal</b>, <b>Series</b> and <b>Movies</b> subfolders inside? Add it as “Mixed” and each subfolder is sorted by its name.</p>';
     if(list.length){h+='<div class="list-group" style="margin-bottom:12px">';list.forEach(function(f){h+='<div class="lg-row"><span class="tag accent cap">'+E(f.type)+'</span><div class="lg-main mono ellipsis" style="font-size:12px">'+E(f.path)+'</div></div>';});h+='</div>';}
     h+='<div class="row wrap" style="justify-content:center">'+seg('setupType',[{v:'seasonal',label:'Seasonal'},{v:'series',label:'Series'},{v:'movies',label:'Movies'},{v:'custom',label:'Mixed'}],S._setupType||'seasonal','setupType')+'<button class="btn btn-primary"'+A('setupAddFolder')+'>'+ic('folderPlus')+'Choose folder…</button></div>';
@@ -24,7 +24,7 @@ var SETUP_STEPS=[
   {title:'Playback',icon:'playCircle',body:function(){
     var pt=S.cfg.playerType||'vlc';
     var h='<div class="list-group">'
-      +setRow({icon:'playCircle',color:'#30d158',title:'Video player',desc:pt==='system-default'?'Your default video app. Auto-mark, subtitles and the audio delay fix need VLC or MPV.':'VLC or MPV lets AnimeVault mark episodes as watched for you.',ctrl:cfgSelect('playerType',[['vlc','VLC'],['mpv','MPV'],['system-default','System default']],'vlc')});
+      +setRow({icon:'playCircle',color:'#30d158',title:'Video player',desc:pt==='system-default'?'Your default video app. Auto-mark, subtitles and the audio delay fix need VLC or MPV.':'VLC or MPV lets Tsundoku mark episodes as watched for you.',ctrl:cfgSelect('playerType',[['vlc','VLC'],['mpv','MPV'],['system-default','System default']],'vlc')});
     if(pt==='vlc')h+=pathRow('VLC executable','setupVlc','vlcPath','C:\\Program Files\\VideoLAN\\VLC\\vlc.exe');
     if(pt==='mpv')h+=pathRow('MPV executable','setupMpv','mpvPath','C:\\Tools\\mpv\\mpv.exe');
     h+=setRow({icon:'subtitles',color:'#ffcc4d',title:'Subtitle language',ctrl:cfgSelect('subLangPrimary',[['','Player default'],['none','Off (no subtitles)'],['en','English'],['es','Spanish'],['pt','Portuguese'],['fr','French'],['de','German'],['it','Italian'],['ja','Japanese']],'')})
@@ -33,7 +33,7 @@ var SETUP_STEPS=[
     return h;
   }},
   {title:'Downloads',icon:'magnet',body:function(){
-    return '<p class="setup-lead">AnimeVault finds releases on Nyaa: Erai-raws first, otherwise the most-seeded release that matches the right season and episode.</p><div class="list-group">'
+    return '<p class="setup-lead">Tsundoku finds releases on Nyaa: Erai-raws first, otherwise the most-seeded release that matches the right season and episode.</p><div class="list-group">'
       +setRow({icon:'listCheck',color:'#0a84ff',title:'Let me pick the release',desc:'Show the best matches and choose one yourself.',ctrl:cfgSwitch('releasePicker')})
       +(S.cfg.releasePicker?releasePickerScopeRows():'')
       +setRow({icon:'box',color:'#0a84ff',title:'Prefer HEVC (x265)',desc:'Smaller files at the same quality.',ctrl:cfgSwitch('forceHevc',true)})

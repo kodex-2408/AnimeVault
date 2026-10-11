@@ -245,7 +245,7 @@ async function handOffToClient(chosen) {
     let tmpFile;
     try {
       const torrentData = await downloadNyaaTorrentFile(chosen.id);
-      const tmpDir = path.join(d().app.getPath('temp'), 'animevault-torrents');
+      const tmpDir = path.join(d().app.getPath('temp'), 'tsundoku-torrents');
       fs.mkdirSync(tmpDir, { recursive: true });
       const safeName = String(chosen.title || 'release').replace(/[\\/:*?"<>|]/g, '_').substring(0, 80);
       tmpFile = path.join(tmpDir, safeName + '.torrent');
