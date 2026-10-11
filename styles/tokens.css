@@ -14,8 +14,8 @@
   --fs-xs: 11px; --fs-sm: 12px; --fs-md: 13px; --fs-lg: 15px; --fs-xl: 18px; --fs-2xl: 24px; --fs-3xl: 32px;
 
   /* Accent (amber by default; applyTheme() swaps --accent and --accent-rgb) */
-  --accent: #ff9f0a;
-  --accent-rgb: 255, 159, 10;
+  --accent: #66d4a8;
+  --accent-rgb: 102, 212, 168;
   --accent-strong: color-mix(in srgb, var(--accent) 86%, white);
   --on-accent: #1d1303;
   --accent-soft: rgba(var(--accent-rgb), .15);
