@@ -33,7 +33,7 @@ var SETUP_STEPS=[
     return h;
   }},
   {title:'Downloads',icon:'magnet',body:function(){
-    return '<p class="setup-lead">Tsundoku finds releases on Nyaa: Erai-raws first, otherwise the most-seeded release that matches the right season and episode.</p><div class="list-group">'
+    return '<p class="setup-lead">Tsundoku finds releases on Nyaa. New episodes come from Erai-raws, VARYG or ToonsHub when they have one, otherwise the most-seeded release for the right season and episode. Full series simply take the best-seeded batch.</p><div class="list-group">'
       +setRow({icon:'listCheck',color:'#0a84ff',title:'Let me pick the release',desc:'Show the best matches and choose one yourself.',ctrl:cfgSwitch('releasePicker')})
       +(S.cfg.releasePicker?releasePickerScopeRows():'')
       +setRow({icon:'box',color:'#0a84ff',title:'Prefer HEVC (x265)',desc:'Smaller files at the same quality.',ctrl:cfgSwitch('forceHevc',true)})

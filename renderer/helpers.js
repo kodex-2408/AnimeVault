@@ -39,9 +39,15 @@ function titleMatchConfidence(a,b){
   var common=0,total=Object.keys(aset).length;var seen={};bw.forEach(function(w){if(w.length>1&&!seen[w]){seen[w]=1;if(aset[w])common++;else total++;}});
   var token=total?common/total:0;var prefix=(a.startsWith(b)||b.startsWith(a)) ? .18 : 0;return Math.max(0,Math.min(100,Math.round((token+prefix)*100)));
 }
+// MAL media types ("tv_special", "light_novel") as readable labels.
+function mediaTypeLabel(t){
+  var k=String(t||'').toLowerCase();
+  var map={tv:'TV',ova:'OVA',ona:'ONA',cm:'CM',pv:'PV',movie:'Movie',special:'Special',tv_special:'TV Special',music:'Music',manga:'Manga',manhwa:'Manhwa',manhua:'Manhua',novel:'Novel',light_novel:'Light novel',one_shot:'One-shot',doujinshi:'Doujinshi',oel:'OEL'};
+  return map[k]||k.replace(/_/g,' ').replace(/^./,function(c){return c.toUpperCase();});
+}
 function pendingMalMeta(n){
   var parts=[];
-  if(n.media_type)parts.push(String(n.media_type).replace(/_/g,' '));
+  if(n.media_type)parts.push(mediaTypeLabel(n.media_type));
   var count=n.num_episodes||n.num_chapters;
   if(count)parts.push(count+' '+epLabel().toLowerCase());
   parts.push('★ '+(n.mean||'N/A'));
@@ -147,6 +153,33 @@ function buildNyaaUrl(seriesTitle,epNum){
   return 'https://nyaa.si/?f=0&c='+cat+'&q='+encodeURIComponent(q)+'&s=seeders&o=desc';
 }
 function getCurrentSeason(){var m=new Date().getMonth();if(m<3)return{season:'winter',year:new Date().getFullYear()};if(m<6)return{season:'spring',year:new Date().getFullYear()};if(m<9)return{season:'summer',year:new Date().getFullYear()};return{season:'fall',year:new Date().getFullYear()};}
+// Chinese animation (donghua) in Explore and the Schedule. MAL has no country
+// field, so several signals are combined (5.11: the MAL requests now ask for
+// studios and alternative titles, which the studio check always needed):
+//  1. a Chinese studio;
+//  2. the native title uses simplified-only characters, or is all Han
+//     characters with no kana while the English title is pinyin;
+//  3. the romanized title is pinyin, not Japanese romaji.
+var _CN_SIMPLIFIED=/[们这么说话门东车长马鸟鱼龙书时间问题见观觉记让认为发现开关进还过实对应战剑灵传纪录华凤师炼诀风汉语异侠罗仑陆斗尘归离脑梦]/;
+var _KANA=/[぀-ヿ]/,_HAN=/[一-鿿]/;
+var _PINYIN_SYL=/^(?:zh|ch|sh|[bpmfdtnlgkhjqxrzcsyw])?(?:iang|iong|uang|ueng|ang|eng|ing|ong|ian|iao|uai|uan|ai|ei|ao|ou|an|en|in|un|ia|ie|iu|ua|uo|ui|ue|er|a|o|e|i|u|v)$/;
+function _pinyinWord(w){
+  // Greedy-with-backtrack segmentation into pinyin syllables.
+  if(!w)return true;
+  for(var n=Math.min(6,w.length);n>=1;n--){if(_PINYIN_SYL.test(w.slice(0,n))&&_pinyinWord(w.slice(n)))return true;}
+  return false;
+}
+function _isPinyinTitle(t){
+  var words=String(t||'').toLowerCase().replace(/[^a-z\s]/g,' ').split(/\s+/).filter(Boolean);
+  if(words.length<2)return false;
+  // Japanese romaji has no x/q, no "zh", and never ends a word in "ng".
+  var distinctive=words.some(function(w){return /^[xq]|zh|ng$|[^aeiou]uo|iu$|ian|iao/.test(w);});
+  if(distinctive&&words.every(_pinyinWord))return true;
+  // "Bai Yao Pu", "Wan Jie Du Zun": three or more one-syllable words and no
+  // Japanese particle.
+  var particle=/^(no|wa|ni|wo|to|de|ga|na|mo|ka|yo|ne|e)$/;
+  return words.length>=3&&words.every(function(w){return _PINYIN_SYL.test(w)&&!particle.test(w);});
+}
 function _isDonghua(a){
   if(!a)return false;
   var studios=a.studios||[];
@@ -154,9 +187,12 @@ function _isDonghua(a){
     var sn=(studios[i].name||'').toLowerCase();
     for(var j=0;j<_cnStudios.length;j++){if(sn.indexOf(_cnStudios[j])>=0)return true;}
   }
-  var title=a.title||'';
+  var title=a.title||'',alt=a.alternative_titles||{},ja=String(alt.ja||''),en=String(alt.en||'');
   var cjkCount=0;for(var k=0;k<title.length;k++){var code=title.charCodeAt(k);if(code>=0x4E00&&code<=0x9FFF)cjkCount++;}
   if(title.length>0&&cjkCount/title.length>0.5)return true;
+  if(ja&&!_KANA.test(ja)&&_CN_SIMPLIFIED.test(ja))return true;
+  if(_isPinyinTitle(title)&&(!ja||!_KANA.test(ja)))return true;
+  if(ja&&_HAN.test(ja)&&!_KANA.test(ja)&&_isPinyinTitle(en))return true;
   return false;
 }
 function _filterDonghua(items){
@@ -441,7 +477,7 @@ var _SORT_FNS={
   progress:function(a,b){var ap=a.episodeCount>0?((a.watchData&&a.watchData.episodesWatched||[]).length/a.episodeCount):0;var bp=b.episodeCount>0?((b.watchData&&b.watchData.episodesWatched||[]).length/b.episodeCount):0;return bp-ap||a.name.localeCompare(b.name)}
 };
 var _LIB_SORT_LABELS={name:'Name',lastWatched:'Last Watched',episodeCount:'Episodes',score:'Score',progress:'Progress'};
-var _cnStudios=['bilibili','haoliners','emon','colored-pencil','b.cmay','shanghai','tencent','iqiyi','youku','cg year','creative power','sparkly key','nice boat','shenying','china film','enlight','foch','pb animation','alpha group','xing yi kai chen','wolf smoke','big firebird','l2 studio','calf studio','high energy studio','studio liu','garden culture','dc impression vision','ruo hong culture','original force','nanjing'];
+var _cnStudios=['bilibili','haoliners','emon','colored-pencil','b.cmay','shanghai','tencent','iqiyi','youku','cg year','creative power','sparkly key','nice boat','shenying','china film','enlight','foch','pb animation','alpha group','xing yi kai chen','wolf smoke','big firebird','l2 studio','calf studio','high energy studio','studio liu','garden culture','dc impression vision','ruo hong culture','original force','nanjing','wawayu','motion magic','b&t','light chaser','djinn power','year young','wonder cat','cloud art','ruoyu','shenman','sharefun','xuan yuan','qing xiang','china literature','yuewen','kuaikan','mili pictures','beijing','hangzhou','guangzhou','chengdu','suzhou','wuhan','tianjin','chongqing','xiamen','shenzhen','vega entertainment','imagi','fenghua','winsing','pili','studio lan','hmch','gaoxiang','huaxia'];
 var EXF_GENRES=['Action','Adventure','Comedy','Drama','Fantasy','Horror','Mystery','Romance','Sci-Fi','Slice of Life','Sports','Supernatural','Thriller','Ecchi','Mecha','Music','Psychological','Historical','Isekai','Martial Arts','Military','School','Shounen','Shoujo','Seinen','Josei','Harem','Magic'];
 var EXF_TYPES_ANIME=[{v:'tv',l:'TV Series'},{v:'movie',l:'Movie'},{v:'ova',l:'OVA'},{v:'ona',l:'ONA'},{v:'special',l:'Special'}];
 var EXF_TYPES_MANGA=[{v:'manga',l:'Manga'},{v:'novel',l:'Novel'},{v:'one_shot',l:'One Shot'},{v:'manhwa',l:'Manhwa'},{v:'manhua',l:'Manhua'},{v:'doujinshi',l:'Doujinshi'}];
@@ -450,3 +486,41 @@ var EXF_SCORES=[{v:9,l:'9+ Masterpiece'},{v:8,l:'8+ Great'},{v:7,l:'7+ Good'},{v
 var EXF_STATUSES_ANIME=[{v:'currently_airing',l:'Airing'},{v:'finished_airing',l:'Finished'},{v:'not_yet_aired',l:'Upcoming'}];
 var EXF_STATUSES_MANGA=[{v:'currently_publishing',l:'Publishing'},{v:'finished',l:'Finished'},{v:'not_yet_published',l:'Upcoming'}];
 var EXF_STATUSES=EXF_STATUSES_ANIME;// alias
+
+// ------------------------------------------------------------ cover loading --
+// Covers used to pop in blank: a lazy <img> only starts fetching close to the
+// viewport, and "Load more" re-renders the whole grid. Three pieces fix it:
+//  - preloadImages(): a new page waits (up to ~1.5 s) for its covers to be
+//    fetched and decoded before it is rendered;
+//  - warmCovers: lazy images start loading ~2.5 screens ahead of the scroll;
+//  - a cover that is still missing shows a shimmer and fades in (.ld), never
+//    a white box.
+var _imgKeep=[];
+function preloadImages(urls,ms){
+  urls=(urls||[]).filter(function(u,i,a){return u&&a.indexOf(u)===i;});
+  if(!urls.length)return Promise.resolve();
+  var jobs=urls.map(function(u){var im=new Image();im.decoding='async';im.src=u;_imgKeep.push(im);
+    return (im.decode?im.decode():new Promise(function(res){im.onload=im.onerror=res;})).catch(function(){});});
+  if(_imgKeep.length>400)_imgKeep=_imgKeep.slice(-400);
+  return Promise.race([Promise.all(jobs),new Promise(function(res){setTimeout(res,ms||1500);})]);
+}
+function malCoverUrls(nodes,limit){
+  return (nodes||[]).slice(0,limit||nodes.length).map(function(a){a=a&&a.node?a.node:a;var p=a&&a.main_picture;return p?(p.large||p.medium):'';});
+}
+(function(){
+  document.addEventListener('load',function(e){var t=e.target;if(t&&t.tagName==='IMG')t.classList.add('ld');},true);
+  document.addEventListener('error',function(e){var t=e.target;if(t&&t.tagName==='IMG')t.classList.add('ld','broken');},true);
+  if(typeof IntersectionObserver!=='function'||typeof MutationObserver!=='function')return;
+  var io=null,seen=new WeakSet();
+  function scan(root){
+    if(!io){var mc=document.getElementById('mc');if(!mc)return;
+      io=new IntersectionObserver(function(entries){entries.forEach(function(en){if(en.isIntersecting){var im=en.target;io.unobserve(im);im.loading='eager';}});},{root:mc,rootMargin:'2400px 0px'});}
+    (root||document).querySelectorAll('img[loading="lazy"]').forEach(function(im){
+      if(im.complete)im.classList.add('ld');
+      if(!seen.has(im)){seen.add(im);io.observe(im);}
+    });
+  }
+  function start(){var mc=document.getElementById('mc');if(!mc)return;
+    new MutationObserver(function(){scan(mc);}).observe(mc,{childList:true,subtree:true});scan(mc);}
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start);else start();
+})();

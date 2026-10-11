@@ -251,7 +251,8 @@
 .result-row { display: flex; align-items: center; gap: 12px; width: 100%; padding: 8px 10px; border-radius: var(--r-md); text-align: left; color: var(--text-1); background: var(--fill-1); box-shadow: inset 0 0 0 1px var(--hairline); transition: background var(--dur-1), box-shadow var(--dur-2), transform var(--dur-3) var(--ease-spring); }
 .result-row:hover { background: var(--accent-softer); box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), .4); transform: translateX(3px); }
 .result-row > svg { width: 16px; height: 16px; color: var(--text-3); }
-.result-row .row-title, .result-row .row-sub { display: block; }
+.result-row .row-title, .result-row .row-sub, .exs-item .row-title, .exs-item .row-sub { display: block; }
+.exs-item .row-sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cover-results { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 12px; }
 .cover-opt { display: flex; flex-direction: column; align-items: stretch; gap: 6px; width: 100%; min-width: 0; overflow: hidden; text-align: left; color: var(--text-1); font-size: 11.5px; font-weight: 600; }
 .cover-opt > span { display: block; max-width: 100%; min-width: 0; }

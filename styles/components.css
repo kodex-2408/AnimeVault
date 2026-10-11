@@ -320,7 +320,13 @@ input[type="color"].color::-webkit-color-swatch { border: 0; border-radius: 50%;
   transform: translateZ(0);
   transition: transform var(--dur-3) var(--ease-spring), box-shadow var(--dur-3) var(--ease-out);
 }
-.pc-art > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transition: transform calc(700ms * var(--m)) var(--ease-out); }
+.pc-art > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transition: transform calc(700ms * var(--m)) var(--ease-out), opacity calc(260ms * var(--m)) var(--ease-out); }
+/* A cover still on its way: shimmer underneath, image fades in once loaded (helpers.js). */
+.pc-art:has(> img:not(.ld)) { background: linear-gradient(150deg, var(--fill-2), var(--fill-3)); }
+.pc-art:has(> img:not(.ld))::after { opacity: 1; background: linear-gradient(90deg, transparent, rgba(255,255,255,.10), transparent); transform: translateX(-100%); animation: shimmer 1.4s var(--ease-soft) infinite; }
+:root.light .pc-art:has(> img:not(.ld))::after { background: linear-gradient(90deg, transparent, rgba(255,255,255,.55), transparent); }
+.pc-art > img:not(.ld) { opacity: 0; }
+@media (prefers-reduced-motion: reduce) { .pc-art:has(> img:not(.ld))::after { animation: none; } }
 .pc-art .ph { position: absolute; inset: 0; display: grid; place-items: center; color: var(--text-3); background: linear-gradient(150deg, var(--surface-2), var(--surface-3)); }
 .pc-art .ph svg { width: 34px; height: 34px; opacity: .6; }
 /* Artwork sits behind glass: a specular rim (::before, shared rim rule) and a

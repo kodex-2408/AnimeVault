@@ -5,7 +5,7 @@
 const { ipcMain } = require('electron');
 const crypto = require('crypto');
 const autoDownload = require('../../autoDownload');
-const { getSearchVariants, buildEpisodeSearchQueries, parseNyaaEpisodeNumber, releaseMatchesUploader, releaseMatchesTrackedSeason, releaseMatchesSeriesTitle, releaseMatchesQuality } = require('../../autoDownload');
+const { getSearchVariants, buildEpisodeSearchQueries, parseNyaaEpisodeNumber, releaseMatchesTrackedSeason, releaseMatchesSeriesTitle, releaseMatchesQuality } = require('../../autoDownload');
 const { config } = require('../state');
 const { isSafeExternalUrl } = require('../config/security');
 const { getWatchHistoryStore, safeHistoryKey, saveConfig } = require('../config/config');
@@ -60,32 +60,23 @@ function releasePickerApplies(scope) {
 
 async function nyaaAutoDownloadForIpc(seriesTitle, quality, preferredUploader, epNum, mode = 'ep', trackedEntry = null, options = {}) {
   try {
-    // 5.1: Erai-raws is the only preferred group; everything else competes on seeders.
+    // Episodes: Erai-raws, then VARYG, then ToonsHub, then the most seeded.
+    // Full series: no group priority, so the search is not group-led either.
     const uploader = autoDownload.PREFERRED_GROUP;
     const q = quality || config.nyaaQuality || '1080p';
     const titleVariants = getSearchVariants(seriesTitle).slice(0, 3);
-    const epRaw = epNum != null ? String(parseInt(epNum, 10)) : '';
-    const epPadded = epNum != null ? epRaw.padStart(2, '0') : '';
-    const preferredQueries = [];
-    const broadQueries = [];
-    for (const title of titleVariants) {
-      if (epNum != null) {
-        preferredQueries.push(`[Erai-raws] ${title} - ${epPadded} ${q}`);
-        preferredQueries.push(`[Erai-raws] ${title} - ${epRaw}`);
-      } else preferredQueries.push(`[Erai-raws] ${title} ${q}`);
-      if (epNum != null) {
-        broadQueries.push(`${title} ${epPadded} ${q}`);
-        broadQueries.push(`${title} ${epRaw}`);
-      } else broadQueries.push(`${title} ${q}`, title);
-    }
+    const seriesQueries = [];
+    for (const title of titleVariants) seriesQueries.push(`${title} ${q} batch`, `${title} ${q}`, title);
     const queries = epNum != null
       ? buildEpisodeSearchQueries(seriesTitle, q, uploader, epNum, config.forceHevc !== false)
-      : preferredQueries.concat(broadQueries)
+      : seriesQueries
         .flatMap(getSearchVariants)
         .filter((query, index, all) => query && all.indexOf(query) === index);
 
     let allResults = [];
     const seenIds = new Set();
+    let seriesQueriesRun = 0;
+    let episodeQueriesRun = 0;
     for (const qText of queries) {
       const r = await nyaaSearch(qText);
       for (const item of r) {
@@ -96,15 +87,11 @@ async function nyaaAutoDownloadForIpc(seriesTitle, quality, preferredUploader, e
         }
       }
       if (epNum != null) {
-        if (allResults.some(item =>
+        if (autoDownload.episodeSearchSettled(allResults, item =>
           parseNyaaEpisodeNumber(item.title) === parseInt(epNum, 10) &&
-          releaseMatchesUploader(item, uploader) &&
           (trackedEntry ? releaseMatchesTrackedSeason(item, trackedEntry, seriesTitle) : releaseMatchesSeriesTitle(item, seriesTitle)) &&
-          releaseMatchesQuality(item, q)
-        )) break;
-      } else if (allResults.some(item =>
-        releaseMatchesUploader(item, uploader) && releaseMatchesSeriesTitle(item, seriesTitle)
-      )) break;
+          releaseMatchesQuality(item, q), ++episodeQueriesRun, queries.taggedCount)) break;
+      } else if (++seriesQueriesRun >= 2 && allResults.some(item => autoDownload.isBatchRelease(item) && releaseMatchesSeriesTitle(item, seriesTitle))) break;
     }
 
     if (!allResults.length) return { success: false, error: 'No results found' };
@@ -121,14 +108,14 @@ async function nyaaAutoDownloadForIpc(seriesTitle, quality, preferredUploader, e
       : allResults.filter(fitsSeries);
     if (!matched.length) return { success: false, error: isEpisodeRequest ? 'No exact episode match' : 'No series releases found' };
 
-    // Erai-raws first, then the most-seeded release from any group; full-series
-    // requests put batches first (autoDownload.rankReleases).
+    // Episodes: preferred groups first, then the most seeded. Full series:
+    // batches first, no group priority (autoDownload.rankReleases).
     const ranked = autoDownload.rankReleases(matched, { batch: !isEpisodeRequest });
     if (!ranked.length) return { success: false, error: 'Scoring produced no winner' };
     const meta = { seriesTitle, epNum, mode };
     if (options && options.interactive && releasePickerApplies(options.scope)) {
       const offered = ranked.slice(0, 8);
-      return { needsChoice: true, token: rememberReleaseOffer({ list: offered, meta }), candidates: offered.map(autoDownload.describeRelease), seriesTitle, epNum, mode };
+      return { needsChoice: true, token: rememberReleaseOffer({ list: offered, meta }), candidates: offered.map(r => autoDownload.describeRelease(r, { batch: !isEpisodeRequest })), seriesTitle, epNum, mode };
     }
     return await handOffRelease(ranked[0], meta);
   } catch (e) {
