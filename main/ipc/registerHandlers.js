@@ -22,6 +22,7 @@ const MODULES = [
   require('../services/nyaa'),
   require('../services/downloads'),
   require('../services/ai'),
+  require('../services/translate'),
   require('../window/window'),
 ];
 

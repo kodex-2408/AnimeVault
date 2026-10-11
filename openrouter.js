@@ -259,6 +259,58 @@ async function chatStream(messages, options = {}) {
   }
 }
 
+// One request, one JSON answer (no streaming): the manga translator uses it.
+// body is a complete chat/completions body. Resolves {ok, text} or
+// {ok:false, status, kind, message} like requestStream.
+function requestOnce(apiKey, body, timeoutMs = 120000) {
+  return new Promise((resolve) => {
+    const postData = JSON.stringify(body);
+    const req = https.request({
+      hostname: API_HOST,
+      path: API_PATH + '/chat/completions',
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + apiKey,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'Content-Length': Buffer.byteLength(postData),
+        'HTTP-Referer': APP_REFERER,
+        'X-Title': 'Tsundoku',
+      },
+    }, (res) => {
+      let raw = '';
+      res.setEncoding('utf8');
+      res.on('data', c => { if (raw.length < 2000000) raw += c; });
+      res.on('end', () => {
+        if (res.statusCode !== 200) return resolve({ ok: false, ...apiError(res.statusCode, raw, res.headers['retry-after']) });
+        try {
+          const j = JSON.parse(raw);
+          if (j && j.error) return resolve({ ok: false, kind: 'other', message: String(j.error.message || 'The model stopped early') });
+          resolve({ ok: true, text: extractText(j) });
+        } catch (e) {
+          resolve({ ok: false, kind: 'other', message: 'OpenRouter sent an unreadable answer' });
+        }
+      });
+      res.on('error', (e) => resolve({ ok: false, kind: 'other', message: e.message }));
+    });
+    req.on('error', (e) => resolve({ ok: false, kind: 'other', message: e.message }));
+    req.setTimeout(timeoutMs, () => req.destroy(new Error('OpenRouter did not answer within ' + Math.round(timeoutMs / 1000) + ' seconds')));
+    req.write(postData);
+    req.end();
+  });
+}
+
+// Picks a Claude model family ('haiku-5.5', 'sonnet-5.5') out of OpenRouter's
+// model list: the exact id first, then any variant of it. null when absent.
+function resolveClaudeModel(ids, family) {
+  const exact = 'anthropic/claude-' + family;
+  const list = (Array.isArray(ids) ? ids : []).map(String);
+  if (list.includes(exact)) return exact;
+  const pattern = new RegExp('^anthropic/claude-' + family.replace(/[.]/g, '[.-]') + '(?::|$)');
+  const variant = list.filter(id => pattern.test(id)).sort();
+  return variant.length ? variant[0] : null;
+}
+
 // Model ids of OpenRouter's public catalogue, or null when it can't be reached.
 function listModelIds() {
   return new Promise((resolve) => {
@@ -317,6 +369,8 @@ function abortChat() {
 module.exports = {
   setDeps,
   chatStream,
+  requestOnce,
+  resolveClaudeModel,
   abortChat,
   validateMessages,
   isPlausibleKey,

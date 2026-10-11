@@ -318,8 +318,11 @@ function register() {
   ipcMain.handle('reader:close', (_, token) => { sessions.delete(String(token || '')); return true; });
 }
 
+function getSession(token) { return sessions.get(String(token || '')) || null; }
+
 module.exports = {
   BUILT_IN_EXTS,
+  getSession,
   handlePageRequest,
   isPageName,
   openChapter,

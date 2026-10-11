@@ -69,6 +69,7 @@ const STATIC_CONFIG_KEYS = new Set([
   'untrackOnDelete', 'mutedDupSeries', 'lumaModel', 'hasOpenRouterKey', 'lumaWebSearch',
   'mangaAutoRename', 'mangaSeenSeries', 'tsundokuFontApplied', 'readerTimerEnabled', 'readerTimerSeconds',
   'mangaReader', 'readerMode', 'readerDir', 'readerFit', 'readerMarkPercent', 'readerZoom',
+  'translateLang', 'translateModel',
   // 5.0 UI preferences
   'glassLevel', 'lastDarkTheme', 'lastLightTheme', 'sidebarCollapsed', 'schedView', 'heroTone'
 ]);

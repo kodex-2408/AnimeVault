@@ -233,7 +233,7 @@ function validateRendererConfigValue(key, value) {
     if (value != null && (!Number.isInteger(value) || value < 10 || value > 100)) throw new Error('Mark-read share must be 10-100%');
     return;
   }
-  const READER_CHOICES = { mangaReader: ['builtin', 'external'], readerMode: ['single', 'double', 'strip'], readerDir: ['ltr', 'rtl'], readerFit: ['height', 'width', 'original'] };
+  const READER_CHOICES = { mangaReader: ['builtin', 'external'], readerMode: ['single', 'double', 'strip'], readerDir: ['ltr', 'rtl'], readerFit: ['height', 'width', 'original'], translateModel: ['haiku', 'sonnet'], translateLang: require('../services/translate').LANGS };
   if (READER_CHOICES[key]) {
     if (value != null && !READER_CHOICES[key].includes(value)) throw new Error('Unknown ' + key + ': ' + value);
     return;
