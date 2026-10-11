@@ -2,14 +2,16 @@
 
 // main/services/translate.js - translates manga pages in the built-in reader.
 //
-// The page image goes to a Claude model on OpenRouter with Luma's key. The
-// model finds the text on the page and answers with boxes (0-1000 of the page
-// width and height) and their translations; the reader draws those boxes over
-// the page. Translation is switched on per chapter, because every new page is
-// a paid request. Results are kept per chapter in userData/translations, so
+// The reader (renderer/typeset.js) finds the speech balloons on a page and
+// sends the page with them outlined and numbered. The model, a Claude model
+// on OpenRouter with Luma's key, answers which balloon says what, and gives
+// boxes (0-1000 of the page) only for text outside the numbered balloons.
+// The reader then erases the original text and letters the translation in.
+// Translation is switched on per chapter, because every new page is a paid
+// request. Answers are kept per chapter in userData/translations, so
 // reopening a chapter, or reading it again, costs nothing.
 
-const { app, ipcMain, nativeImage } = require('electron');
+const { app, ipcMain } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -17,13 +19,13 @@ const openrouter = require('../../openrouter');
 const { config } = require('../state');
 const reader = require('../players/reader');
 
-const PROMPT_VERSION = 1;
+const PROMPT_VERSION = 2;          // bump when the prompt or the balloon numbering changes
 const LANGS = ['English', 'Spanish', 'Portuguese', 'French', 'German', 'Italian', 'Indonesian', 'Vietnamese', 'Thai', 'Russian', 'Polish', 'Turkish', 'Arabic', 'Chinese (Simplified)', 'Korean', 'Japanese'];
 const MODELS = { haiku: 'haiku-5.5', sonnet: 'sonnet-5.5' };
 const KINDS = ['bubble', 'narration', 'sfx', 'sign'];
-const MAX_EDGE = 1600;              // longest side sent to the model, in pixels
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const MAX_ITEMS = 80;
+const MAX_REGIONS = 80;
 const MAX_CACHE_FILES = 400;
 const MAX_PARALLEL = 2;
 
@@ -36,19 +38,22 @@ function modelChoice() { return config.translateModel === 'sonnet' ? 'sonnet' : 
 
 function buildPrompt(lang) {
   return [
-    'You translate manga, manhwa and manhua pages into ' + lang + '.',
-    'Find every piece of text on the page: speech bubbles, thought bubbles, narration boxes, signs and notes, and sound effects.',
-    'For each one give its box on the page, measured from the top-left corner on a 0-1000 scale of the page width (x) and height (y), tight around the text or the bubble that holds it.',
-    'Translate naturally, the way an official ' + lang + ' release would, keeping names, honorifics and tone. Read Japanese pages right to left, top to bottom; use the whole page as context.',
-    'Skip text that is already in ' + lang + ', page numbers, and watermarks or scanlation credits.',
-    'Answer with JSON only, no other text:',
-    '{"items":[{"x0":0,"y0":0,"x1":0,"y1":0,"kind":"bubble|narration|sfx|sign","src":"original text","text":"translation"}]}',
-    'in reading order. A page with no text: {"items":[]}.',
+    'You translate manga, manhwa and manhua pages into ' + lang + ' for a reader app that letters your translation into the page.',
+    'The speech balloons the app found are outlined with red dashes and numbered on red tags. The outlines and tags are not part of the page.',
+    'For every numbered balloon that holds text, give its number and the translation of the text inside it. Leave out numbered outlines with no text in them.',
+    'Text that is not inside a numbered balloon (narration or caption boxes, signs, notes, thoughts, balloons the app missed): give a box tight around the text itself, on a 0-1000 scale of the page width (x) and height (y) from the top-left corner.',
+    'Skip sound effects, page numbers, watermarks and scanlation credits, and anything already in ' + lang + '.',
+    'Translate the way an official ' + lang + ' release would: natural, in character, keeping names and honorifics. Use the whole page for context; Japanese reads right to left, top to bottom.',
+    'Keep each translation about as long as the original line is in spoken ' + lang + ', since it has to fit the same balloon. No notes or explanations.',
+    'Answer with JSON only:',
+    '{"items":[{"region":1,"src":"original text","text":"translation"},{"x0":0,"y0":0,"x1":0,"y1":0,"kind":"narration|sign|bubble","src":"original text","text":"translation"}]}',
+    'in reading order. A page with no text to translate: {"items":[]}.',
   ].join('\n');
 }
 
 // The model's answer, checked and clamped. Throws when no JSON is found.
-function parseTranslation(text) {
+function parseTranslation(text, regions) {
+  const byId = new Map((Array.isArray(regions) ? regions : []).map(r => [r.id, r]));
   let s = String(text || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
   const a = s.indexOf('{');
   const b = s.lastIndexOf('}');
@@ -62,19 +67,27 @@ function parseTranslation(text) {
   for (const it of list) {
     if (out.length >= MAX_ITEMS) break;
     if (!it || typeof it !== 'object') continue;
+    const t0 = String(it.text == null ? '' : it.text).replace(/\s+/g, ' ').trim().slice(0, 1000);
+    const src0 = String(it.src == null ? '' : it.src).replace(/\s+/g, ' ').trim().slice(0, 1000);
+    const rid = Number(it.region);
+    if (it.region != null && Number.isInteger(rid) && byId.has(rid)) {
+      if (!t0) continue;
+      const r = byId.get(rid);
+      out.push({ region: rid, x0: r.x0, y0: r.y0, x1: r.x1, y1: r.y1, kind: 'bubble', src: src0, text: t0 });
+      continue;
+    }
     const box = Array.isArray(it.box) && it.box.length === 4 ? it.box : [it.x0, it.y0, it.x1, it.y1];
     let [x0, y0, x1, y1] = box.map(num);
     if ([x0, y0, x1, y1].some(v => v === null)) continue;
     if (x1 < x0) [x0, x1] = [x1, x0];
     if (y1 < y0) [y0, y1] = [y1, y0];
     if (x1 - x0 < 4 || y1 - y0 < 4) continue;
-    const t = String(it.text == null ? '' : it.text).replace(/\s+/g, ' ').trim().slice(0, 1000);
-    if (!t) continue;
+    if (!t0 || it.kind === 'sfx') continue;
     out.push({
       x0: Math.round(x0), y0: Math.round(y0), x1: Math.round(x1), y1: Math.round(y1),
       kind: KINDS.includes(it.kind) ? it.kind : 'bubble',
-      src: String(it.src == null ? '' : it.src).replace(/\s+/g, ' ').trim().slice(0, 1000),
-      text: t,
+      src: src0,
+      text: t0,
     });
   }
   return out;
@@ -128,19 +141,18 @@ async function modelId(choice) {
   return id;
 }
 
-// A page as JPEG, at most MAX_EDGE on its longest side. Formats Electron
-// can't decode (WebP, for one) go as they are when the model accepts them.
-function prepareImage(buf) {
-  const img = (_deps.nativeImage || nativeImage).createFromBuffer(buf);
-  if (img && !img.isEmpty()) {
-    const { width, height } = img.getSize();
-    const scale = Math.min(1, MAX_EDGE / Math.max(width, height));
-    const out = scale < 1 ? img.resize({ width: Math.round(width * scale), height: Math.round(height * scale), quality: 'best' }) : img;
-    return { mime: 'image/jpeg', data: out.toJPEG(85) };
+// The numbered balloons the reader found: ids and boxes on the 0-1000 scale.
+function cleanRegions(list) {
+  if (!Array.isArray(list)) return [];
+  const out = [];
+  for (const r of list.slice(0, MAX_REGIONS)) {
+    if (!r || typeof r !== 'object') continue;
+    const v = [r.id, r.x0, r.y0, r.x1, r.y1].map(Number);
+    if (!v.every(Number.isFinite) || !Number.isInteger(v[0]) || v[0] < 1) continue;
+    const [id, x0, y0, x1, y1] = [v[0], ...v.slice(1).map(n => Math.max(0, Math.min(1000, Math.round(n))))];
+    if (x1 > x0 && y1 > y0) out.push({ id, x0, y0, x1, y1 });
   }
-  const mime = reader.sniffImageMime(buf);
-  if (['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(mime) && buf.length <= 5 * 1024 * 1024) return { mime, data: buf };
-  throw new Error('This page’s picture format can’t be translated');
+  return out;
 }
 
 let _running = 0;
@@ -156,8 +168,9 @@ function release() {
 
 const _inflight = new Map();
 
-// Translates one page. pdfImage: the page as the renderer drew it (PDF only).
-async function translatePage(token, index, pdfImage) {
+// Translates one page. page: {image, regions} from the reader: the page as a
+// JPEG or PNG with the balloons numbered, and those balloons' boxes.
+async function translatePage(token, index, page) {
   const s = reader.getSession(token);
   if (!s || (s.kind !== 'pages' && s.kind !== 'pdf')) throw new Error('This chapter is no longer open');
   index = Number(index);
@@ -170,18 +183,19 @@ async function translatePage(token, index, pdfImage) {
   const pk = pageKey(index, lang, choice);
   const cached = readCache(key).pages[pk];
   if (cached) return { items: cached.items, cached: true };
+  const image = page && page.image;
+  if (!(image instanceof Uint8Array) || !image.length || image.length > MAX_IMAGE_BYTES) throw new Error('No picture of this page to translate');
+  const buf = Buffer.from(image.buffer, image.byteOffset, image.byteLength);
+  const mime = reader.sniffImageMime(buf);
+  if (mime !== 'image/jpeg' && mime !== 'image/png') throw new Error('No picture of this page to translate');
+  const regions = cleanRegions(page.regions);
   const flight = key + '|' + pk;
   if (_inflight.has(flight)) return _inflight.get(flight);
   const job = (async () => {
-    let buf;
-    if (s.kind === 'pages') buf = await s.pages[index].read();
-    else {
-      if (!pdfImage || !(pdfImage instanceof Uint8Array) || pdfImage.length > MAX_IMAGE_BYTES) throw new Error('No picture of this page to translate');
-      buf = Buffer.from(pdfImage.buffer, pdfImage.byteOffset, pdfImage.byteLength);
-      if (!['image/jpeg', 'image/png'].includes(reader.sniffImageMime(buf))) throw new Error('No picture of this page to translate');
-    }
-    const image = prepareImage(buf);
     const model = await modelId(choice);
+    const ask = 'Page ' + (index + 1) + '. ' + (regions.length
+      ? 'Numbered balloons: ' + regions.map(r => r.id).join(', ') + '.'
+      : 'No balloons were found automatically; give boxes for all text.') + ' Translate into ' + lang + '.';
     const body = {
       model,
       max_tokens: 4096,
@@ -189,8 +203,8 @@ async function translatePage(token, index, pdfImage) {
       messages: [
         { role: 'system', content: buildPrompt(lang) },
         { role: 'user', content: [
-          { type: 'text', text: 'Page ' + (index + 1) + '. Translate it into ' + lang + '.' },
-          { type: 'image_url', image_url: { url: 'data:' + image.mime + ';base64,' + Buffer.from(image.data).toString('base64') } },
+          { type: 'text', text: ask },
+          { type: 'image_url', image_url: { url: 'data:' + mime + ';base64,' + buf.toString('base64') } },
         ] },
       ],
     };
@@ -198,7 +212,7 @@ async function translatePage(token, index, pdfImage) {
     let r;
     try { r = await (_deps.request || openrouter.requestOnce)(apiKey, body); } finally { release(); }
     if (!r.ok) throw Object.assign(new Error(r.message || 'OpenRouter request failed'), { kind: r.kind || 'other' });
-    const items = parseTranslation(r.text);
+    const items = parseTranslation(r.text, regions);
     const data = readCache(key);
     data.pages[pk] = { items, at: Date.now() };
     data.file = path.basename(s.filePath);
@@ -244,8 +258,8 @@ function register() {
   ipcMain.handle('translate:setEnabled', (_, token, on) => {
     try { return setEnabled(String(token || ''), on === true); } catch (e) { return false; }
   });
-  ipcMain.handle('translate:page', async (_, token, index, pdfImage) => {
-    try { return await translatePage(String(token || ''), index, pdfImage || null); } catch (e) { return { error: e.message, kind: e.kind || 'other' }; }
+  ipcMain.handle('translate:page', async (_, token, index, page) => {
+    try { return await translatePage(String(token || ''), index, page && typeof page === 'object' ? page : null); } catch (e) { return { error: e.message, kind: e.kind || 'other' }; }
   });
 }
 

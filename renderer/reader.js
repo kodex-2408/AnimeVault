@@ -76,7 +76,7 @@ async function rdPdfPageUrl(R,i){
 function rdFillPdfImg(img){
   var R=RD;if(!R||R.kind!=='pdf'||img.getAttribute('src'))return;
   var i=Number(img.dataset.i);
-  rdPdfPageUrl(R,i).then(function(u){if(RD===R&&img.isConnected){img.src=u;img.classList.remove('rd-pending');}}).catch(function(e){console.warn('[Reader] PDF page',i+1,e);});
+  rdPdfPageUrl(R,i).then(function(u){if(RD===R&&img.isConnected&&!img.dataset.tr){img.src=u;img.classList.remove('rd-pending');}}).catch(function(e){console.warn('[Reader] PDF page',i+1,e);});
 }
 function rdReleasePdf(R){
   if(!R||!R.pdf)return;
@@ -138,7 +138,7 @@ async function openReader(name,fpath,num){
   var saved=rdSavedPos(fpath);
   if(R.kind==='html')R.scrollTo=saved>0&&saved<0.98?saved:0;
   else R.page=saved>0&&saved<R.count-1?Math.floor(saved):0;
-  if(RD&&RD!==R){api.readerClose(RD.token);rdReleasePdf(RD);if(RD.observer)RD.observer.disconnect();R.fs=RD.fs;R.panel=RD.panel==='chapters'?'chapters':null;}
+  if(RD&&RD!==R){api.readerClose(RD.token);rdReleasePdf(RD);rdTrRelease(RD);if(RD.observer)RD.observer.disconnect();R.fs=RD.fs;R.panel=RD.panel==='chapters'?'chapters':null;}
   else{try{R.fs=await api.isFullScreen();}catch(e){}}
   RD=R;
   rdBuild();
@@ -204,7 +204,7 @@ function rdPanelHtml(){
         return '<button class="'+(cur===o[0]?'on':'')+'"'+A('rdSetOption',key,o[0])+'>'+o[1]+'</button>';}).join('')+'</div></div>';
     };
     var note='<div class="rd-set-note">Marked read at '+rdMarkPct()+'% of the '+(rdIsText()?'text':'pages')+'. Change it in Settings → Manga. Zoom with Ctrl + scroll wheel or the control in the bottom-right corner.</div>';
-    var trNote=rdTrSupported()?'<div class="rd-set-note">Translate (T) draws '+E(RD.tr.lang||'English')+' text over the pages. Hover a box to see the original. Language and model: Settings → Manga.</div>':'';
+    var trNote=rdTrSupported()?'<div class="rd-set-note">Translate (T) letters '+E(RD.tr.lang||'English')+' into the pages; T again shows the originals. Language and model: Settings → Manga.</div>':'';
     if(rdIsText())return '<div class="rd-panel-title">Reader settings</div><div class="rd-set-note">Books with text scroll as one column; zoom changes the text size.</div>'+note;
     return '<div class="rd-panel-title">Reader settings</div>'
       +seg('Display','readerMode',RD.mode,[['single','Single'],['double','Double'],['strip','Long strip']])
@@ -213,7 +213,7 @@ function rdPanelHtml(){
       +note+trNote;
   }
   if(RD.panel==='help'){
-    var keys=[['→ / ←','Next / previous page (flipped right to left)'],['Space · Page Down','Next page'],['Page Up','Previous page'],['Home · End','First / last page'],['[ · ]','Previous / next chapter'],['Ctrl + wheel','Zoom in or out'],['Ctrl + / − / 0','Zoom in, out, reset'],['M','Single, double or long strip'],['W','Fit height, width or original'],['D','Reading direction'],['C','Chapter list'],['F','Fullscreen'],['T','Translate pages (switched on per chapter)'],['Esc','Close panel, leave fullscreen, then the reader']];
+    var keys=[['→ / ←','Next / previous page (flipped right to left)'],['Space · Page Down','Next page'],['Page Up','Previous page'],['Home · End','First / last page'],['[ · ]','Previous / next chapter'],['Ctrl + wheel','Zoom in or out'],['Ctrl + / − / 0','Zoom in, out, reset'],['M','Single, double or long strip'],['W','Fit height, width or original'],['D','Reading direction'],['C','Chapter list'],['F','Fullscreen'],['T','Translate pages, or show the originals'],['Esc','Close panel, leave fullscreen, then the reader']];
     return '<div class="rd-panel-title">Keyboard shortcuts</div><div class="rd-keys">'+keys.map(function(k){return '<div class="rd-key"><kbd>'+k[0]+'</kbd><span>'+k[1]+'</span></div>';}).join('')+'</div>';
   }
   return '';
@@ -349,7 +349,6 @@ function rdSetZoom(z){
     stage.scrollTop=fy*stage.scrollHeight-stage.clientHeight/2;
     stage.scrollLeft=fx*stage.scrollWidth-stage.clientWidth/2;
   }
-  rdTrDraw();
   clearTimeout(rdSetZoom._t);rdSetZoom._t=setTimeout(function(){rdSetPref('readerZoom',z);},400);
 }
 function rdZoomStep(d){if(RD)rdSetZoom((Math.round(RD.zoom/RD_ZOOM_STEP)+d)*RD_ZOOM_STEP);}
@@ -394,6 +393,7 @@ function rdClose(){
   api.readerClose(R.token);
   if(R.observer)R.observer.disconnect();
   rdReleasePdf(R);
+  rdTrRelease(R);
   if(R.fs)api.setFullScreen(false);
   RD=null;
   var el=rdLayer();if(el)el.remove();
@@ -430,14 +430,17 @@ function rdStageClick(el,ev){
 }
 
 // ---------------------------------------------------------- translation --
-// The Translate tool (T) draws translated text over the pages. It is switched
-// on per chapter, because every new page is one paid OpenRouter request; the
-// main process keeps each translated page, so reading it again is free.
-// Boxes are measured on a 0-1000 scale of the page and drawn in a layer next
-// to the page image, so they follow zoom, fit and the long strip.
+// The Translate tool (T) shows each page with its text translated: the
+// balloons are found in the page (renderer/typeset.js), the model says what
+// each one says, and the translation is lettered into the page image, which
+// then replaces the original on screen. It is switched on per chapter, because
+// every new page is one paid OpenRouter request; the main process keeps each
+// answer, so reading a page again is free. T again shows the originals.
 var RD_TR_LANGS=['English','Spanish','Portuguese','French','German','Italian','Indonesian','Vietnamese','Thai','Russian','Polish','Turkish','Arabic','Chinese (Simplified)','Korean','Japanese'];
-function rdTrNew(){return {on:false,pages:{},pending:{},errors:{},halted:false,told:{},lang:'',hasKey:false};}
+var RD_TR_MAX_EDGE=2400;   // pages are lettered at up to this size
+function rdTrNew(){return {on:false,pages:{},urls:{},pending:{},errors:{},halted:false,told:{},lang:'',hasKey:false};}
 function rdTrSupported(){return !!RD&&(RD.kind==='pages'||RD.kind==='pdf');}
+function rdTrRelease(R){if(!R||!R.tr)return;Object.keys(R.tr.urls).forEach(function(k){URL.revokeObjectURL(R.tr.urls[k]);});R.tr.urls={};}
 async function rdTrLoad(R){
   var st;try{st=await api.translateState(R.token);}catch(e){return;}
   if(RD!==R||!st||!st.supported)return;
@@ -458,9 +461,9 @@ async function rdToggleTranslate(){
   api.translateSetEnabled(R.token,T.on);
   rdTrSyncTool();
   if(T.on){
-    if(!rdToggleTranslate.told){rdToggleTranslate.told=true;toast('Translating this chapter into '+T.lang+' as you read. Each new page is one paid OpenRouter request; translated pages are saved.','i');}
+    if(!rdToggleTranslate.told){rdToggleTranslate.told=true;toast('Translating this chapter into '+T.lang+' as you read. Each new page is one paid OpenRouter request; translated pages are saved. Press T to see the original.','i');}
     rdTrUpdate();
-  }else{document.querySelectorAll('#rdStage .rd-tl').forEach(function(n){n.remove();});rdTrStatus();}
+  }else rdTrApply();
 }
 function rdTrSyncTool(){
   var b=document.querySelector('.rd-tool[aria-label^="Translate"]');
@@ -479,26 +482,52 @@ function rdTrUpdate(){
   if(!RD||!RD.tr||!RD.tr.on)return;
   var R=RD;
   rdTrTargets().forEach(function(i){rdTrRequest(R,i);});
-  rdTrDraw();rdTrStatus();
+  rdTrApply();rdTrStatus();
+}
+// The page's own picture: from the archive, or as pdf.js drew it.
+async function rdTrPageBlob(R,i){
+  if(R.kind==='pdf'){await rdPdfPageUrl(R,i);return R.pdfBlobs[i]||null;}
+  var bytes=await api.readerPageData(R.token,i);
+  return bytes?new Blob([bytes]):null;
+}
+// Finds the balloons, asks for the translation (unless it is saved), letters
+// it in and returns the translated page as an image URL.
+async function rdTrLetter(R,i){
+  var blob=await rdTrPageBlob(R,i);
+  if(!blob)throw new Error('This page could not be read');
+  var bmp=await createImageBitmap(blob);
+  try{
+    var sc=Math.min(1,RD_TR_MAX_EDGE/Math.max(bmp.width,bmp.height)),W=Math.round(bmp.width*sc),H=Math.round(bmp.height*sc);
+    var cv=document.createElement('canvas');cv.width=W;cv.height=H;
+    var ctx=cv.getContext('2d',{willReadFrequently:true});ctx.drawImage(bmp,0,0,W,H);
+    var img=ctx.getImageData(0,0,W,H),det=TS.detect(img),items=R.tr.pages[i];
+    if(!items){
+      var ann=TS.annotate(cv,det,1600);
+      var jpg=await new Promise(function(res){ann.toBlob(res,'image/jpeg',0.88);});
+      var res=await api.translatePage(R.token,i,{image:new Uint8Array(await jpg.arrayBuffer()),regions:TS.regionBoxes(det)});
+      if(!res||res.error)throw Object.assign(new Error((res&&res.error)||'Translation failed'),{kind:res&&res.kind});
+      items=R.tr.pages[i]=Array.isArray(res.items)?res.items:[];
+    }
+    try{await document.fonts.load('700 20px "Comic Neue"');}catch(e){}
+    TS.render(ctx,img,det,items);
+    var out=await new Promise(function(res){cv.toBlob(res,'image/jpeg',0.95);});
+    return URL.createObjectURL(out);
+  }finally{if(bmp.close)bmp.close();}
 }
 async function rdTrRequest(R,i){
   var T=R.tr;
-  if(T.pages[i]||T.pending[i]||T.errors[i]||T.halted)return;
-  T.pending[i]=true;rdTrStatus();rdTrDrawPage(i);
-  var res;
-  try{
-    var bytes=null;
-    if(R.kind==='pdf'){await rdPdfPageUrl(R,i);var blob=R.pdfBlobs[i];if(blob)bytes=new Uint8Array(await blob.arrayBuffer());}
-    res=await api.translatePage(R.token,i,bytes);
-  }catch(e){res={error:(e&&e.message)||String(e)};}
+  if(T.urls[i]||T.pending[i]||T.errors[i]||T.halted)return;
+  T.pending[i]=true;rdTrStatus();
+  var url=null,err=null;
+  try{url=await rdTrLetter(R,i);}catch(e){err=e;}
   delete T.pending[i];
-  if(RD!==R)return;
-  if(!res||res.error){
-    var msg=(res&&res.error)||'Translation failed';T.errors[i]=msg;
-    if(res&&(res.kind==='key'||res.kind==='quota'))T.halted=true; // no point sending more pages
+  if(RD!==R){if(url)URL.revokeObjectURL(url);return;}
+  if(err){
+    var msg=(err&&err.message)||'Translation failed';T.errors[i]=msg;
+    if(err.kind==='key'||err.kind==='quota')T.halted=true; // no point sending more pages
     if(!T.told[msg]){T.told[msg]=true;toast('Page '+(i+1)+' wasn’t translated: '+msg,'e');}
-  }else T.pages[i]=Array.isArray(res.items)?res.items:[];
-  rdTrStatus();rdTrDrawPage(i);
+  }else T.urls[i]=url;
+  rdTrStatus();rdTrApply();
 }
 function rdTrStatus(){
   var el=document.getElementById('rdTrStatus');if(!el)return;
@@ -508,54 +537,21 @@ function rdTrStatus(){
   if(busy)txt='Translating '+(busy===1?'1 page':busy+' pages')+'…';
   else if(T.halted)txt='Translation stopped: '+T.errors[Object.keys(T.errors)[0]];
   else if(failed)txt=(failed===1?'1 page':failed+' pages')+' not translated. Press T twice to retry.';
-  else txt='Translated into '+T.lang;
+  else txt='Translated into '+T.lang+' · T shows the original';
   el.textContent=txt;el.classList.add('on');el.classList.toggle('busy',!!busy);
 }
-function rdTrDraw(){
+// Shows the translated pages (or the originals again when translation is off).
+function rdTrApply(){
   if(!RD||!RD.tr)return;
-  document.querySelectorAll('#rdStage img.rd-page').forEach(function(img){rdTrDrawPage(Number(img.dataset.i),img);});
+  var T=RD.tr;
+  document.querySelectorAll('#rdStage img.rd-page').forEach(function(img){
+    var i=Number(img.dataset.i),url=T.on?T.urls[i]:null;
+    if(url){if(img.getAttribute('src')!==url){img.dataset.tr='1';img.classList.remove('rd-pending');img.src=url;}return;}
+    if(img.dataset.tr){delete img.dataset.tr;
+      if(RD.kind==='pdf'){img.removeAttribute('src');img.classList.add('rd-pending');rdFillPdfImg(img);}
+      else img.src=rdSrc(i);}
+  });
 }
-// Where the picture itself sits inside its <img> box (object-fit: contain).
-function rdTrPictureRect(img){
-  var w=img.offsetWidth,h=img.offsetHeight,nw=img.naturalWidth,nh=img.naturalHeight;
-  var sc=Math.min(w/nw,h/nh),cw=nw*sc,ch=nh*sc;
-  return {x:img.offsetLeft+(w-cw)/2,y:img.offsetTop+(h-ch)/2,w:cw,h:ch};
-}
-function rdTrDrawPage(i,img){
-  if(!RD)return;
-  var T=RD.tr;img=img||document.querySelector('#rdStage img.rd-page[data-i="'+i+'"]');if(!img)return;
-  var host=img.parentNode,ov=host.querySelector('.rd-tl[data-i="'+i+'"]');
-  var items=T.on?T.pages[i]:null,pending=T.on&&T.pending[i];
-  if(!items&&!pending){if(ov)ov.remove();return;}
-  if(!img.complete||!img.naturalWidth){if(!img._trWait){img._trWait=true;img.addEventListener('load',function(){img._trWait=false;rdTrDrawPage(i);},{once:true});}return;}
-  if(!ov){ov=document.createElement('div');ov.className='rd-tl';ov.dataset.i=i;host.appendChild(ov);}
-  var r=rdTrPictureRect(img);
-  ov.style.left=r.x+'px';ov.style.top=r.y+'px';ov.style.width=r.w+'px';ov.style.height=r.h+'px';
-  var sig=(items?'d'+items.length:'p')+':'+Math.round(r.w)+'x'+Math.round(r.h);
-  if(ov.dataset.sig===sig)return;
-  ov.dataset.sig=sig;
-  if(!items){ov.innerHTML='<div class="rd-tl-busy">'+ic('translate')+'Translating…</div>';return;}
-  ov.innerHTML=items.map(function(it){
-    // Translations run longer than the vertical Japanese they replace:
-    // narrow boxes are widened around their centre, within the page.
-    var x=it.x0/1000*r.w,y=it.y0/1000*r.h,w=(it.x1-it.x0)/1000*r.w,h=(it.y1-it.y0)/1000*r.h;
-    var minW=Math.min(h*0.8,r.w*0.32);
-    if(w<minW){x-=(minW-w)/2;w=minW;}
-    x=Math.max(0,Math.min(r.w-w,x));
-    return '<div class="rd-tb rd-tb-'+E(it.kind||'bubble')+'" style="left:'+x.toFixed(1)+'px;top:'+y.toFixed(1)+'px;width:'+w.toFixed(1)+'px;height:'+h.toFixed(1)+'px"'+(it.src?' title="'+E(it.src)+'"':'')+'><span>'+E(it.text)+'</span></div>';
-  }).join('');
-  ov.querySelectorAll('.rd-tb').forEach(rdTrFit);
-}
-// The largest type (up to a size that suits the page) that fits the box.
-function rdTrFit(box){
-  var span=box.firstChild,lo=6,hi=Math.max(7,Math.min(24,box.clientHeight*0.4,box.clientWidth*0.26));
-  for(var k=0;k<7;k++){
-    var mid=(lo+hi)/2;span.style.fontSize=mid+'px';
-    if(span.scrollHeight<=box.clientHeight+1&&span.scrollWidth<=box.clientWidth+1)lo=mid;else hi=mid;
-  }
-  span.style.fontSize=lo.toFixed(1)+'px';
-}
-window.addEventListener('resize',function(){if(RD&&RD.tr&&RD.tr.on){clearTimeout(rdTrDraw._t);rdTrDraw._t=setTimeout(rdTrDraw,120);}});
 
 act('rdStageClick',rdStageClick);
 act('rdChapterStep',function(el,ev,d){return rdChapterStep(d);});

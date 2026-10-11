@@ -59,7 +59,11 @@ config.folders = [];
   assert.throws(() => tr.parseTranslation('{"items": [oops]}'), /could not be read/); checks++;
   const many = { items: Array.from({ length: 200 }, (_, i) => ({ x0: 0, y0: 0, x1: 100, y1: 100, text: 't' + i })) };
   assert.strictEqual(tr.parseTranslation(JSON.stringify(many)).length, 80, 'at most 80 boxes per page'); checks++;
-  assert(/into Spanish/.test(tr.buildPrompt('Spanish')) && /0-1000/.test(tr.buildPrompt('Spanish')), 'the prompt names the language and the box scale'); checks++;
+  assert(/into Spanish/.test(tr.buildPrompt('Spanish')) && /0-1000/.test(tr.buildPrompt('Spanish')) && /numbered/.test(tr.buildPrompt('Spanish')), 'the prompt names the language, the numbered balloons and the box scale'); checks++;
+  // numbered balloons: the answer names them; their boxes come from the reader
+  const regs = [{ id: 1, x0: 600, y0: 50, x1: 900, y1: 300 }, { id: 2, x0: 50, y0: 50, x1: 300, y1: 400 }];
+  items = tr.parseTranslation('{"items":[{"region":2,"src":"いいよ","text":"Sure."},{"region":7,"text":"no such balloon"},{"region":1,"text":""},{"x0":100,"y0":800,"x1":400,"y1":900,"kind":"sfx","text":"BAM"},{"x0":100,"y0":800,"x1":400,"y1":900,"kind":"narration","text":"Next day."}]}', regs);
+  assert.deepStrictEqual(items.map(x => [x.region, x.text, x.x0]), [[2, 'Sure.', 50], [undefined, 'Next day.', 100]], 'unknown balloons, empty text and sound effects are dropped'); checks++;
 
   // --------------------------------------------------------- model choice
   assert.strictEqual(openrouter.resolveClaudeModel(['anthropic/claude-sonnet-5.5', 'x'], 'sonnet-5.5'), 'anthropic/claude-sonnet-5.5'); checks++;
@@ -74,14 +78,15 @@ config.folders = [];
     request: async (key, body) => {
       calls.push(body);
       await new Promise(r => setTimeout(r, 20));
-      return { ok: true, text: '{"items":[{"x0":100,"y0":100,"x1":400,"y1":300,"kind":"bubble","text":"Hello (' + body.model + ')"}]}' };
+      return { ok: true, text: '{"items":[{"region":1,"text":"Hello (' + body.model + ')"}]}' };
     },
   });
   const open = await reader.openChapter(chapter);
+  const page = { image: new Uint8Array(PNG), regions: [{ id: 1, x0: 100, y0: 100, x1: 400, y1: 300 }, { id: 'x', x0: 1 }, { id: 3, x0: 500, y0: 500, x1: 400, y1: 600 }] };
   assert.strictEqual(open.kind, 'pages'); checks++;
 
   config.openRouterApiKey = '';
-  await assert.rejects(tr.translatePage(open.token, 0), /OpenRouter key/, 'no key: nothing is sent'); checks++;
+  await assert.rejects(tr.translatePage(open.token, 0, page), /OpenRouter key/, 'no key: nothing is sent'); checks++;
   assert.strictEqual(calls.length, 0); checks++;
 
   config.openRouterApiKey = 'sk-or-v1-test-test-test-test';
@@ -89,19 +94,21 @@ config.folders = [];
   let st = tr.chapterState(open.token);
   assert.deepStrictEqual([st.supported, st.enabled, st.lang, st.model, st.hasKey], [true, false, 'English', 'haiku', true]); checks++;
 
-  const [a, b] = await Promise.all([tr.translatePage(open.token, 0), tr.translatePage(open.token, 0)]);
+  const [a, b] = await Promise.all([tr.translatePage(open.token, 0, page), tr.translatePage(open.token, 0, page)]);
   assert.strictEqual(calls.length, 1, 'the same page asked twice at once is sent once'); checks++;
   assert.deepStrictEqual(a, b); checks++;
   assert.strictEqual(a.items[0].text, 'Hello (anthropic/claude-haiku-5.5)'); checks++;
+  assert.deepStrictEqual([a.items[0].region, a.items[0].x0, a.items[0].x1], [1, 100, 400], 'the balloon keeps the box the reader found'); checks++;
+  assert(/Numbered balloons: 1\./.test(calls[0].messages[1].content[0].text), 'malformed balloons are not offered to the model'); checks++;
   const sentBody = calls[0];
   assert.strictEqual(sentBody.messages[1].content[1].image_url.url.slice(0, 22), 'data:image/png;base64,', 'the page picture goes with the request'); checks++;
   assert(/into English/.test(sentBody.messages[0].content)); checks++;
 
-  const again = await tr.translatePage(open.token, 0);
+  const again = await tr.translatePage(open.token, 0, null);
   assert.strictEqual(calls.length, 1, 'a translated page is served from the cache'); checks++;
   assert.strictEqual(again.cached, true); checks++;
-  await assert.rejects(tr.translatePage(open.token, 2), /No such page/); checks++;
-  await assert.rejects(tr.translatePage('ffffffffffffffffffffffff', 0), /no longer open/); checks++;
+  await assert.rejects(tr.translatePage(open.token, 2, page), /No such page/); checks++;
+  await assert.rejects(tr.translatePage('ffffffffffffffffffffffff', 0, page), /no longer open/); checks++;
 
   // switched on per chapter, and remembered
   assert.strictEqual(tr.setEnabled(open.token, true), true); checks++;
@@ -115,7 +122,7 @@ config.folders = [];
   config.translateModel = 'sonnet';
   st = tr.chapterState(reopened.token);
   assert.deepStrictEqual([st.lang, st.model, Object.keys(st.pages).length], ['Spanish', 'sonnet', 0]); checks++;
-  const es = await tr.translatePage(reopened.token, 0);
+  const es = await tr.translatePage(reopened.token, 0, page);
   assert.strictEqual(calls.length, 2); checks++;
   assert.strictEqual(es.items[0].text, 'Hello (anthropic/claude-sonnet-5.5)'); checks++;
   assert(/into Spanish/.test(calls[1].messages[0].content)); checks++;
@@ -133,18 +140,18 @@ config.folders = [];
 
   // OpenRouter errors come back with their kind and are not cached
   tr.setDeps({ cacheDir: path.join(userData, 'translations'), listModelIds: async () => [], request: async () => ({ ok: false, kind: 'quota', status: 402, message: 'This OpenRouter account has no credits left' }) });
-  await assert.rejects(tr.translatePage(edited.token, 1), (e) => e.kind === 'quota' && /no credits/.test(e.message)); checks++;
+  await assert.rejects(tr.translatePage(edited.token, 1, page), (e) => e.kind === 'quota' && /no credits/.test(e.message)); checks++;
   assert.strictEqual(Object.keys(tr.chapterState(edited.token).pages).length, 0); checks++;
 
-  // PDF: the renderer sends the drawn page; anything but a JPEG or PNG is refused
+  // the picture: only a JPEG or PNG the reader drew is sent
   const pdf = path.join(lib, 'Yotsuba', 'Yotsuba - Ch 002.pdf');
   fs.writeFileSync(pdf, '%PDF-1.4\n%%EOF\n');
   const p = await reader.openChapter(pdf);
   assert.strictEqual(p.kind, 'pdf'); checks++;
   await assert.rejects(tr.translatePage(p.token, 0, null), /No picture/); checks++;
-  await assert.rejects(tr.translatePage(p.token, 0, new Uint8Array([60, 104, 116, 109, 108, 62])), /No picture/); checks++;
+  await assert.rejects(tr.translatePage(p.token, 0, { image: new Uint8Array([60, 104, 116, 109, 108, 62]) }), /No picture/); checks++;
   tr.setDeps({ cacheDir: path.join(userData, 'translations'), listModelIds: async () => [], request: async (k, body) => { calls.push(body); return { ok: true, text: '{"items":[]}' }; } });
-  const pdfRes = await tr.translatePage(p.token, 0, new Uint8Array(PNG));
+  const pdfRes = await tr.translatePage(p.token, 0, { image: new Uint8Array(PNG), regions: [] });
   assert.deepStrictEqual(pdfRes.items, []); checks++;
 
   // config: only known languages and models are accepted from the renderer
@@ -158,6 +165,66 @@ config.folders = [];
   assert(m, 'RD_TR_LANGS in renderer/reader.js'); checks++;
   assert.deepStrictEqual(JSON.parse(m[1].replace(/'/g, '"')), tr.LANGS); checks++;
 
+  // ------------------------------------------- lettering (renderer/typeset.js)
+  // A drawn page: a panel border, one balloon (an ellipse outline) holding two
+  // columns of "text" blobs, one of them touching the outline, and a white
+  // area without an outline (a face) that must not count as a balloon.
+  const vm = require('vm');
+  const tsCtx = vm.createContext({ Math, Array, Uint8Array, Int32Array, Int16Array, Float32Array, Object, String, Number, isFinite, document: {} });
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'renderer', 'typeset.js'), 'utf8') + '\nthis.TS = TS;', tsCtx);
+  const TS = tsCtx.TS;
+  const PW = 400, PH = 560, px = new Uint8ClampedArray(PW * PH * 4).fill(255);
+  const put = (x, y, v) => { if (x < 0 || y < 0 || x >= PW || y >= PH) return; const j = (y * PW + x) * 4; px[j] = px[j + 1] = px[j + 2] = v; };
+  for (let x = 20; x < 380; x++) for (let t = 0; t < 3; t++) { put(x, 20 + t, 20); put(x, 540 - t, 20); }
+  for (let y = 20; y < 540; y++) for (let t = 0; t < 3; t++) { put(20 + t, y, 20); put(380 - t, y, 20); }
+  const ecx = 200, ecy = 200, ea = 70, eb = 120;
+  for (let y = 0; y < PH; y++) for (let x = 0; x < PW; x++) {
+    const d = Math.sqrt(((x - ecx) / ea) ** 2 + ((y - ecy) / eb) ** 2);
+    if (d > 1 && d < 1 + 3 / Math.min(ea, eb)) put(x, y, 15);                    // outline
+  }
+  const textPx = [];
+  for (const col of [215, 185]) for (let k = 0; k < 7; k++) for (let y = 0; y < 12; y++) for (let x = 0; x < 12; x++) {
+    if ((x + y) % 3 === 0 || x === 0 || y === 11) { put(col + x, 120 + k * 18 + y, 25); textPx.push([col + x, 120 + k * 18 + y]); }
+  }
+  // a character joined to the outline's top by a short stroke
+  for (let y = 84; y < 98; y++) for (let x = 194; x < 206; x++) if ((x + y) % 2 || y === 84) { put(x, y, 25); textPx.push([x, y]); }
+  for (let y = 78; y < 84; y++) put(200, y, 25);
+  for (let y = 390; y < 520; y++) for (let x = 60; x < 340; x++) if ((x * 7 + y * 3) % 11 === 0) put(x, y, 120);   // hatching
+  for (let y = 420; y < 480; y++) for (let x = 120; x < 200; x++) put(x, y, 255);                               // a face
+  for (const [x, y] of [[140, 440], [170, 440], [150, 460], [155, 460]]) put(x, y, 30);
+  const drawnPage = { width: PW, height: PH, data: px };
+  const det = TS.detect(drawnPage);
+  assert.strictEqual(det.regions.length, 1, 'one balloon found: ' + JSON.stringify(det.regions.map(r => [r.x0, r.y0, r.x1, r.y1]))); checks++;
+  const RB = det.regions[0];
+  assert(Math.abs(RB.cx - ecx) < 8 && RB.y0 < 90 && RB.y1 > 310, 'the balloon is the ellipse'); checks++;
+  assert.strictEqual(Object.keys(TS.regionBoxes(det)[0]).join(), 'id,x0,y0,x1,y1'); checks++;
+  // a canvas stand-in: Comic Neue is about 0.55 em per character
+  const drawn = [];
+  const fakeCtx = { font: '', textAlign: '', textBaseline: '', fillStyle: '', strokeStyle: '', lineWidth: 1, lineJoin: '',
+    measureText(t) { const size = parseFloat(/(\d+(?:\.\d+)?)px/.exec(this.font)[1]); return { width: t.length * size * 0.55 }; },
+    fillText(t, x, y) { drawn.push({ t, x, y, size: parseFloat(/(\d+(?:\.\d+)?)px/.exec(this.font)[1]) }); },
+    strokeText() {}, putImageData() {}, beginPath() {}, rect() {}, roundRect() {}, fill() {} };
+  const outlineBefore = [];
+  for (let y = 0; y < PH; y++) for (let x = 0; x < PW; x++) if (px[(y * PW + x) * 4] === 15) outlineBefore.push(y * PW + x);
+  TS.render(fakeCtx, drawnPage, det, [{ region: RB.id, text: 'I just want to talk with the dorm head too, so...' }]);
+  const left = textPx.filter(([x, y]) => px[(y * PW + x) * 4] <= 240);
+  assert(!left.length, JSON.stringify(left.slice(0, 20)) + ' all of the original text is erased, including the character touching the outline'); checks++;
+  assert(outlineBefore.every(i => px[i * 4] === 15), 'the outline is untouched'); checks++;
+  assert(px[(440 * PW + 140) * 4] === 30, 'nothing outside the balloon is touched'); checks++;
+  assert(drawn.length >= 3, 'the translation is lettered over several lines'); checks++;
+  assert.strictEqual(drawn.map(d => d.t).join(' '), 'I just want to talk with the dorm head too, so...', 'lines break between whole words, in order'); checks++;
+  for (const d of drawn) {
+    const half = d.t.length * d.size * 0.55 / 2;
+    for (const [lx, ly] of [[d.x - half, d.y], [d.x + half, d.y], [d.x - half, d.y - d.size / 2], [d.x + half, d.y + d.size / 2]]) {
+      assert(((lx - ecx) / ea) ** 2 + ((ly - ecy) / eb) ** 2 < 1, 'line "' + d.t + '" stays inside the balloon');
+    }
+  }
+  checks++;
+  // words: hyphens may break, Japanese breaks between characters
+  assert.strictEqual(JSON.stringify(TS.tokens('Kamiina-san!? first-year').map(t => t.t)), '["Kamiina-","san!?","first-","year"]'); checks++;
+  assert.strictEqual(TS.tokens('寮長さんと話したい').length, 9); checks++;
+  assert.strictEqual(TS.tokens('Wait...!').map(t => t.t).join('|'), 'Wait...!'); checks++;
+
   fs.rmSync(tmp, { recursive: true, force: true });
-  console.log('manga-translation checks passed: ' + checks + ' assertions (answers, cache, per-chapter switch, languages, models, errors, PDF)');
+  console.log('manga-translation checks passed: ' + checks + ' assertions (answers, cache, per-chapter switch, languages, models, errors, PDF, balloon detection, erasing, lettering)');
 })().catch(e => { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (_) {} console.error(e); process.exit(1); });

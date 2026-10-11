@@ -8,17 +8,25 @@ posture, design decisions, open roadmap — lives in [DEVELOPMENT.md](DEVELOPMEN
 ## 5.9.0 — Manga translation, safer deletes, accessibility
 
 - **Translate manga in the built-in reader.** The new Translate tool (`T`)
-  sends each page to Claude on OpenRouter, with the key you already gave
-  Luma, and draws the translated text over the bubbles, narration boxes,
-  signs and sound effects. The boxes follow zoom, fit, double pages and the
-  long strip; hover one to see the original underneath. It is switched on
-  per chapter, because every new page is a paid request (the next page is
-  prepared while you read). Translated pages are saved, so reopening or
-  rereading a chapter costs nothing, and the chapter remembers that
-  translation is on. Settings → Manga picks the language (16) and the model:
-  Claude Haiku 5.5 (quick, cheap) or Claude Sonnet 5.5 (better on hard
-  pages). A missing key, an empty balance or rate limits stop the requests
-  and say why. Works for .cbz, .cbr, image EPUB/MOBI and PDF.
+  turns a raw page into a lettered one. The reader finds the speech balloons
+  in the page itself (white areas inside an outline, with text in them) and
+  numbers them on the copy it sends to Claude on OpenRouter, with the key you
+  already gave Luma, so the model only says which balloon says what and never
+  has to guess positions. The original text is then erased in each balloon's
+  own paper colour (characters touching the outline included, the outline
+  left intact) and the translation is lettered in Comic Neue, bundled with the
+  app: lines follow the balloon's curve, words are never split, and type is as
+  large as fits, evened out across the page. Text outside balloons (captions,
+  signs) gets a panel in its own background colour. The result replaces the
+  page image, so it follows zoom, fit, double pages and the long strip, and
+  `T` again shows the original instantly. It is switched on per chapter,
+  because every new page is a paid request (the next page is prepared while
+  you read). Answers are saved, so reopening or rereading a chapter costs
+  nothing, and the chapter remembers that translation is on. Settings →
+  Manga picks the language (16) and the model: Claude Haiku 5.5 (quick,
+  cheap) or Claude Sonnet 5.5 (better on hard pages). A missing key, an empty
+  balance or rate limits stop the requests and say why. Works for .cbz, .cbr,
+  image EPUB/MOBI and PDF.
 - **No more silent permanent deletes.** Deleting a series, an episode or a
   duplicate used to delete the files permanently whenever the Recycle Bin
   refused them, which also happens when a file is in use, a path is too long
