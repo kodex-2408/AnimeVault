@@ -140,7 +140,8 @@ try {
   for (const n of ['Ch 1/page10.png', 'Ch 1/page2.png', 'Ch 1/page1.png', '__MACOSX/._page1.png', 'Ch 1/.thumb.png', 'info.txt']) z.addFile(n, png);
   z.writeZip(cbz);
   assert.strictEqual(reader.supportsBuiltInReader('x.cbr'), true); checks++;
-  assert.strictEqual(reader.supportsBuiltInReader('x.pdf'), false); checks++;
+  assert.strictEqual(reader.supportsBuiltInReader('x.pdf') && reader.supportsBuiltInReader('x.epub') && reader.supportsBuiltInReader('x.mobi'), true); checks++;
+  assert.strictEqual(reader.supportsBuiltInReader('x.azw3'), false); checks++;
   {
     pendingReader.push(reader.openChapter(cbz).then(async (r) => {
       assert.strictEqual(r.count, 3, 'images only: no __MACOSX, dot files or text'); checks++;
@@ -151,8 +152,51 @@ try {
       assert.strictEqual(bad.status, 404, 'unknown token'); checks++;
       const out = await reader.handlePageRequest({ url: 'page://' + r.token + '/3' });
       assert.strictEqual(out.status, 404, 'page out of range'); checks++;
-      const pdf = await reader.openChapter(path.join(lib, 'Gyaru', 'missing.pdf')).catch(e => ({ error: e.message }));
-      assert(pdf.error || pdf.unsupported, 'pdf is not opened in the built-in reader'); checks++;
+      // PDF: drawn by pdf.js in the renderer, so only the kind comes back
+      fs.writeFileSync(path.join(lib, 'Gyaru', 'book.pdf'), '%PDF-1.4\n%%EOF\n');
+      const pdf = await reader.openChapter(path.join(lib, 'Gyaru', 'book.pdf'));
+      assert.strictEqual(pdf.kind, 'pdf'); checks++;
+
+      // EPUB: a comic (one picture per page) becomes pages, a novel becomes sanitizable HTML
+      const epub = (files) => { const e = new AdmZip(); e.addFile('mimetype', Buffer.from('application/epub+zip'));
+        e.addFile('META-INF/container.xml', Buffer.from('<container><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>'));
+        for (const [n, d] of Object.entries(files)) e.addFile(n, Buffer.isBuffer(d) ? d : Buffer.from(d)); return e; };
+      const opf = (pages) => '<package><manifest>' + pages.map((p, i) => '<item id="p' + i + '" href="' + p + '" media-type="application/xhtml+xml"/>').join('') + '</manifest><spine>' + pages.map((p, i) => '<itemref idref="p' + i + '"/>').join('') + '</spine></package>';
+      const comic = epub({ 'OEBPS/content.opf': opf(['Text/p1.xhtml', 'Text/p2.xhtml']),
+        'OEBPS/Text/p1.xhtml': '<html><body><div><img src="../Images/a%20b.png"/></div></body></html>',
+        'OEBPS/Text/p2.xhtml': '<html><body><svg><image xlink:href="../Images/c.png"/></svg></body></html>',
+        'OEBPS/Images/a b.png': png, 'OEBPS/Images/c.png': png });
+      comic.writeZip(path.join(lib, 'Gyaru', 'comic.epub'));
+      const ce = await reader.openChapter(path.join(lib, 'Gyaru', 'comic.epub'));
+      assert.deepStrictEqual([ce.kind, ce.count], ['pages', 2], 'image-only EPUB reads as pages (incl. SVG-wrapped and %20 names)'); checks++;
+      assert.strictEqual((await reader.handlePageRequest({ url: 'page://' + ce.token + '/1' })).status, 200); checks++;
+      const novel = epub({ 'OEBPS/content.opf': opf(['ch1.xhtml', 'ch2.xhtml']),
+        'OEBPS/ch1.xhtml': '<html><head><style>p{}</style></head><body><h1>One</h1><p>' + 'Words. '.repeat(60) + '</p><img src="pic.png" alt="A pic"/></body></html>',
+        'OEBPS/ch2.xhtml': '<html><body><p>Two</p><img src="https://example.com/x.png"/></body></html>', 'OEBPS/pic.png': png });
+      novel.writeZip(path.join(lib, 'Gyaru', 'novel.epub'));
+      const ne = await reader.openChapter(path.join(lib, 'Gyaru', 'novel.epub'));
+      assert.deepStrictEqual([ne.kind, ne.sections.length], ['html', 2]); checks++;
+      assert(ne.sections[0].includes('<img src="page://' + ne.token + '/r/0" alt="A pic">') && !ne.sections[0].includes('<style'), 'pictures point at page://, the head is gone'); checks++;
+      assert(!ne.sections[1].includes('example.com'), 'remote pictures are dropped'); checks++;
+      const pic = await reader.handlePageRequest({ url: 'page://' + ne.token + '/r/0' });
+      assert.deepStrictEqual([pic.status, pic.headers.get('content-type')], [200, 'image/png']); checks++;
+
+      // MOBI: KCC-style comics become pages (cover/thumbnail copies dropped), text books HTML
+      const { buildMobi, palmDocCompress, fakeJpeg } = require('./mobi-fixture');
+      const sample = Buffer.from('<p>The quick brown fox — and the quick brown fox again.</p>'.repeat(100));
+      assert(reader.palmDocDecompress(palmDocCompress(sample)).equals(sample), 'PalmDOC round trip with back-references'); checks++;
+      fs.writeFileSync(path.join(lib, 'Gyaru', 'comic.mobi'), buildMobi({ html: '<html><body><img recindex="00002"><img recindex="00001"></body></html>', images: [fakeJpeg(1), fakeJpeg(2), fakeJpeg('c'), fakeJpeg('t')], coverIndex: 2, thumbIndex: 3 }));
+      const cm = await reader.openChapter(path.join(lib, 'Gyaru', 'comic.mobi'));
+      assert.deepStrictEqual([cm.kind, cm.count], ['pages', 2], 'MOBI comic: two pages'); checks++;
+      const first = await (await reader.handlePageRequest({ url: 'page://' + cm.token + '/0' })).arrayBuffer();
+      assert(Buffer.from(first).includes(Buffer.from('2')), 'page order follows the text, not the record order'); checks++;
+      fs.writeFileSync(path.join(lib, 'Gyaru', 'novel.mobi'), buildMobi({ html: '<html><body><p>' + 'Café naïve — text. '.repeat(400) + '</p><mbp:pagebreak/><p>Two <img recindex="00001"></p></body></html>', images: [fakeJpeg(1)] }));
+      const tm = await reader.openChapter(path.join(lib, 'Gyaru', 'novel.mobi'));
+      assert.deepStrictEqual([tm.kind, tm.sections.length], ['html', 2], 'MOBI text across several compressed records'); checks++;
+      assert(tm.sections[0].includes('Café naïve — text.') && tm.sections[1].includes('page://' + tm.token + '/r/0'), 'UTF-8 text and pictures survive'); checks++;
+      fs.writeFileSync(path.join(lib, 'Gyaru', 'huff.mobi'), (() => { const b = buildMobi({ html: '<p>' + 'x'.repeat(5000) + '</p>', images: [] }); const at = b.readUInt32BE(78); b.writeUInt16BE(17480, at); return b; })());
+      const hm = await reader.openChapter(path.join(lib, 'Gyaru', 'huff.mobi'));
+      assert.strictEqual(hm.unsupported, true, 'HUFF/CDIC text goes to the reader app'); checks++;
       let blocked = false; try { await reader.openChapter('/etc/passwd.cbz'); } catch (e) { blocked = true; }
       assert(blocked, 'outside the library folders: refused'); checks++;
     }));

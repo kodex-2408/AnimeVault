@@ -68,7 +68,7 @@ const STATIC_CONFIG_KEYS = new Set([
   'backgroundType', 'backgroundIntensity', 'maximized', 'setupDone', 'importAutoMatch', 'lumaMascot', 'lumaSparkles', 'lumaSize', 'lumaSpeed',
   'untrackOnDelete', 'mutedDupSeries', 'lumaModel', 'hasOpenRouterKey', 'lumaWebSearch',
   'mangaAutoRename', 'mangaSeenSeries', 'readerTimerEnabled', 'readerTimerSeconds',
-  'mangaReader', 'readerMode', 'readerDir', 'readerFit', 'readerMarkPercent',
+  'mangaReader', 'readerMode', 'readerDir', 'readerFit', 'readerMarkPercent', 'readerZoom',
   // 5.0 UI preferences
   'glassLevel', 'lastDarkTheme', 'lastLightTheme', 'sidebarCollapsed', 'schedView', 'heroTone'
 ]);

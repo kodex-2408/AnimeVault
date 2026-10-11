@@ -1,14 +1,19 @@
-// renderer/reader.js - the built-in manga reader: one page, two pages or a
-// long strip, left-to-right or right-to-left, with a slim toolbar on the right
-// and the chapter switcher in the top-right corner. Pages stream from the
-// chapter archive through page://; a chapter is marked read once the reader
-// reaches S.cfg.readerMarkPercent of its pages.
+// renderer/reader.js - the built-in reader: one page, two pages or a long
+// strip, left-to-right or right-to-left, with a slim toolbar on the right, the
+// chapter switcher in the top-right corner and the zoom control bottom right.
+// Three kinds of content (see main/players/reader.js):
+//   pages - comic images streamed from the archive through page://
+//   pdf   - pages drawn with pdf.js, then shown exactly like images
+//   html  - EPUB/MOBI text, sanitized here and shown as one scrolling column
+// A chapter is marked read once the reader reaches S.cfg.readerMarkPercent of
+// its pages (or of the text).
 
 var RD=null;            // the open reader, or null
 var RD_MODES=['single','double','strip'];
 var RD_MODE_LABEL={single:'Single page',double:'Double page',strip:'Long strip'};
 var RD_FIT_LABEL={height:'Fit height',width:'Fit width',original:'Original size'};
-var RD_BUILTIN_EXTS=['.cbz','.zip','.cbr','.rar'];
+var RD_BUILTIN_EXTS=['.cbz','.zip','.cbr','.rar','.pdf','.epub','.mobi'];
+var RD_ZOOM_MIN=30,RD_ZOOM_MAX=400,RD_ZOOM_STEP=10;
 
 function rdPref(key,def,allowed){var v=S.cfg[key];return allowed.indexOf(v)>=0?v:def;}
 function rdSetPref(key,val){S.cfg[key]=val;api.setConfig(key,val);}
@@ -18,59 +23,161 @@ function rdCanOpen(fpath){
   return !!m&&RD_BUILTIN_EXTS.indexOf(m[0].toLowerCase())>=0;
 }
 function rdMarkPct(){var v=Number(S.cfg.readerMarkPercent);return Number.isInteger(v)&&v>=10&&v<=100?v:90;}
-function rdPosKey(p){return 'rdpos:'+p;}
-function rdSavedPage(p){try{var v=parseInt(localStorage.getItem(rdPosKey(p)),10);return isNaN(v)?0:v;}catch(e){return 0;}}
-function rdSavePage(p,i){try{localStorage.setItem(rdPosKey(p),String(i));}catch(e){}}
+function rdZoomPref(){var v=Number(S.cfg.readerZoom);return Number.isInteger(v)&&v>=RD_ZOOM_MIN&&v<=RD_ZOOM_MAX?v:100;}
+// Last position per file: a page index, or for text a share of the scroll.
+function rdSavedPos(p){try{var v=parseFloat(localStorage.getItem('rdpos:'+p));return isNaN(v)?0:v;}catch(e){return 0;}}
+function rdSavePos(p,v){try{localStorage.setItem('rdpos:'+p,String(v));}catch(e){}}
 function rdChapters(name){
   var s=S.lib.find(function(x){return x.name===name;});
   return s?s.episodes.slice().sort(function(a,b){return (a.episodeNum===null?1e9:a.episodeNum)-(b.episodeNum===null?1e9:b.episodeNum);}):[];
 }
 
+// ---------------------------------------------------------------- pdf.js --
+var _pdfjs=null;
+function rdLoadPdfjs(){
+  if(!_pdfjs){
+    _pdfjs=import(new URL('node_modules/pdfjs-dist/build/pdf.min.mjs',document.baseURI).href).then(function(lib){
+      lib.GlobalWorkerOptions.workerSrc=new URL('node_modules/pdfjs-dist/build/pdf.worker.min.mjs',document.baseURI).href;
+      return lib;
+    });
+    _pdfjs.catch(function(){_pdfjs=null;});
+  }
+  return _pdfjs;
+}
+async function rdOpenPdf(token){
+  var lib=await rdLoadPdfjs();
+  var data=await api.readerFileData(token);
+  if(!data)throw new Error('The PDF could not be read');
+  var base=new URL('node_modules/pdfjs-dist/',document.baseURI).href;
+  return lib.getDocument({data:data,isEvalSupported:false,cMapUrl:base+'cmaps/',cMapPacked:true,standardFontDataUrl:base+'standard_fonts/',wasmUrl:base+'wasm/'}).promise;
+}
+// A PDF page drawn once at a sharp size, kept as an image URL (the newest 16).
+async function rdPdfPageUrl(R,i){
+  if(R.pdfUrls[i])return R.pdfUrls[i];
+  if(!R.pdfJobs[i]){
+    R.pdfJobs[i]=(async function(){
+      var page=await R.pdf.getPage(i+1);
+      var base=page.getViewport({scale:1});
+      var scale=Math.max(1,Math.min(4,2200*Math.min(2,window.devicePixelRatio||1)/2/Math.max(base.width,base.height)));
+      var vp=page.getViewport({scale:scale});
+      var canvas=document.createElement('canvas');canvas.width=Math.ceil(vp.width);canvas.height=Math.ceil(vp.height);
+      var ctx=canvas.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);
+      await page.render({canvasContext:ctx,viewport:vp}).promise;
+      var blob=await new Promise(function(res){canvas.toBlob(res,'image/jpeg',0.92);});
+      var url=URL.createObjectURL(blob);
+      R.pdfUrls[i]=url;R.pdfOrder.push(i);
+      while(R.pdfOrder.length>16){var old=R.pdfOrder.shift();if(old!==i){URL.revokeObjectURL(R.pdfUrls[old]);delete R.pdfUrls[old];}}
+      delete R.pdfJobs[i];
+      return url;
+    })();
+  }
+  return R.pdfJobs[i];
+}
+function rdFillPdfImg(img){
+  var R=RD;if(!R||R.kind!=='pdf'||img.getAttribute('src'))return;
+  var i=Number(img.dataset.i);
+  rdPdfPageUrl(R,i).then(function(u){if(RD===R&&img.isConnected){img.src=u;img.classList.remove('rd-pending');}}).catch(function(e){console.warn('[Reader] PDF page',i+1,e);});
+}
+function rdReleasePdf(R){
+  if(!R||!R.pdf)return;
+  Object.keys(R.pdfUrls).forEach(function(k){URL.revokeObjectURL(R.pdfUrls[k]);});
+  try{R.pdf.destroy();}catch(e){}
+}
+
+// ------------------------------------------------- EPUB / MOBI sanitizer --
+// Book HTML is untrusted: only plain text structure and pictures served by
+// page:// survive. Everything else is unwrapped (its text kept) or dropped.
+var RD_KEEP_TAGS=new Set(['P','DIV','SPAN','H1','H2','H3','H4','H5','H6','EM','STRONG','B','I','U','S','SUB','SUP','SMALL','BR','HR','IMG','FIGURE','FIGCAPTION','BLOCKQUOTE','UL','OL','LI','DL','DT','DD','TABLE','THEAD','TBODY','TFOOT','TR','TD','TH','CAPTION','PRE','CODE','RUBY','RT','RP','SECTION','ARTICLE','ASIDE','HEADER','FOOTER','CENTER','CITE','Q','ABBR','MARK','DEL','INS']);
+var RD_DROP_TAGS=new Set(['SCRIPT','STYLE','LINK','META','TITLE','HEAD','IFRAME','OBJECT','EMBED','FORM','INPUT','BUTTON','TEXTAREA','SELECT','VIDEO','AUDIO','SOURCE','TEMPLATE','NOSCRIPT','CANVAS','MATH','BASE']);
+function rdSanitize(html,token){
+  var doc=new DOMParser().parseFromString('<!doctype html><body>'+html,'text/html');
+  var prefix='page://'+token+'/r/';
+  (function clean(node){
+    Array.prototype.slice.call(node.childNodes).forEach(function(ch){
+      if(ch.nodeType===3)return;
+      if(ch.nodeType!==1){ch.remove();return;}
+      var tag=ch.tagName.toUpperCase();
+      if(RD_DROP_TAGS.has(tag)){ch.remove();return;}
+      clean(ch);
+      if(!RD_KEEP_TAGS.has(tag)){ch.replaceWith.apply(ch,Array.prototype.slice.call(ch.childNodes));return;}
+      var src=tag==='IMG'?ch.getAttribute('src')||'':'';
+      var alt=tag==='IMG'?ch.getAttribute('alt')||'':'';
+      var colspan=ch.getAttribute('colspan'),rowspan=ch.getAttribute('rowspan');
+      Array.prototype.slice.call(ch.attributes).forEach(function(a){ch.removeAttribute(a.name);});
+      if(tag==='IMG'){
+        if(src.indexOf(prefix)!==0||!/^\d+$/.test(src.slice(prefix.length))){ch.remove();return;}
+        ch.setAttribute('src',src);ch.setAttribute('alt',alt);ch.setAttribute('loading','lazy');
+      }
+      if((tag==='TD'||tag==='TH')){if(/^\d{1,2}$/.test(colspan||''))ch.setAttribute('colspan',colspan);if(/^\d{1,2}$/.test(rowspan||''))ch.setAttribute('rowspan',rowspan);}
+    });
+  })(doc.body);
+  return doc.body.innerHTML;
+}
+
+// ---------------------------------------------------------------- open --
 async function openReader(name,fpath,num){
   var r;
   try{r=await api.readerOpen(fpath);}catch(e){r={error:e.message};}
   if(!r||r.unsupported)return false;
   if(r.error){toast(r.error,'e');return true;}
-  if(RD&&RD.token&&RD.token!==r.token)api.readerClose(RD.token);
-  var chapters=rdChapters(name);
-  var idx=chapters.findIndex(function(e){return e.path===fpath;});
-  var saved=rdSavedPage(fpath);
-  RD={name:name,path:fpath,num:num,token:r.token,count:r.count,
-    page:saved>0&&saved<r.count-1?saved:0,chapters:chapters,idx:idx,
+  var R={name:name,path:fpath,num:num,token:r.token,kind:r.kind||'pages',count:r.count||0,page:0,
+    chapters:rdChapters(name),idx:-1,
     mode:rdPref('readerMode','single',RD_MODES),dir:rdPref('readerDir','ltr',['ltr','rtl']),fit:rdPref('readerFit','height',['height','width','original']),
-    panel:null,marked:false,wide:{}};
+    zoom:rdZoomPref(),panel:null,marked:false,wide:{},fs:false,
+    pdf:null,pdfUrls:{},pdfOrder:[],pdfJobs:{},html:null,observer:null};
+  R.idx=R.chapters.findIndex(function(e){return e.path===fpath;});
+  try{
+    if(R.kind==='pdf'){R.pdf=await rdOpenPdf(R.token);R.count=R.pdf.numPages;}
+    if(R.kind==='html'){R.html=(r.sections||[]).map(function(s){return '<section class="rd-sec">'+rdSanitize(s,R.token)+'</section>';}).join('');R.count=(r.sections||[]).length;}
+  }catch(e){
+    api.readerClose(R.token);
+    toast('Could not open this file in the built-in reader: '+(e&&e.message||e),'e');
+    return false; // falls back to the reader app
+  }
+  var saved=rdSavedPos(fpath);
+  if(R.kind==='html')R.scrollTo=saved>0&&saved<0.98?saved:0;
+  else R.page=saved>0&&saved<R.count-1?Math.floor(saved):0;
+  if(RD&&RD!==R){api.readerClose(RD.token);rdReleasePdf(RD);if(RD.observer)RD.observer.disconnect();R.fs=RD.fs;R.panel=RD.panel==='chapters'?'chapters':null;}
+  else{try{R.fs=await api.isFullScreen();}catch(e){}}
+  RD=R;
   rdBuild();
   return true;
 }
 
 function rdSrc(i){return 'page://'+RD.token+'/'+i;}
 function rdLayer(){return document.getElementById('rdLayer');}
+function rdIsText(){return RD&&RD.kind==='html';}
 
 function rdBuild(){
   var el=rdLayer();
-  if(!el){el=document.createElement('div');el.id='rdLayer';el.className='rd-layer';el.setAttribute('role','dialog');el.setAttribute('aria-label','Manga reader');document.body.appendChild(el);}
-  var ch=RD.chapters[RD.idx],total=RD.chapters.length;
+  if(!el){
+    el=document.createElement('div');el.id='rdLayer';el.className='rd-layer';el.setAttribute('role','dialog');el.setAttribute('aria-label','Reader');
+    el.addEventListener('wheel',rdOnWheel,{passive:false});
+    document.body.appendChild(el);
+  }
+  var ch=RD.chapters[RD.idx],total=RD.chapters.length,text=rdIsText();
   var chipLabel=(RD.num!==null&&RD.num!==undefined?'Ch. '+RD.num:'Chapter')+(total?' / '+(RD.chapters[total-1].episodeNum!==null?RD.chapters[total-1].episodeNum:total):'');
-  var tools=[
-    ['home','rdClose','Back to series (Esc)'],
-    ['bookOpen','rdCycleMode',RD_MODE_LABEL[RD.mode]+' (M)'],
-    ['list','rdTogglePanel','Chapters (C)','chapters'],
-    ['gear','rdTogglePanel','Reader settings','settings'],
-    [RD.fit==='width'?'fitWidth':RD.fit==='height'?'fitHeight':'expand','rdCycleFit',RD_FIT_LABEL[RD.fit]+' (W)'],
-    ['swap','rdToggleDir',(RD.dir==='rtl'?'Right to left':'Left to right')+' (D)'],
-    ['fullscreen','rdFullscreen','Fullscreen (F)'],
-    ['help','rdTogglePanel','Keyboard shortcuts (?)','help']
-  ];
-  el.className='rd-layer rd-'+RD.mode+' rd-fit-'+RD.fit+' rd-'+RD.dir+(RD.panel?' rd-has-panel':'');
+  var tools=[['home','rdClose','Back to series (Esc)']];
+  if(!text)tools.push(['bookOpen','rdCycleMode',RD_MODE_LABEL[RD.mode]+' (M)']);
+  tools.push(['list','rdTogglePanel','Chapters (C)','chapters'],['gear','rdTogglePanel','Reader settings','settings']);
+  if(!text)tools.push([RD.fit==='width'?'fitWidth':RD.fit==='height'?'fitHeight':'expand','rdCycleFit',RD_FIT_LABEL[RD.fit]+' (W)'],['swap','rdToggleDir',(RD.dir==='rtl'?'Right to left':'Left to right')+' (D)']);
+  tools.push(['fullscreen','rdFullscreen',(RD.fs?'Exit fullscreen':'Fullscreen')+' (F)','',RD.fs],['help','rdTogglePanel','Keyboard shortcuts (?)','help']);
+  var mode=text?'text':RD.mode;
+  el.className='rd-layer rd-'+mode+' rd-fit-'+RD.fit+' rd-'+RD.dir+(RD.panel?' rd-has-panel':'')+(RD.zoom!==100?' rd-zoomed':'');
+  el.style.setProperty('--rd-zoom',String(RD.zoom/100));
   el.innerHTML='<div class="rd-stage" id="rdStage" tabindex="-1"'+A('rdStageClick')+'></div>'
     +'<div class="rd-chip"><button class="rd-chip-btn" aria-label="Previous chapter"'+A('rdChapterStep',-1)+(RD.idx>0?'':' disabled')+'>'+ic('chevronLeft')+'</button>'
     +'<span class="rd-chip-label"'+(ch?Tip(ch.name):'')+'>'+E(chipLabel)+'</span>'
     +'<button class="rd-chip-btn" aria-label="Next chapter"'+A('rdChapterStep',1)+(RD.idx>=0&&RD.idx<total-1?'':' disabled')+'>'+ic('chevronRight')+'</button></div>'
     +'<nav class="rd-tools" aria-label="Reader tools">'+tools.map(function(t){
-      var on=t[3]&&RD.panel===t[3];
+      var on=(t[3]&&RD.panel===t[3])||t[4];
       return '<button class="rd-tool'+(on?' on':'')+'" aria-label="'+E(t[2])+'"'+Tip(t[2])+(t[3]?A(t[1],t[3]):A(t[1]))+'>'+ic(t[0])+'</button>';
     }).join('')+'</nav>'
     +'<aside class="rd-panel" id="rdPanel">'+rdPanelHtml()+'</aside>'
+    +'<div class="rd-zoom" role="group" aria-label="Zoom">'
+      +'<button class="rd-chip-btn" aria-label="Zoom out (Ctrl −)"'+Tip('Zoom out (Ctrl −)')+A('rdZoomStep',-1)+(RD.zoom<=RD_ZOOM_MIN?' disabled':'')+'>'+ic('minimize')+'</button>'
+      +'<button class="rd-zoom-val" id="rdZoomVal" aria-label="Reset zoom (Ctrl 0)"'+Tip('Reset to 100% (Ctrl 0)')+A('rdZoomReset')+'>'+RD.zoom+'%</button>'
+      +'<button class="rd-chip-btn" aria-label="Zoom in (Ctrl +)"'+Tip('Zoom in (Ctrl +)')+A('rdZoomStep',1)+(RD.zoom>=RD_ZOOM_MAX?' disabled':'')+'>'+ic('plus')+'</button></div>'
     +'<div class="rd-progress" id="rdProgress"><div class="rd-progress-fill" id="rdProgressFill"></div></div>'
     +'<div class="rd-pageno" id="rdPageNo"></div>';
   rdRenderPages();
@@ -91,14 +198,16 @@ function rdPanelHtml(){
       return '<div class="rd-set"><div class="rd-set-label">'+label+'</div><div class="rd-seg">'+opts.map(function(o){
         return '<button class="'+(cur===o[0]?'on':'')+'"'+A('rdSetOption',key,o[0])+'>'+o[1]+'</button>';}).join('')+'</div></div>';
     };
+    var note='<div class="rd-set-note">Marked read at '+rdMarkPct()+'% of the '+(rdIsText()?'text':'pages')+'. Change it in Settings → Manga. Zoom with Ctrl + scroll wheel or the control in the bottom-right corner.</div>';
+    if(rdIsText())return '<div class="rd-panel-title">Reader settings</div><div class="rd-set-note">Books with text scroll as one column; zoom changes the text size.</div>'+note;
     return '<div class="rd-panel-title">Reader settings</div>'
       +seg('Display','readerMode',RD.mode,[['single','Single'],['double','Double'],['strip','Long strip']])
       +seg('Direction','readerDir',RD.dir,[['ltr','Left → right'],['rtl','Right → left']])
       +seg('Fit','readerFit',RD.fit,[['height','Height'],['width','Width'],['original','Original']])
-      +'<div class="rd-set-note">Chapters are marked read at '+rdMarkPct()+'% of their pages. Change it in Settings → Manga.</div>';
+      +note;
   }
   if(RD.panel==='help'){
-    var keys=[['→ / ←','Next / previous page (flipped right to left)'],['Space · Page Down','Next page'],['Page Up','Previous page'],['Home · End','First / last page'],['[ · ]','Previous / next chapter'],['M','Single, double or long strip'],['W','Fit height, width or original'],['D','Reading direction'],['C','Chapter list'],['F','Fullscreen'],['Esc','Close panel, then the reader']];
+    var keys=[['→ / ←','Next / previous page (flipped right to left)'],['Space · Page Down','Next page'],['Page Up','Previous page'],['Home · End','First / last page'],['[ · ]','Previous / next chapter'],['Ctrl + wheel','Zoom in or out'],['Ctrl + / − / 0','Zoom in, out, reset'],['M','Single, double or long strip'],['W','Fit height, width or original'],['D','Reading direction'],['C','Chapter list'],['F','Fullscreen'],['Esc','Close panel, leave fullscreen, then the reader']];
     return '<div class="rd-panel-title">Keyboard shortcuts</div><div class="rd-keys">'+keys.map(function(k){return '<div class="rd-key"><kbd>'+k[0]+'</kbd><span>'+k[1]+'</span></div>';}).join('')+'</div>';
   }
   return '';
@@ -116,15 +225,27 @@ function rdSpreadStart(i){
   while(p<RD.count){var sp=rdSpread(p);if(sp.indexOf(i)>=0)return p;p+=sp.length;}
   return i;
 }
+function rdImg(i,lazy){
+  var pdf=RD.kind==='pdf';
+  return '<img class="rd-page'+(pdf?' rd-pending':'')+'" data-i="'+i+'"'+(pdf?'':' src="'+rdSrc(i)+'"')+(lazy?' loading="lazy"':'')+' decoding="async" alt="Page '+(i+1)+'">';
+}
 
 function rdRenderPages(){
   var stage=document.getElementById('rdStage');if(!stage)return;
-  if(RD.mode==='strip'){
+  if(RD.observer){RD.observer.disconnect();RD.observer=null;}
+  if(rdIsText()){
+    stage.innerHTML='<div class="rd-col"><article class="rd-book">'+RD.html+'</article>'+rdEndCard()+'</div>';
+    stage.onscroll=rdOnTextScroll;
+    if(RD.scrollTo){var to=RD.scrollTo;RD.scrollTo=0;setTimeout(function(){stage.scrollTop=to*(stage.scrollHeight-stage.clientHeight);rdOnTextScroll();},60);}
+  }else if(RD.mode==='strip'){
     var h='';
-    for(var i=0;i<RD.count;i++)h+='<img class="rd-page" data-i="'+i+'" src="'+rdSrc(i)+'" loading="lazy" decoding="async" alt="Page '+(i+1)+'">';
-    h+=rdEndCard();
-    stage.innerHTML=h;
+    for(var i=0;i<RD.count;i++)h+=rdImg(i,true);
+    stage.innerHTML='<div class="rd-col">'+h+rdEndCard()+'</div>';
     stage.onscroll=rdOnStripScroll;
+    if(RD.kind==='pdf'){
+      RD.observer=new IntersectionObserver(function(entries){entries.forEach(function(en){if(en.isIntersecting)rdFillPdfImg(en.target);});},{root:stage,rootMargin:'1600px 0px'});
+      stage.querySelectorAll('img.rd-pending').forEach(function(img){RD.observer.observe(img);});
+    }
     var target=stage.querySelector('[data-i="'+RD.page+'"]');
     if(target&&RD.page>0)setTimeout(function(){target.scrollIntoView({block:'start'});},50);
   }else{
@@ -132,10 +253,14 @@ function rdRenderPages(){
     RD.page=rdSpreadStart(RD.page);
     var pages=rdSpread(RD.page);
     if(RD.dir==='rtl')pages=pages.slice().reverse();
-    stage.innerHTML='<div class="rd-spread">'+pages.map(function(i){return '<img class="rd-page" data-i="'+i+'" src="'+rdSrc(i)+'" decoding="async" alt="Page '+(i+1)+'">';}).join('')+'</div>';
-    stage.scrollTop=0;
-    stage.querySelectorAll('img').forEach(function(img){img.addEventListener('load',rdNoteSize);});
-    for(var k=1;k<=3;k++){if(RD.page+k<RD.count){var pre=new Image();pre.src=rdSrc(RD.page+k);}}
+    stage.innerHTML='<div class="rd-spread">'+pages.map(function(i){return rdImg(i,false);}).join('')+'</div>';
+    stage.scrollTop=0;stage.scrollLeft=0;
+    stage.querySelectorAll('img').forEach(function(img){img.addEventListener('load',rdNoteSize);rdFillPdfImg(img);});
+    for(var k=1;k<=3;k++){
+      if(RD.page+k>=RD.count)break;
+      if(RD.kind==='pdf')rdPdfPageUrl(RD,RD.page+k).catch(function(){});
+      else{var pre=new Image();pre.src=rdSrc(RD.page+k);}
+    }
   }
   rdUpdateProgress();
 }
@@ -153,20 +278,34 @@ function rdNoteSize(ev){
 }
 function rdOnStripScroll(){
   var stage=document.getElementById('rdStage');if(!stage||!RD)return;
-  var mid=stage.scrollTop+stage.clientHeight*0.5,imgs=stage.querySelectorAll('.rd-page'),cur=0;
-  for(var i=0;i<imgs.length;i++){if(imgs[i].offsetTop<=mid)cur=i;else break;}
+  var mid=stage.getBoundingClientRect().top+stage.clientHeight*0.5,imgs=stage.querySelectorAll('.rd-page'),cur=0;
+  for(var i=0;i<imgs.length;i++){if(imgs[i].getBoundingClientRect().top<=mid)cur=i;else break;}
   if(stage.scrollTop+stage.clientHeight>=stage.scrollHeight-4)cur=RD.count-1;
   if(cur!==RD.page){RD.page=cur;rdUpdateProgress();}
+}
+function rdOnTextScroll(){
+  var stage=document.getElementById('rdStage');if(!stage||!RD)return;
+  var max=stage.scrollHeight-stage.clientHeight;
+  RD.textPct=max>0?Math.min(1,(stage.scrollTop+stage.clientHeight)/stage.scrollHeight):1;
+  RD.textPos=max>0?stage.scrollTop/max:0;
+  rdUpdateProgress();
 }
 
 function rdUpdateProgress(){
   if(!RD)return;
-  var last=RD.mode==='strip'?RD.page:Math.max.apply(null,rdSpread(RD.page));
-  var pct=RD.count?(last+1)/RD.count:0;
+  var pct,label;
+  if(rdIsText()){
+    pct=RD.textPct||0;label=Math.round(pct*100)+'%';
+    rdSavePos(RD.path,pct>=0.995?0:(RD.textPos||0));
+  }else{
+    var last=RD.mode==='strip'?RD.page:Math.max.apply(null,rdSpread(RD.page));
+    var first=RD.mode==='strip'?RD.page:Math.min.apply(null,rdSpread(RD.page));
+    pct=RD.count?(last+1)/RD.count:0;
+    label=(first===last?(last+1):(first+1)+'–'+(last+1))+' / '+RD.count;
+    rdSavePos(RD.path,last>=RD.count-1?0:RD.page);
+  }
   var fill=document.getElementById('rdProgressFill');if(fill)fill.style.width=(pct*100).toFixed(1)+'%';
-  var no=document.getElementById('rdPageNo');
-  if(no){var first=RD.mode==='strip'?RD.page:Math.min.apply(null,rdSpread(RD.page));no.textContent=(first===last?(last+1):(first+1)+'–'+(last+1))+' / '+RD.count;}
-  rdSavePage(RD.path,last>=RD.count-1?0:RD.page);
+  var no=document.getElementById('rdPageNo');if(no)no.textContent=label;
   if(!RD.marked&&pct*100>=rdMarkPct())rdMarkRead();
 }
 
@@ -183,8 +322,38 @@ async function rdMarkRead(){
   await autoSyncSeries(name);
 }
 
+// ---------------------------------------------------------------- zoom --
+function rdSetZoom(z){
+  if(!RD)return;
+  z=Math.max(RD_ZOOM_MIN,Math.min(RD_ZOOM_MAX,Math.round(z)));
+  if(z===RD.zoom)return;
+  var stage=document.getElementById('rdStage');
+  // Keep the same spot of the page under the view while it grows or shrinks.
+  var fy=stage&&stage.scrollHeight>stage.clientHeight?(stage.scrollTop+stage.clientHeight/2)/stage.scrollHeight:0.5;
+  var fx=stage&&stage.scrollWidth>stage.clientWidth?(stage.scrollLeft+stage.clientWidth/2)/stage.scrollWidth:0.5;
+  RD.zoom=z;
+  var el=rdLayer();
+  el.style.setProperty('--rd-zoom',String(z/100));
+  el.classList.toggle('rd-zoomed',z!==100);
+  var val=document.getElementById('rdZoomVal');if(val)val.textContent=z+'%';
+  el.querySelectorAll('.rd-zoom .rd-chip-btn').forEach(function(b,k){b.disabled=k===0?z<=RD_ZOOM_MIN:z>=RD_ZOOM_MAX;});
+  if(stage){
+    stage.scrollTop=fy*stage.scrollHeight-stage.clientHeight/2;
+    stage.scrollLeft=fx*stage.scrollWidth-stage.clientWidth/2;
+  }
+  clearTimeout(rdSetZoom._t);rdSetZoom._t=setTimeout(function(){rdSetPref('readerZoom',z);},400);
+}
+function rdZoomStep(d){if(RD)rdSetZoom((Math.round(RD.zoom/RD_ZOOM_STEP)+d)*RD_ZOOM_STEP);}
+function rdZoomReset(){rdSetZoom(100);}
+function rdOnWheel(e){
+  if(!RD||!(e.ctrlKey||e.metaKey))return;
+  e.preventDefault();
+  rdZoomStep(e.deltaY<0?1:-1);
+}
+
+// ---------------------------------------------------------- navigation --
 function rdGo(delta){
-  if(!RD||RD.mode==='strip')return;
+  if(!RD||RD.mode==='strip'||rdIsText())return;
   if(delta>0){
     var next=RD.page+rdSpread(RD.page).length;
     if(next>=RD.count){rdChapterStep(1);return;}
@@ -195,8 +364,13 @@ function rdGo(delta){
   }
   rdRenderPages();
 }
-function rdGoTo(i){if(!RD)return;RD.page=Math.max(0,Math.min(RD.count-1,i));
-  if(RD.mode==='strip'){var t=document.querySelector('#rdStage [data-i="'+RD.page+'"]');if(t)t.scrollIntoView({block:'start'});rdUpdateProgress();}else rdRenderPages();}
+function rdGoTo(i){
+  if(!RD)return;
+  var stage=document.getElementById('rdStage');
+  if(rdIsText()){if(stage)stage.scrollTop=i<=0?0:stage.scrollHeight;return;}
+  RD.page=Math.max(0,Math.min(RD.count-1,i));
+  if(RD.mode==='strip'){var t=document.querySelector('#rdStage [data-i="'+RD.page+'"]');if(t)t.scrollIntoView({block:'start'});rdUpdateProgress();}else rdRenderPages();
+}
 async function rdChapterStep(d){
   if(!RD)return;
   var target=RD.chapters[RD.idx+d];
@@ -207,17 +381,19 @@ async function rdOpenChapter(i){var t=RD&&RD.chapters[i];if(t)await openReader(R
 
 function rdClose(){
   if(!RD)return;
-  var name=RD.name;
-  api.readerClose(RD.token);
+  var R=RD,name=R.name;
+  api.readerClose(R.token);
+  if(R.observer)R.observer.disconnect();
+  rdReleasePdf(R);
+  if(R.fs)api.setFullScreen(false);
   RD=null;
   var el=rdLayer();if(el)el.remove();
-  if(document.fullscreenElement)document.exitFullscreen().catch(function(){});
   if(S.cur&&S.cur.name===name)odtl(name);
   if(S.view==='library'||S.view==='continue'||S.view==='completed')render();
 }
-function rdCycleMode(){rdSetOption('readerMode',RD_MODES[(RD_MODES.indexOf(RD.mode)+1)%RD_MODES.length]);toast(RD_MODE_LABEL[RD.mode],'i');}
-function rdCycleFit(){var f=['height','width','original'];rdSetOption('readerFit',f[(f.indexOf(RD.fit)+1)%f.length]);toast(RD_FIT_LABEL[RD.fit],'i');}
-function rdToggleDir(){rdSetOption('readerDir',RD.dir==='rtl'?'ltr':'rtl');toast(RD.dir==='rtl'?'Right to left':'Left to right','i');}
+function rdCycleMode(){if(rdIsText())return;rdSetOption('readerMode',RD_MODES[(RD_MODES.indexOf(RD.mode)+1)%RD_MODES.length]);toast(RD_MODE_LABEL[RD.mode],'i');}
+function rdCycleFit(){if(rdIsText())return;var f=['height','width','original'];rdSetOption('readerFit',f[(f.indexOf(RD.fit)+1)%f.length]);toast(RD_FIT_LABEL[RD.fit],'i');}
+function rdToggleDir(){if(rdIsText())return;rdSetOption('readerDir',RD.dir==='rtl'?'ltr':'rtl');toast(RD.dir==='rtl'?'Right to left':'Left to right','i');}
 function rdSetOption(key,val){
   if(!RD)return;
   rdSetPref(key,val);
@@ -226,14 +402,17 @@ function rdSetOption(key,val){
 }
 function rdTogglePanel(which){if(!RD)return;RD.panel=RD.panel===which?null:which;rdBuild();
   if(RD.panel==='chapters'){var cur=document.querySelector('.rd-ch.cur');if(cur)cur.scrollIntoView({block:'center'});}}
-function rdFullscreen(){
-  var el=rdLayer();if(!el)return;
-  if(document.fullscreenElement)document.exitFullscreen().catch(function(){});
-  else el.requestFullscreen().catch(function(){});
+// The whole app window goes fullscreen; again (or Esc) restores it.
+async function rdFullscreen(on){
+  if(!RD)return;
+  var R=RD,want=typeof on==='boolean'?on:!R.fs;
+  try{R.fs=await api.setFullScreen(want);}catch(e){R.fs=false;}
+  if(RD===R){var b=document.querySelector('.rd-tool[aria-label^="Fullscreen"],.rd-tool[aria-label^="Exit fullscreen"]');
+    if(b){b.classList.toggle('on',R.fs);var lbl=(R.fs?'Exit fullscreen':'Fullscreen')+' (F)';b.setAttribute('aria-label',lbl);b.setAttribute('data-tip',lbl);}}
 }
 // Click the left or right part of the page to turn it (flipped right to left).
 function rdStageClick(el,ev){
-  if(!RD||RD.mode==='strip'||(ev.target&&ev.target.closest&&ev.target.closest('button')))return;
+  if(!RD||RD.mode==='strip'||rdIsText()||(ev.target&&ev.target.closest&&ev.target.closest('button')))return;
   if(RD.panel){RD.panel=null;rdBuild();return;}
   var x=ev.clientX/window.innerWidth;
   if(x>0.38&&x<0.62)return;
@@ -246,18 +425,26 @@ act('rdChapterStep',function(el,ev,d){return rdChapterStep(d);});
 act('rdOpenChapter',function(el,ev,i){return rdOpenChapter(i);});
 act('rdTogglePanel',function(el,ev,w){rdTogglePanel(w);});
 act('rdSetOption',function(el,ev,k,v){rdSetOption(k,v);});
-expose('rdClose','rdCycleMode','rdCycleFit','rdToggleDir','rdFullscreen');
+act('rdZoomStep',function(el,ev,d){rdZoomStep(d);});
+act('rdFullscreen',function(){return rdFullscreen();});
+expose('rdClose','rdCycleMode','rdCycleFit','rdToggleDir','rdZoomReset');
 
 // Captured before the app's own shortcuts so nothing behind the reader reacts.
 document.addEventListener('keydown',function(e){
-  if(!RD||e.ctrlKey||e.metaKey||e.altKey)return;
+  if(!RD||e.altKey)return;
   var t=e.target;if(t&&(t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.tagName==='SELECT'))return;
-  var k=e.key,handled=true,rtl=RD.dir==='rtl';
-  if(k==='Escape'){if(RD.panel){RD.panel=null;rdBuild();}else if(document.fullscreenElement){document.exitFullscreen().catch(function(){});}else rdClose();}
-  else if(k==='ArrowRight'&&RD.mode!=='strip')rdGo(rtl?-1:1);
-  else if(k==='ArrowLeft'&&RD.mode!=='strip')rdGo(rtl?1:-1);
-  else if((k===' '||k==='PageDown')&&RD.mode!=='strip')rdGo(1);
-  else if(k==='PageUp'&&RD.mode!=='strip')rdGo(-1);
+  var k=e.key,handled=true,rtl=RD.dir==='rtl',paged=RD.mode!=='strip'&&!rdIsText();
+  if(e.ctrlKey||e.metaKey){
+    if(k==='+'||k==='='||k==='Add')rdZoomStep(1);
+    else if(k==='-'||k==='_'||k==='Subtract')rdZoomStep(-1);
+    else if(k==='0')rdZoomReset();
+    else handled=false;
+  }
+  else if(k==='Escape'){if(RD.panel){RD.panel=null;rdBuild();}else if(RD.fs){rdFullscreen(false);}else rdClose();}
+  else if(k==='ArrowRight'&&paged)rdGo(rtl?-1:1);
+  else if(k==='ArrowLeft'&&paged)rdGo(rtl?1:-1);
+  else if((k===' '||k==='PageDown')&&paged)rdGo(1);
+  else if(k==='PageUp'&&paged)rdGo(-1);
   else if(k==='Home')rdGoTo(0);
   else if(k==='End')rdGoTo(RD.count-1);
   else if(k===']')rdChapterStep(1);

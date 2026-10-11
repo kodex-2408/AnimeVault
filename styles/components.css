@@ -311,7 +311,9 @@ input[type="color"].color::-webkit-color-swatch { border: 0; border-radius: 50%;
 /* -------------------------------------------------------- Poster cards --- */
 .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--card-min, 152px), 1fr)); gap: 26px 18px; }
 .card-grid.dense { --card-min: 132px; gap: 22px 14px; }
-.pc { position: relative; cursor: pointer; min-width: 0; content-visibility: auto; contain-intrinsic-size: 160px 290px; }
+/* No content-visibility here: its paint containment clipped the lifted,
+   scaled artwork to a square box on hover. */
+.pc { position: relative; cursor: pointer; min-width: 0; }
 .pc-art {
   position: relative; aspect-ratio: 2 / 3; border-radius: var(--r-md); overflow: hidden; background: var(--surface-2);
   box-shadow: inset 0 0 0 1px var(--hairline), var(--shadow-1);
@@ -373,7 +375,9 @@ input[type="color"].color::-webkit-color-swatch { border: 0; border-radius: 50%;
 
 /* Horizontal shelf */
 .shelf { position: relative; }
-.shelf-track { display: flex; gap: 16px; overflow-x: auto; overflow-y: visible; padding: 6px 2px 18px; margin: 0 -2px; scroll-snap-type: x proximity; scrollbar-width: none; scroll-behavior: smooth; }
+/* A scroller clips its children, so the padding (offset by negative margins)
+   leaves room for the hover lift and the full, rounded shadow. */
+.shelf-track { display: flex; gap: 16px; overflow-x: auto; overflow-y: visible; padding: 12px 24px 36px; margin: -6px -24px -18px; scroll-padding-inline: 24px; scroll-snap-type: x proximity; scrollbar-width: none; scroll-behavior: smooth; }
 .shelf-track::-webkit-scrollbar { display: none; }
 .shelf-track > * { scroll-snap-align: start; flex-shrink: 0; }
 .shelf-nav { position: absolute; top: 50%; margin-top: -26px; z-index: 5; opacity: 0; transition: opacity var(--dur-2), transform var(--dur-3) var(--ease-spring); }
@@ -392,7 +396,8 @@ input[type="color"].color::-webkit-color-swatch { border: 0; border-radius: 50%;
 .rc::before { content: ''; position: absolute; inset: 0; z-index: -1; background: linear-gradient(100deg, rgba(10,9,8,.55) 0%, rgba(10,9,8,.25) 60%, rgba(10,9,8,.4) 100%); }
 :root.light .rc::before { background: linear-gradient(100deg, rgba(255,252,246,.72) 0%, rgba(255,252,246,.45) 60%, rgba(255,252,246,.6) 100%); }
 .rc { --rim-hi: rgba(255,255,255,.5); --rim-mid: rgba(255,255,255,.14); --rim-lo: rgba(255,255,255,.05); }
-.rc:hover { transform: translateY(-4px); box-shadow: var(--shadow-2), 0 16px 36px -18px rgba(0,0,0,.5); }
+/* Same shadow layout as the resting state (inset ring first) so it animates. */
+.rc:hover { transform: translateY(-4px); box-shadow: inset 0 0 0 1px var(--hairline), var(--shadow-2), 0 16px 36px -18px rgba(0,0,0,.5); }
 .rc:hover .rc-bg { transform: scale(1.18); }
 .rc-inner { display: flex; gap: 16px; height: 100%; padding: 14px; }
 .rc-poster { width: 94px; height: 140px; border-radius: var(--r-sm); object-fit: cover; flex-shrink: 0; box-shadow: 0 8px 22px rgba(0,0,0,.4), inset 0 0 0 1px rgba(255,255,255,.1); background: var(--surface-3); }
