@@ -25,7 +25,7 @@
   "dependencies": {
     "adm-zip": "^0.6.1",
     "node-unrar-js": "^2.0.2",
-    "pdfjs-dist": "^5.7.284"
+    "pdfjs-dist": "^6.4.299"
   },
   "build": {
     "appId": "com.animevault.app",
