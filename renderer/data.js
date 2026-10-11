@@ -306,7 +306,9 @@ async function runMalBackfill(){
 }
 async function pEp(name,fpath,num){
   if(isManga()){
-    // Manga mode: open with reader
+    // The built-in reader takes .cbz/.cbr; anything else (or the "Reader app"
+    // setting) goes to the external reader with its reading timer.
+    if(rdCanOpen(fpath)&&await openReader(name,fpath,num))return;
     var r=await api.openMangaFile(fpath,name,num);
     if(!r||r.error){toast((r&&r.error)||'Could not open the chapter','e');return;}
     if(num===null)return;

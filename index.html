@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: cover: blob:; font-src 'self' data:; connect-src 'self'; media-src 'none'; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: cover: page: blob:; font-src 'self' data:; connect-src 'self'; media-src 'none'; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'">
 <meta name="color-scheme" content="dark light">
 <title>AnimeVault</title>
 <script src="theme-boot.js"></script>
@@ -10,6 +10,7 @@
 <link rel="stylesheet" href="styles/base.css">
 <link rel="stylesheet" href="styles/components.css">
 <link rel="stylesheet" href="styles/views.css">
+<link rel="stylesheet" href="styles/reader.css">
 </head>
 <body>
 <div class="ambient" id="ambient" aria-hidden="true"></div>
@@ -74,6 +75,7 @@
 <script src="renderer/appearance.js"></script>
 <script src="renderer/luma.js"></script>
 <script src="renderer/setup.js"></script>
+<script src="renderer/reader.js"></script>
 <script src="renderer/bootstrap.js"></script>
 </body>
 </html>

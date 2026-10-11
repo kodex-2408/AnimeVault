@@ -35,6 +35,7 @@ const { config, state } = require('../main/state');
 const parsers = require('../main/scanner/parsers');
 const timer = require('../main/players/readerTimer');
 let checks = 0;
+const pendingReader = [];
 
 try {
   // ------------------------------------------------------------ display titles
@@ -130,6 +131,33 @@ try {
   assert(fs.existsSync(path.join(third, '001.cbz')), 'setting off: nothing renamed'); checks++;
   delete config.mangaAutoRename;
 
+  // ------------------------------------------------------------ built-in reader backend
+  const reader = require('../main/players/reader');
+  const AdmZip = require('adm-zip');
+  const cbz = path.join(lib, 'Gyaru', 'pages-test.cbz');
+  const z = new AdmZip();
+  const png = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8ffff3f0005fe02fea7d6a5d90000000049454e44ae426082', 'hex');
+  for (const n of ['Ch 1/page10.png', 'Ch 1/page2.png', 'Ch 1/page1.png', '__MACOSX/._page1.png', 'Ch 1/.thumb.png', 'info.txt']) z.addFile(n, png);
+  z.writeZip(cbz);
+  assert.strictEqual(reader.supportsBuiltInReader('x.cbr'), true); checks++;
+  assert.strictEqual(reader.supportsBuiltInReader('x.pdf'), false); checks++;
+  {
+    pendingReader.push(reader.openChapter(cbz).then(async (r) => {
+      assert.strictEqual(r.count, 3, 'images only: no __MACOSX, dot files or text'); checks++;
+      const res = await reader.handlePageRequest({ url: 'page://' + r.token + '/2' });
+      assert.strictEqual(res.status, 200); checks++;
+      assert.strictEqual(res.headers.get('content-type'), 'image/png'); checks++;
+      const bad = await reader.handlePageRequest({ url: 'page://' + 'f'.repeat(24) + '/0' });
+      assert.strictEqual(bad.status, 404, 'unknown token'); checks++;
+      const out = await reader.handlePageRequest({ url: 'page://' + r.token + '/3' });
+      assert.strictEqual(out.status, 404, 'page out of range'); checks++;
+      const pdf = await reader.openChapter(path.join(lib, 'Gyaru', 'missing.pdf')).catch(e => ({ error: e.message }));
+      assert(pdf.error || pdf.unsupported, 'pdf is not opened in the built-in reader'); checks++;
+      let blocked = false; try { await reader.openChapter('/etc/passwd.cbz'); } catch (e) { blocked = true; }
+      assert(blocked, 'outside the library folders: refused'); checks++;
+    }));
+  }
+
   // ------------------------------------------------------------ reader timer
   const rows = timer.parseTasklistCsv('"CDisplayEx.exe","4120","Console","1","80,000 K","Running","PC\\\\me","0:00:03","008 - The Type of Girl.cbz - CDisplayEx"\r\nINFO: nothing\r\n');
   assert.deepStrictEqual(rows.map(r => [r.image, r.pid, r.title]), [['CDisplayEx.exe', 4120, '008 - The Type of Girl.cbz - CDisplayEx']]); checks++;
@@ -210,6 +238,7 @@ try {
     await vm.runInContext('tw("Gyaru", 4, false)', rctx);
     assert.deepStrictEqual(calls, [['locked']], 'paused: clicks are refused'); checks++;
 
+    await Promise.all(pendingReader);
     console.log('manga-reading checks passed: ' + checks + ' assertions (titles, renames, reading timer, MAL checkmarks)');
   })().catch((e) => { console.error(e); process.exitCode = 1; }).finally(() => {
     timer.endReaderSession();

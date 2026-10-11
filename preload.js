@@ -132,6 +132,8 @@ contextBridge.exposeInMainWorld('api', {
 
   // Manga
   openMangaFile: (filePath, seriesName, chapterNum) => invoke('manga:openFile', filePath, seriesName, chapterNum),
+  readerOpen: (filePath) => invoke('reader:open', filePath),
+  readerClose: (token) => invoke('reader:close', token),
   detectMangaReaders: () => invoke('manga:detectReaders'),
 
   // Watcher

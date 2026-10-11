@@ -30,6 +30,7 @@ act('cfgText',function(el,ev,key){var v=el.value.trim();S.cfg[key]=v;api.setConf
 function afterCfgChange(key){
   if(key==='hideDonghua'){S.exploreTop=[];S.exploreSeasonal=[];}
   if(key==='lumaMascot'||key==='lumaSparkles')initLuma();
+  if((key==='mangaReader'||key==='readerTimerEnabled')&&S.view==='settings')render();
   if(key==='playerType'||key==='audioDelay'||key==='subLangPrimary'||key==='releasePicker'){
     if(document.querySelector('.setup-layer'))renderSetupStep();
     else if(S.view==='settings')render();
@@ -42,8 +43,11 @@ function sectionHtml(id){
     h+=folderRows('folders',[['seasonal','Seasonal'],['series','Series'],['movies','Movies'],['custom','Custom']]);
   }else if(id==='manga'){
     h+=folderRows('mangaFolders',[['series','Series'],['oneshot','Oneshot'],['custom','Custom']]);
+    var ext=S.cfg.mangaReader==='external';
+    h+=setRow({icon:'book',color:'#ff9f0a',title:'Open chapters in',desc:ext?'Your reader app opens every chapter.':'The built-in reader opens .cbz and .cbr chapters. PDF and EPUB files still open in your reader app.',ctrl:cfgSelect('mangaReader',[['builtin','Built-in reader'],['external','Reader app']],'builtin'),kw:'reader built-in builtin external app'});
+    if(!ext)h+=setRow({icon:'check',color:'#30d158',title:'Mark read at',desc:'In the built-in reader, a chapter is marked read once you reach this share of its pages.',ctrl:'<input class="input sm pct-input" type="number" min="10" max="100" step="5" value="'+readerMarkPctValue()+'"'+On('change','setReaderMarkPct')+'><span class="muted">%</span>',kw:'reader mark read percent pages'});
     h+=setRow({block:'<div class="field"><label class="field-label">Reader application</label><div class="input-row"><input class="input mono" id="sReaderPath" value="'+E(S.cfg.readerPath||'')+'" placeholder="Leave empty to use the system default"'+On('change','cfgText','readerPath')+'><button class="btn btn-secondary btn-sm"'+A('brsReader')+'>Browse…</button><button class="btn btn-ghost btn-sm"'+A('detectReader')+'>'+ic('search')+'Detect</button></div><div class="field-hint" id="readerDetectHint">Opens .cbz / .cbr / .pdf files in MangaVault mode. CDisplayEx, OpenComic, SumatraPDF, Honeyview, calibre, YACReader and MComix are detected automatically.</div></div>',kw:'reader cbz cbr opencomic sumatra cdisplayex calibre'});
-    h+=setRow({icon:'clock',color:'#30d158',title:'Mark chapters read by reading time',desc:'A chapter is marked read once it has been open in your reader this long. Off: chapters are marked read as soon as they open.',ctrl:cfgSwitch('readerTimerEnabled',true)+' '+cfgSelect('readerTimerSeconds',[['30','30 s'],['60','1 min'],['90','1.5 min'],['120','2 min (recommended)'],['180','3 min'],['300','5 min']],'120',null,true),kw:'reader timer read mark chapter cdisplayex'});
+    h+=setRow({icon:'clock',color:'#30d158',title:'Reading time for reader apps',desc:'With a reader app (CDisplayEx, SumatraPDF…), a chapter is marked read once it has been open this long. 120 s is recommended. Off: chapters are marked read as soon as they open.',ctrl:'<input class="input sm pct-input" type="number" min="15" max="3600" step="5" value="'+readerTimerValue()+'"'+On('change','setReaderTimer')+(S.cfg.readerTimerEnabled===false?' disabled':'')+Tip('Recommended: 120 seconds')+'><span class="muted">s</span>'+cfgSwitch('readerTimerEnabled',true),kw:'reader timer read mark chapter cdisplayex seconds minutes'});
     h+=setRow({icon:'pencil',color:'#ff9f0a',title:'Rename new manga chapters',desc:'When a new series folder appears, its files are renamed to “Series - Ch 012 - Title.cbz”. Chapter titles are kept. Series already in your library are never renamed. Undo from File management.',ctrl:cfgSwitch('mangaAutoRename',true),kw:'rename chapters format auto'});
   }else if(id==='playback'){
     var pt=S.cfg.playerType||'vlc';
@@ -176,6 +180,10 @@ function releasePickerScopeRows(){
 act('setReleasePickerScope',function(el,ev,k){var s=Object.assign({latest:true,episode:true,series:true},S.cfg.releasePickerScopes||{});s[k]=!!el.checked;S.cfg.releasePickerScopes=s;api.setConfig('releasePickerScopes',s);});
 function audioDelayMsValue(){var v=Number(S.cfg.audioDelayMs);return Number.isFinite(v)&&v>0?Math.round(v):300;}
 act('setAudioDelayMs',function(el){var v=Math.round(Number(el.value));if(Number.isFinite(v)&&v>=0&&v<=5000){S.cfg.audioDelayMs=v;api.setConfig('audioDelayMs',v);toast(v?'Audio plays '+v+' ms earlier':'Audio delay off','s');}else{el.value=audioDelayMsValue();toast('Enter a value from 0 to 5000 ms','e');}});
+function readerTimerValue(){var v=Number(S.cfg.readerTimerSeconds);return Number.isInteger(v)&&v>=15&&v<=3600?v:120;}
+function readerMarkPctValue(){var v=Number(S.cfg.readerMarkPercent);return Number.isInteger(v)&&v>=10&&v<=100?v:90;}
+act('setReaderTimer',function(el){var v=Math.round(Number(el.value));if(Number.isFinite(v)&&v>=15&&v<=3600){S.cfg.readerTimerSeconds=v;api.setConfig('readerTimerSeconds',v);toast('Chapters are marked read after '+(v%60?v+' seconds':(v/60)+' min')+' in your reader app','s');}else{el.value=readerTimerValue();toast('Enter 15 to 3600 seconds','e');}});
+act('setReaderMarkPct',function(el){var v=Math.round(Number(el.value));if(Number.isFinite(v)&&v>=10&&v<=100){S.cfg.readerMarkPercent=v;api.setConfig('readerMarkPercent',v);toast('Marked read at '+v+'% of the pages','s');}else{el.value=readerMarkPctValue();toast('Enter a value from 10 to 100','e');}});
 act('setAutoMarkPct',function(el){var v=parseInt(el.value,10);if(v>=10&&v<=100){S.cfg.autoMarkPercent=v;api.setConfig('autoMarkPercent',v);toast('Auto-mark at '+v+'%','s');}else{el.value=S.cfg.autoMarkPercent||80;toast('Enter a value from 10 to 100','e');}});
 act('setAutoDownloadEnabled',function(el){return toggleAutoDownloadGlobal(el.checked);});
 act('setPollMinutes',function(el){var v=parseInt(el.value,10);S.cfg.autoDownloadPollMinutes=v;api.autoDownloadSetPollMinutes(v);});

@@ -15,6 +15,7 @@ const MODULES = [
   require('../scanner/watcher'),
   require('../scanner/duplicates'),
   require('../players/player'),
+  require('../players/reader'),
   require('../services/covers'),
   require('../services/anilist'),
   require('../services/mal'),

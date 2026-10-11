@@ -3,8 +3,22 @@
 All notable changes, newest first. Engineering context — test guide, security
 posture, design decisions, open roadmap — lives in [DEVELOPMENT.md](DEVELOPMENT.md).
 
-## 5.6.0 — Clean chapter names, reading timer, MAL checkmarks
+## 5.6.0 — Built-in manga reader, clean chapter names, MAL checkmarks
 
+- **Built-in manga reader.** Chapters (.cbz/.zip and .cbr/.rar) open inside
+  the app: the page fills the window, the chapter switcher (‹ Ch. 31 / 40 ›)
+  sits top right and a slim toolbar on the right edge holds Back to series,
+  Display (single page, double page, long strip), Chapters, Reader settings,
+  Fit (height, width, original), Direction (left to right or right to left),
+  Fullscreen and Keyboard shortcuts. Double page shows the cover and
+  two-page spreads on their own. Click either side of the page or use the
+  arrow keys, Space, Page Up/Down, Home/End, [ and ] for chapters, M, W, D,
+  C and F. The reader remembers where you stopped in each chapter, moves on
+  to the next chapter after the last page, and marks a chapter read once you
+  reach a share of its pages (default 90%, Settings → Manga). Pages are read
+  straight from the archive and never extracted to disk. PDF and EPUB still
+  open in your reader app, and Settings → Manga → "Open chapters in" can send
+  everything there.
 - **Chapter and episode cards show a real title or nothing.** The series name,
   the number, "Chapter"/"Ch."/"Vol", release tags and the extension are
   stripped. "008 - The Type of Girl….cbz" shows its title; "Chapter 12.cbz",
@@ -21,8 +35,8 @@ posture, design decisions, open roadmap — lives in [DEVELOPMENT.md](DEVELOPMEN
   Settings → Manga → "Rename new manga chapters" turns this off.
 - **Reading timer for external readers.** Opening a chapter no longer marks
   it read immediately. It is marked read once it has been open in your reader
-  for the reading time you set (default 2 minutes; 30 s to 5 min, Settings →
-  Manga). The app watches window titles, so it works with CDisplayEx,
+  for the reading time you set (default 120 seconds; type any value from 15
+  to 3600 in Settings → Manga). The app watches window titles, so it works with CDisplayEx,
   SumatraPDF, Honeyview, YACReader, MComix and the system default app. When
   the reader moves to the next file, that chapter is timed too. Readers that
   don't show the file name (calibre, OpenComic) are timed while the program
@@ -41,7 +55,8 @@ posture, design decisions, open roadmap — lives in [DEVELOPMENT.md](DEVELOPMEN
   straight away.
 - Tests: new `manga-reading.test.js` (titles, rename targets and their
   round-trip, first-sight renames on a real folder, the reader timer with a
-  stand-in `tasklist`, MAL progress and the paused lock). 14 suites in total.
+  stand-in `tasklist`, MAL progress and the paused lock, the reader's page
+  listing and page:// serving). 14 suites in total.
 
 ## 5.5.0 — Luma on Claude Haiku 5.5 via OpenRouter
 

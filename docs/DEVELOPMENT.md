@@ -14,7 +14,7 @@ User-facing release history lives in [CHANGELOG.md](CHANGELOG.md).
 | `main/state.js` | The settings object `config` (loaded in place, never reassigned) and `state` — runtime handles shared across modules (`mainWindow`, `tray`, `isQuitting`, library cache). Always `state.mainWindow`, never a local copy |
 | `main/config/` | `config.js` (config.json load/save, shrink guard, backups, Luma key, watch-history helpers, `config:*`), `security.js` (path containment, validators), `backup.js` (export/import, backup/restore) |
 | `main/scanner/` | `parsers.js` (filenames), `library.js` (layout, scan, index, `library:*`), `history.js` (`watch:*`), `organizer.js` (`manager:*`), `watcher.js`, `duplicates.js` |
-| `main/players/` | `player.js` (launch, auto-mark poller, thumbnails, manga reader), `readerTimer.js` (reading timer for external manga readers, via window titles), `mpv.js`, `vlc.js` |
+| `main/players/` | `player.js` (launch, auto-mark poller, thumbnails, manga reader), `readerTimer.js` (reading timer for external manga readers, via window titles), `reader.js` (built-in reader: archive page listing, `page://` protocol), `mpv.js`, `vlc.js` |
 | `main/services/` | `covers.js`, `anilist.js`, `mal.js`, `nyaa.js`, `downloads.js` (auto-download wiring), `ai.js` (Luma handlers) |
 | `main/window/` | `window.js` (window + `window:*`), `tray.js`, `protocol.js` (`cover://` handler) |
 | `main/ipc/` | `registerHandlers.js` calls every module's `register()` (where its `ipcMain.handle` calls live); `system.js` holds dialog/shell handlers |
@@ -23,12 +23,12 @@ User-facing release history lives in [CHANGELOG.md](CHANGELOG.md).
 | `openrouter.js` | Electron-free module: streaming OpenRouter client for Luma. Sends every chat to Claude Haiku 5.5 with low reasoning effort, using the user's own OpenRouter key (SSE from main process; the renderer never sees the key or the network). Required directly by tests |
 | `index.html` | App shell only: titlebar, sidebar, overlay hosts, strict CSP, and the ordered `<script src>` list. No inline code |
 | `theme-boot.js` | Applies the cached theme before first paint (no flash of the wrong theme) |
-| `styles/` | `tokens.css` (colors, glass, shadows, radii, motion) → `base.css` (shell, sidebar, titlebar) → `components.css` (buttons, cards, menus, modals…) → `views.css` (per-page layouts) |
+| `styles/` | `tokens.css` (colors, glass, shadows, radii, motion) → `base.css` (shell, sidebar, titlebar) → `components.css` (buttons, cards, menus, modals…) → `views.css` (per-page layouts) → `reader.css` (built-in manga reader) |
 | `renderer/core.js` | State `S` (a small reactive store: `Store.subscribe` / `Store.notify` / `Store.set`), escapers `E()`/`A()`/`On()`/`Tip()`, the delegated action dispatcher, icons, toasts, promise dialogs, menus, tooltips, segmented controls |
 | `renderer/helpers.js` | Pure logic: parsers, MAL/status helpers, title matching, schedule math, analyzers |
 | `renderer/data.js` | Library/MAL/download data layer and sync queues |
 | `renderer/app.js` | Navigation, sidebar, routing, shortcuts, command palette |
-| `renderer/<view>.js` | One file per area: `library`, `detail`, `explore`, `schedule`, `stats`, `hub`, `filemgmt`, `mal`, `settings`, `appearance`, `luma`, `setup`; `bootstrap.js` runs last |
+| `renderer/<view>.js` | One file per area: `library`, `detail`, `explore`, `schedule`, `stats`, `hub`, `filemgmt`, `mal`, `settings`, `appearance`, `luma`, `setup`, `reader` (built-in manga reader); `bootstrap.js` runs last |
 | `tests/` | Fourteen Node suites, no Electron or network needed (`npm test`); `source-extract.js` is the shared function extractor, `main-source.js` concatenates `main.js` + `main/**` for extraction |
 
 Runtime split matters for testing: anything pure lives in `autoDownload.js` and is
@@ -68,7 +68,7 @@ Run everything with `npm test`; each file is standalone `node tests/<file>`.
 | `library-layout.test.js` | Real helpers from `main.js` in `vm` against a temp tree | Category inference, category containers, season-aware folder matching, scene-style names, sequel cover matching |
 | `playback-and-tracking.test.js` | Real player-option and untrack helpers from `main/` in `vm` | One subtitle list per player and "Off", Bluetooth delay units (MPV seconds, VLC ms), untrack by name / MAL id / path, main-owned config keys |
 | `luma-openrouter.test.js` | Real `openrouter.js` against a stand-in `https` that behaves like OpenRouter | Request shape (host, headers, model, low reasoning, web plugin only when asked), streaming incl. multi-byte characters split across chunks, citations -> source links, step-down retries when a parameter is rejected, every error class, key and model checks |
-| `manga-reading.test.js` | Real `parsers.js`, `library.js` and `readerTimer.js` with a stand-in `electron`; renderer functions extracted from `data.js` | Display titles from real-world names, rename targets (volume, decimals, ambiguity guard, stable round-trip), first-sight renames on a temp library (known series untouched, busy files retried, undo log), reader timer with a fake `tasklist` (title and process modes, next-file handoff), MAL progress -> checkmarks and the sync-paused lock |
+| `manga-reading.test.js` | Real `parsers.js`, `library.js` and `readerTimer.js` with a stand-in `electron`; renderer functions extracted from `data.js` | Display titles from real-world names, rename targets (volume, decimals, ambiguity guard, stable round-trip), first-sight renames on a temp library (known series untouched, busy files retried, undo log), reader timer with a fake `tasklist` (title and process modes, next-file handoff), MAL progress -> checkmarks and the sync-paused lock, built-in reader page listing / `page://` serving / path refusal |
 | `file-ops.test.js` | Real move/placement code from `main/` in `vm` with a fake EXDEV `fs` | Cross-drive moves copy then delete and never clobber, failed copies roll back, whole-folder placement and merge |
 | `renderer-store.test.js` | Real `Store`/`S` from `core.js` in `vm` | Plain reads/writes, batched per-key notifications, `Store.notify` for in-place changes, subscriber isolation, unsubscribe |
 | `filesystem-safety.test.js` | Real path helpers and File Management handlers from `main.js`, run in `vm` against a temp folder tree | Symlink/junction containment, forbidden roots, safe names, no-clobber moves, Ungroup scope, organizer result contract and undo, renderer config-write validation |

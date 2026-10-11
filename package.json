@@ -23,7 +23,8 @@
     "electron-builder": "^25.1.8"
   },
   "dependencies": {
-    "adm-zip": "^0.6.1"
+    "adm-zip": "^0.6.1",
+    "node-unrar-js": "^2.0.2"
   },
   "build": {
     "appId": "com.animevault.app",
