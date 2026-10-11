@@ -7,7 +7,13 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # Windows runs the same suites, so drive letters, backslash paths and
+    # cross-drive moves are checked where the app actually runs.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     env:
       # The suites never launch Electron; skip its ~100 MB binary download.
       ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
