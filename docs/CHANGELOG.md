@@ -5,6 +5,45 @@ Tsundoku was called AnimeVault up to 5.7.0; older entries keep the old name.
 All notable changes, newest first. Engineering context — test guide, security
 posture, design decisions, open roadmap — lives in [DEVELOPMENT.md](DEVELOPMENT.md).
 
+## 5.9.0 — Manga translation, safer deletes, accessibility
+
+- **Translate manga in the built-in reader.** The new Translate tool (`T`)
+  sends each page to Claude on OpenRouter, with the key you already gave
+  Luma, and draws the translated text over the bubbles, narration boxes,
+  signs and sound effects. The boxes follow zoom, fit, double pages and the
+  long strip; hover one to see the original underneath. It is switched on
+  per chapter, because every new page is a paid request (the next page is
+  prepared while you read). Translated pages are saved, so reopening or
+  rereading a chapter costs nothing, and the chapter remembers that
+  translation is on. Settings → Manga picks the language (16) and the model:
+  Claude Haiku 5.5 (quick, cheap) or Claude Sonnet 5.5 (better on hard
+  pages). A missing key, an empty balance or rate limits stop the requests
+  and say why. Works for .cbz, .cbr, image EPUB/MOBI and PDF.
+- **No more silent permanent deletes.** Deleting a series, an episode or a
+  duplicate used to delete the files permanently whenever the Recycle Bin
+  refused them, which also happens when a file is in use, a path is too long
+  or OneDrive hasn't downloaded it. Now the files stay and the error says
+  why. (Drives without a Recycle Bin are still handled by Windows itself.)
+  Batch delete, watch & delete and duplicate resolution now show the error.
+- **Readable tertiary text.** Hints, timestamps and other tertiary text now
+  reach at least 4.5:1 contrast in all 16 themes (they were 3.0 to 3.6:1).
+- **Reduced motion.** Until you choose a Motion setting, Tsundoku follows
+  Windows' "Animation effects" switch (Settings → Accessibility → Visual
+  effects), live. Your own choice in Appearance still wins.
+- **Dialogs keep the keyboard.** Tab and Shift+Tab stay inside an open
+  dialog, dialogs are announced by their title, and closing one returns
+  focus to the button that opened it.
+- **Luma rests in Performance Mode.** With Performance Mode on or motion
+  off, Luma stands still and her animation loop stops (it used to keep
+  running at 70% speed).
+- **pdf.js 6.4** replaces 5.7, which had a high-severity advisory. The PDF
+  reader was rechecked, including in a packaged build.
+- Settings → Manga says which files go to the reader app (.azw3, MOBI with
+  HUFF/CDIC compression, PDFs over 1 GB).
+- Under the hood: the unused `electron-store` fallback is gone; the tests
+  also run on Windows in CI, and `.gitattributes` keeps line endings stable
+  across platforms.
+
 ## 5.8.0 — Tsundoku: new name, logo and type
 
 - **AnimeVault is now Tsundoku** (積ん読, the pile you mean to get to). The

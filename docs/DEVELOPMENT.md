@@ -15,7 +15,7 @@ User-facing release history lives in [CHANGELOG.md](CHANGELOG.md).
 | `main/config/` | `config.js` (config.json load/save, shrink guard, backups, Luma key, watch-history helpers, `config:*`), `security.js` (path containment, validators), `backup.js` (export/import, backup/restore) |
 | `main/scanner/` | `parsers.js` (filenames), `library.js` (layout, scan, index, `library:*`), `history.js` (`watch:*`), `organizer.js` (`manager:*`), `watcher.js`, `duplicates.js` |
 | `main/players/` | `player.js` (launch, auto-mark poller, thumbnails, manga reader), `readerTimer.js` (reading timer for external manga readers, via window titles), `reader.js` (built-in reader: comic archives, EPUB and MOBI parsing, PDF hand-off to pdf.js, `page://` protocol), `mpv.js`, `vlc.js` |
-| `main/services/` | `covers.js`, `anilist.js`, `mal.js`, `nyaa.js`, `downloads.js` (auto-download wiring), `ai.js` (Luma handlers) |
+| `main/services/` | `covers.js`, `anilist.js`, `mal.js`, `nyaa.js`, `downloads.js` (auto-download wiring), `ai.js` (Luma handlers), `translate.js` (reader page translation: prompt, answer checking, per-chapter cache in `userData/translations`) |
 | `main/window/` | `window.js` (window + `window:*`), `tray.js`, `protocol.js` (`cover://` handler) |
 | `main/ipc/` | `registerHandlers.js` calls every module's `register()` (where its `ipcMain.handle` calls live); `system.js` holds dialog/shell handlers |
 | `preload.js` | `contextBridge` API surface (`window.api`) — every renderer capability is an explicit channel here |
@@ -29,7 +29,7 @@ User-facing release history lives in [CHANGELOG.md](CHANGELOG.md).
 | `renderer/data.js` | Library/MAL/download data layer and sync queues |
 | `renderer/app.js` | Navigation, sidebar, routing, shortcuts, command palette |
 | `renderer/<view>.js` | One file per area: `library`, `detail`, `explore`, `schedule`, `stats`, `hub`, `filemgmt`, `mal`, `settings`, `appearance`, `luma`, `setup`, `reader` (built-in manga reader); `bootstrap.js` runs last |
-| `tests/` | Fourteen Node suites, no Electron or network needed (`npm test`); `source-extract.js` is the shared function extractor, `main-source.js` concatenates `main.js` + `main/**` for extraction |
+| `tests/` | Fifteen Node suites (CI runs them on `ubuntu-latest` and `windows-latest`), no Electron or network needed (`npm test`); `source-extract.js` is the shared function extractor, `main-source.js` concatenates `main.js` + `main/**` for extraction |
 
 **Name, data folder and installer ID.** The app was called AnimeVault until
 5.8.0. `productName` (and so `%APPDATA%\Tsundoku`, the window title and the
@@ -77,6 +77,7 @@ Run everything with `npm test`; each file is standalone `node tests/<file>`.
 | `security-and-parsers.test.js` | Generalized source-extraction + invariants | See next section |
 | `library-layout.test.js` | Real helpers from `main.js` in `vm` against a temp tree | Category inference, category containers, season-aware folder matching, scene-style names, sequel cover matching |
 | `playback-and-tracking.test.js` | Real player-option and untrack helpers from `main/` in `vm` | One subtitle list per player and "Off", Bluetooth delay units (MPV seconds, VLC ms), untrack by name / MAL id / path, main-owned config keys |
+| `manga-translation.test.js` | Real `translate.js`, `reader.js` and `openrouter.js` with a stand-in `electron` and a fake OpenRouter request | Answer parsing (code fences, clamping, swapped corners, dropped boxes, 80-box cap), Claude model lookup, no key = nothing sent, in-flight de-duplication, per-chapter cache and on/off switch, separate pages per language and model, edited files start over, errors not cached, PDF picture checks, config validation, renderer/main language lists match |
 | `luma-openrouter.test.js` | Real `openrouter.js` against a stand-in `https` that behaves like OpenRouter | Request shape (host, headers, model, low reasoning, web plugin only when asked), streaming incl. multi-byte characters split across chunks, citations -> source links, step-down retries when a parameter is rejected, every error class, key and model checks |
 | `manga-reading.test.js` | Real `parsers.js`, `library.js` and `readerTimer.js` with a stand-in `electron`; renderer functions extracted from `data.js` | Display titles from real-world names, rename targets (volume, decimals, ambiguity guard, stable round-trip), first-sight renames on a temp library (known series untouched, busy files retried, undo log), reader timer with a fake `tasklist` (title and process modes, next-file handoff), MAL progress -> checkmarks and the sync-paused lock, built-in reader page listing / `page://` serving / path refusal |
 | `file-ops.test.js` | Real move/placement code from `main/` in `vm` with a fake EXDEV `fs` | Cross-drive moves copy then delete and never clobber, failed copies roll back, whole-folder placement and merge |
@@ -142,6 +143,11 @@ run these inside the packaged app after meaningful changes (~5 minutes):
    save (a rejected key is refused immediately), send a message; tokens stream
    into the bubble, Stop aborts mid-stream, API errors show their text. The key must never appear in DevTools network
    or config reads (it lives only in the main process).
+8. **Page translation** — with a key saved, open a raw chapter in the built-in
+   reader, press `T`: a "Translating…" chip, then white boxes over the
+   bubbles; hover shows the original; zoom, Double and Long strip keep the
+   boxes in place. Close and reopen the chapter: the boxes return with no new
+   OpenRouter charge (check the OpenRouter activity page).
 
 ---
 

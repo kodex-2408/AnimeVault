@@ -1,41 +1,36 @@
 # Tsundoku: planned improvements
 
 Written after reviewing 5.8.0 against an outside list of 22 suggestions. Each item
-was checked against the code. Work through **Next up** in order; **Later** and
-**Not planned** record what was decided and why.
+was checked against the code. Updated for 5.9.0: work through **Next up** in
+order; **Later** and **Not planned** record what was decided and why.
+
+## Done in 5.9.0
+
+All nine "Next up" items, plus manga translation from "Later":
+
+1. pdf.js updated to 6.4.299 (advisory fixed); PDF reader checked in a packaged build.
+2. `trashOrDelete` no longer deletes permanently when the Recycle Bin refuses a file.
+3. `t3` reaches 4.5:1 or more on `bg`, `bg2`, `s1` and `s2` in all 16 themes.
+4. Motion follows the system's reduced-motion setting until one is chosen.
+5. Dialogs trap Tab, are labelled by their title, and restore focus.
+6. Luma's loop stops in Performance Mode or with motion off.
+7. Settings → Manga names the formats that go to the reader app.
+8. The `electron-store` fallback is removed.
+9. CI runs on `windows-latest` too (needed `.gitattributes` for LF checkouts).
+- **Manga translation in the reader** (`main/services/translate.js`, Translate
+  tool `T`). Built from scratch with the same approach as the browser
+  extension, which isn't on GitHub. Not yet tried against the live OpenRouter
+  API from this environment (no key here): the first real run should check
+  box placement on a few raw chapters, and whether Haiku 5.5 is good enough
+  or Sonnet 5.5 should be the default.
 
 ## Next up (in order)
 
-1. **Update pdf.js (security).** `pdfjs-dist` 5.7.284 ships inside the app and has a
-   high-severity advisory (`npm audit --omit=dev`), fixed in 6.2.108 and later. Update
-   it and re-check the PDF reader (`renderer/reader.js` loads `build/pdf.min.mjs` and
-   `pdf.worker.min.mjs`). Then re-test in a packaged build, since the module loads
-   from inside app.asar.
-2. **Stop permanent deletes when the Recycle Bin fails.** `trashOrDelete` in
-   `main/config/security.js` falls back to `fs.rmSync` on any `shell.trashItem` error.
-   That error can also come from a file in use, a long path or an OneDrive
-   placeholder. Fall back only when the drive has no Recycle Bin. For any other error,
-   keep the files and show the error.
-3. **Readable tertiary text.** `t3` in all 16 themes (`renderer/theme.js`) measures
-   3.3 to 3.8:1 on light themes and 3.6 to 4.6:1 on dark themes, against the base and
-   raised surfaces. Retune each value to at least 4.5:1 on `bg` and `s1`.
-4. **Respect reduced motion.** Nothing reads `prefers-reduced-motion`. When the
-   Windows animation setting is off and the user has not chosen a Motion setting, use
-   `animSpeed: 'none'`. An explicit in-app choice still wins.
-5. **Dialog focus.** `openModal` in `renderer/core.js` should keep Tab inside the open
-   dialog and return focus to the element that opened it when the dialog closes.
-6. **Luma's animation loop.** `_lumaTick` in `renderer/luma.js` keeps running in
-   Performance Mode at 70% speed. Stop the loop, and show Luma standing still, when
-   Performance Mode is on or motion is off.
-7. **Say which formats go to the reader app.** Add one line in Settings → Manga:
-   HUFF/CDIC MOBI, AZW3 and PDFs over 1 GB open in the reader app. Extending the
-   built-in reader to these formats is not worth it.
-8. **Remove the dead `electron-store` fallback** from `loadConfig`
-   (`main/config/config.js`). It is not a dependency, and its error is already
-   swallowed.
-9. **Windows CI job.** Add `windows-latest` to `.github/workflows/test.yml` next to
-   Ubuntu. The suites are plain Node, so path handling, drive letters and
-   cross-drive moves would then run on Windows.
+1. **Try translation on real chapters** (owner, with a key) and tune
+   `buildPrompt` or the default model from what you see.
+2. **Electron smoke test in CI** (below): it would have caught the CRLF
+   problem and would cover the reader, translation overlay and protocols.
+3. **Unescaped HTML check**, then the **empty `catch` pass**.
 
 ## Later
 
@@ -54,12 +49,6 @@ was checked against the code. Work through **Next up** in order; **Later** and
 - **Light ESLint setup** for `main/`, the root modules and `renderer/`. Full
   TypeScript is not worth it here.
 - **qBittorrent WebUI integration**, for real download progress (roadmap).
-- **Manga translation in the reader.** Reuse Luma's OpenRouter key and an
-  image-capable model. Send pages from the main process, draw translated boxes
-  over the page scaled with zoom, cache results per page, and make it opt-in per
-  chapter because each page costs money. Needs the existing `manga-translator`
-  browser extension pushed to GitHub so its prompts and overlay logic can be
-  reused.
 
 ## Not planned (and why)
 
