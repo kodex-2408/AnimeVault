@@ -41,6 +41,15 @@ posture, design decisions, open roadmap — lives in [DEVELOPMENT.md](DEVELOPMEN
   - Days with nothing airing fold into one quiet line.
   - Week stays one click away. A saved view choice applies again once you pick
     one in this version.
+- **Fixed: "ADM-ZIP: Invalid or unsupported zip format. No END header found"**
+  when opening some chapters in the built-in reader.
+  - The reader now checks a file's first bytes instead of trusting its
+    extension. A `.cbz` that is really a RAR archive opens as RAR; a 7-Zip one
+    goes to your reader app.
+  - A ZIP whose index at the end is missing or unreadable (a cut-off download,
+    ZIP64, a long trailing comment) is read entry by entry from the start.
+  - Anything still unreadable opens in your reader app instead of showing an
+    error.
 - **Series links:**
   - Miruro now opens `barelystarted.miruro.tv`.
   - ani.pm replaces Netflix.
