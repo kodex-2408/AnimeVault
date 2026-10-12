@@ -152,6 +152,19 @@ try {
       assert.strictEqual(bad.status, 404, 'unknown token'); checks++;
       const out = await reader.handlePageRequest({ url: 'page://' + r.token + '/3' });
       assert.strictEqual(out.status, 404, 'page out of range'); checks++;
+      // The first bytes decide the format, not the extension ("No END header found").
+      const whole = fs.readFileSync(cbz);
+      const cut = path.join(lib, 'Gyaru', 'truncated.cbz');
+      fs.writeFileSync(cut, whole.subarray(0, whole.lastIndexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02]))));
+      const tr = await reader.openChapter(cut);
+      assert.strictEqual(tr.count, 3, 'a ZIP without its central directory is read from the local headers'); checks++;
+      assert.strictEqual((await reader.handlePageRequest({ url: 'page://' + tr.token + '/0' })).status, 200); checks++;
+      const fake7z = path.join(lib, 'Gyaru', 'seven.cbz');
+      fs.writeFileSync(fake7z, Buffer.concat([Buffer.from([0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c]), Buffer.alloc(64)]));
+      assert.strictEqual((await reader.openChapter(fake7z)).unsupported, true, 'a 7-Zip ".cbz" goes to the reader app'); checks++;
+      const fakeRar = path.join(lib, 'Gyaru', 'rar.cbz');
+      fs.writeFileSync(fakeRar, Buffer.concat([Buffer.from('Rar!\x1a\x07\x01\x00', 'latin1'), Buffer.alloc(64)]));
+      assert.strictEqual(reader.sniffArchive(fakeRar), 'rar', 'a RAR renamed to .cbz is read as RAR'); checks++;
       // PDF: drawn by pdf.js in the renderer, so only the kind comes back
       fs.writeFileSync(path.join(lib, 'Gyaru', 'book.pdf'), '%PDF-1.4\n%%EOF\n');
       const pdf = await reader.openChapter(path.join(lib, 'Gyaru', 'book.pdf'));

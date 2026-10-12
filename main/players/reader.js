@@ -50,13 +50,69 @@ function sniffImageMime(buf, name) {
 }
 
 // ---- comic archives ----------------------------------------------------------
+// The extension is only a hint: a ".cbz" is quite often a RAR (or 7-Zip)
+// archive renamed, which reader apps like CDisplayEx open by its contents.
+// So the first bytes decide the format.
+function sniffArchive(filePath) {
+  const fd = fs.openSync(filePath, 'r');
+  try {
+    const b = Buffer.alloc(8);
+    fs.readSync(fd, b, 0, 8, 0);
+    if (b[0] === 0x50 && b[1] === 0x4B) return 'zip';
+    if (b.toString('latin1', 0, 4) === 'Rar!') return 'rar';
+    if (b[0] === 0x37 && b[1] === 0x7A && b[2] === 0xBC && b[3] === 0xAF) return '7z';
+    return 'unknown';
+  } finally { fs.closeSync(fd); }
+}
+
+// When the ZIP's central directory at the end of the file is missing or
+// unreadable ("No END header found": a truncated download, ZIP64, a large
+// trailing comment), walk the local file headers from the start instead.
+function readZipLocalEntries(buf) {
+  const zlib = require('zlib');
+  const out = [];
+  let pos = 0;
+  while (pos + 30 <= buf.length && buf.readUInt32LE(pos) === 0x04034b50) {
+    const flags = buf.readUInt16LE(pos + 6), method = buf.readUInt16LE(pos + 8);
+    let csize = buf.readUInt32LE(pos + 18);
+    const nameLen = buf.readUInt16LE(pos + 26), extraLen = buf.readUInt16LE(pos + 28);
+    const name = buf.toString(flags & 0x800 ? 'utf8' : 'latin1', pos + 30, pos + 30 + nameLen);
+    const start = pos + 30 + nameLen + extraLen;
+    let data = null, end;
+    if (method === 8 && ((flags & 0x08) || csize === 0 || csize === 0xFFFFFFFF)) {
+      // Size unknown here (data descriptor / ZIP64): inflate and see how much was used.
+      try { const r = zlib.inflateRawSync(buf.subarray(start), { info: true }); data = r.buffer; csize = r.engine.bytesWritten; } catch (e) { break; }
+      end = start + csize;
+    } else {
+      end = start + csize;
+      if (end > buf.length) break;
+      const raw = buf.subarray(start, end);
+      if (method === 0) data = raw;
+      else if (method === 8) { try { data = zlib.inflateRawSync(raw); } catch (e) { data = null; } }
+    }
+    if (flags & 0x08) { end += buf.readUInt32LE(end) === 0x08074b50 ? 16 : 12; }
+    if (data && !name.endsWith('/')) out.push({ name, data });
+    pos = end;
+  }
+  return out;
+}
+
 async function openComicArchive(filePath, ext) {
-  if (ZIP_EXTS.includes(ext)) {
-    const AdmZip = require('adm-zip');
-    const zip = new AdmZip(filePath);
-    const entries = zip.getEntries().filter(e => !e.isDirectory && isPageName(e.entryName));
-    entries.sort((a, b) => naturalOrder(a.entryName, b.entryName));
-    return { kind: 'pages', pages: entries.map(e => ({ name: e.entryName, read: () => e.getData() })) };
+  const format = sniffArchive(filePath);
+  if (format === '7z' || format === 'unknown') return { unsupported: true };
+  if (format === 'zip') {
+    try {
+      const AdmZip = require('adm-zip');
+      const zip = new AdmZip(filePath);
+      const entries = zip.getEntries().filter(e => !e.isDirectory && isPageName(e.entryName));
+      entries.sort((a, b) => naturalOrder(a.entryName, b.entryName));
+      return { kind: 'pages', pages: entries.map(e => ({ name: e.entryName, read: () => e.getData() })) };
+    } catch (e) {
+      const entries = readZipLocalEntries(fs.readFileSync(filePath)).filter(en => isPageName(en.name));
+      if (!entries.length) return { unsupported: true };
+      entries.sort((a, b) => naturalOrder(a.name, b.name));
+      return { kind: 'pages', pages: entries.map(en => ({ name: en.name, read: () => en.data })) };
+    }
   }
   const { createExtractorFromData } = require('node-unrar-js');
   const buf = fs.readFileSync(filePath);
@@ -328,6 +384,8 @@ function register() {
 function getSession(token) { return sessions.get(String(token || '')) || null; }
 
 module.exports = {
+  sniffArchive,
+  readZipLocalEntries,
   BUILT_IN_EXTS,
   getSession,
   handlePageRequest,
