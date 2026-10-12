@@ -874,5 +874,6 @@
 .tour-foot { display: flex; align-items: center; gap: 6px; margin-top: 12px; }
 .tour-foot .spacer { flex: 1; }
 body.tour-on #luma-root { z-index: 3600; }
+.tour-layer.paused { display: none; }
 .tour-sample { position: fixed; left: calc(var(--sidebar-w, 250px) + 60px); top: 140px; width: 168px; z-index: 3400; }
 body.tour-on .luma-sprite { pointer-events: none; }
