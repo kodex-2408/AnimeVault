@@ -141,6 +141,8 @@ contextBridge.exposeInMainWorld('api', {
   translateState: (token) => invoke('translate:state', token),
   translateSetEnabled: (token, on) => invoke('translate:setEnabled', token, on),
   translatePage: (token, index, page) => invoke('translate:page', token, index, page),
+  translatePageImage: (token, index, rv) => invoke('translate:pageImage', token, index, rv),
+  translateSavePageImage: (token, index, rv, bytes) => invoke('translate:savePageImage', token, index, rv, bytes),
   translateDetectorModel: () => invoke('translate:detectorModel'),
   onTranslateModelProgress: (cb) => on('translate:modelProgress', cb),
   detectMangaReaders: () => invoke('manga:detectReaders'),

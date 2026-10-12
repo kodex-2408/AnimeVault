@@ -515,7 +515,18 @@ async function rdTrPlan(cv,img,W,H){
 }
 // Finds the text, asks for the translation (unless it is saved), letters it
 // in and returns the translated page as an image URL.
+// Lettering version: finished pages saved by an older detector or lettering
+// code are not reused (the hash covers the code that draws them).
+var _rdTrRv=null;
+function rdTrRv(){
+  if(_rdTrRv)return _rdTrRv;
+  var src=String(TS.plan)+String(TS.render)+String(TS.planLegacy)+(typeof TD!=='undefined'?String(TD.detect):'')+RD_TR_MAX_EDGE,h=5381;
+  for(var k=0;k<src.length;k++)h=((h<<5)+h+src.charCodeAt(k))|0;
+  return _rdTrRv='v'+(h>>>0).toString(36);
+}
 async function rdTrLetter(R,i){
+  // A page finished before: show it straight away.
+  try{var saved=await api.translatePageImage(R.token,i,rdTrRv());if(saved&&saved.byteLength)return URL.createObjectURL(new Blob([saved],{type:'image/jpeg'}));}catch(e){}
   var blob=await rdTrPageBlob(R,i);
   if(!blob)throw new Error('This page could not be read');
   var bmp=await createImageBitmap(blob);
@@ -534,6 +545,7 @@ async function rdTrLetter(R,i){
     try{await document.fonts.load('700 20px "Comic Neue"');}catch(e){}
     TS.render(ctx,img,det,items);
     var out=await new Promise(function(res){cv.toBlob(res,'image/jpeg',0.95);});
+    out.arrayBuffer().then(function(b){return api.translateSavePageImage(R.token,i,rdTrRv(),new Uint8Array(b));}).catch(function(){});
     return URL.createObjectURL(out);
   }finally{if(bmp.close)bmp.close();}
 }

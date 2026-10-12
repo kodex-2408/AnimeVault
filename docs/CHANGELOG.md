@@ -5,6 +5,25 @@ Tsundoku was called AnimeVault up to 5.7.0; older entries keep the old name.
 All notable changes, newest first. Engineering context — test guide, security
 posture, design decisions, open roadmap — lives in [DEVELOPMENT.md](DEVELOPMENT.md).
 
+## 5.11.2 — Translated pages are kept
+
+- **Fixed: reopening a translated chapter redid every page.** Only the
+  translated text was saved. Each reopen ran the text detector, the erasing
+  and the lettering again, which is the slow part, and anything different in
+  that run could shift the text.
+  - The finished pages are now saved too (in the app's `translations/pages`
+    folder, up to 1.5 GB; the oldest pages go first). A reopened chapter
+    shows them at once.
+  - Saved pages are lettered again only when the language, the model or the
+    detection and lettering code changes.
+- **Translations follow renamed and moved chapters.**
+  - A chapter's saved translations used to be tied to its full path and date,
+    so auto-rename, File Management or moving the series folder lost them.
+  - They are now tied to the file's contents (size and first 64 KB). Caches
+    saved under the old scheme are adopted the first time the chapter opens
+    again.
+  - A file whose contents change still starts over.
+
 ## 5.11.1 — Manga onboarding, tour fixes
 
 - **Manga in the setup guide.**
