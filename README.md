@@ -2,7 +2,7 @@
 
 *積ん読: the pile you mean to get to.* A desktop library for your anime and manga, built with Electron (formerly **AnimeVault**). Organize your local collection, track what you've watched and read, read manga in the built-in reader, find new releases on Nyaa.si and keep everything in sync with MyAnimeList.
 
-**Current version: 5.10.0 — Manga translation with a text detector.** See [docs/CHANGELOG.md](docs/CHANGELOG.md) for release history and [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for engineering notes.
+**Current version: 5.11.0 — Manga translation with a text detector.** See [docs/CHANGELOG.md](docs/CHANGELOG.md) for release history and [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for engineering notes.
 
 ---
 
