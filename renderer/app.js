@@ -248,7 +248,8 @@ function _palBuildIndex(){
     ['Open app data folder','Config, cache and covers','folderOpen',function(){api.openFolder(S.cfg&&S.cfg._userDataPath||'');}],
     ['Ask Tsumi','Open the companion chat','sparkles',function(){openLumaAssistant();}],
     ['Keyboard shortcuts','Every shortcut and chord','keyboard',function(){showKeyboardHelp();}],
-    ['Setup guide','Walk through the first-run setup again','wand',function(){showSetupWizard();}]
+    ['Setup guide','Walk through the first-run setup again','wand',function(){showSetupWizard();}],
+    ['Guided tour','Tsumi shows you around the app','sparkles',function(){startTour(null);}]
   ].forEach(function(a){items.push({kind:'Action',title:a[0],sub:a[1],icon:a[2],run:a[3]});});
   (S.lib||[]).filter(function(s){return !s.name.startsWith('__unsorted');}).forEach(function(s){
     items.push({kind:'Library',title:s.name,sub:s.episodeCount+' '+epLabel().toLowerCase(),cover:S.covers[s.name]||'',icon:VM('film','book'),run:function(){odtl(s.name);}});

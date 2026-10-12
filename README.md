@@ -93,6 +93,7 @@ Toggle the **Anime / Manga** switch in the title bar (or press `Ctrl+Shift+M`):
 - **Animated backgrounds** — ambient, orbs, particles or mesh, with intensity control
 - **Right-click menus** on cards
 - **Tsumi, the assistant** — chat about your library, powered by Claude Haiku 5.5 through OpenRouter with your own OpenRouter key (paid per use; low reasoning effort), with optional web search
+- **Guided tour** — Tsumi shows you around the app, with a few "try it" steps; replay any part from Settings
 - **Tsumi, the companion** — a little pile of unread books that hops around the window (it never blocks clicks), toggled from Settings → Tsumi
 
 ---
@@ -114,7 +115,7 @@ npm start
 ```bat
 npm test
 ```
-Sixteen suites (run on Windows and Ubuntu in CI) covering the IPC contract and CSP, search matching, MAL data and sync, state integrity, file safety and moves, library layout, playback and tracking, the renderer store, Tsumi's OpenRouter client, the manga reader (titles, renames, reading timer, EPUB/MOBI/PDF) and page translation. Details in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+Seventeen suites (run on Windows and Ubuntu in CI) covering the IPC contract and CSP, search matching, MAL data and sync, state integrity, file safety and moves, library layout, playback and tracking, the renderer store, Tsumi's OpenRouter client, the manga reader (titles, renames, reading timer, EPUB/MOBI/PDF) and page translation. Details in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ---
 

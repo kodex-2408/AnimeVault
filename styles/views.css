@@ -851,3 +851,25 @@
 .luma-src:hover { color: var(--accent); }
 .luma-src svg { width: 12px; height: 12px; flex: none; }
 .luma-src span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ------------------------------------------------------------ Guided tour (5.11) */
+.tour-layer { position: fixed; inset: 0; z-index: 3500; pointer-events: none; animation: fadeIn var(--dur-3) both; }
+.tour-layer.closing { animation: fadeOut var(--dur-2) both; }
+.tour-spot { position: absolute; left: 0; top: 0; border-radius: 14px; box-shadow: 0 0 0 2px var(--accent), 0 0 0 9999px rgba(8, 6, 12, .58); transition: transform calc(320ms * var(--m)) var(--ease-out), width calc(320ms * var(--m)) var(--ease-out), height calc(320ms * var(--m)) var(--ease-out); }
+.tour-spot.none { box-shadow: 0 0 0 9999px rgba(8, 6, 12, .58); }
+.tour-layer.try .tour-spot:not(.none) { animation: tourPulse 1.6s ease-in-out infinite; }
+@keyframes tourPulse { 50% { box-shadow: 0 0 0 4px var(--accent), 0 0 0 9999px rgba(8, 6, 12, .58); } }
+.tour-block { position: absolute; pointer-events: auto; }
+.tour-call { position: absolute; left: 0; top: 0; width: 320px; max-width: calc(100vw - 16px); pointer-events: auto; padding: 14px 16px 12px; border-radius: var(--r-xl); background: var(--glass-bg-strong); backdrop-filter: var(--glass-filter); box-shadow: var(--glass-edge-strong), var(--shadow-4); transition: transform calc(320ms * var(--m)) var(--ease-out); z-index: 1; }
+.tour-head { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-3); }
+.tour-head img { width: 26px; height: 26px; }
+.tour-who { font-weight: 750; color: var(--text-2); }
+.tour-count { margin-left: auto; font-variant-numeric: tabular-nums; }
+.tour-title { font-family: var(--font-display); font-size: 16px; font-weight: 750; margin: 8px 0 4px; text-wrap: balance; }
+.tour-layer.try .tour-title { color: var(--accent-text); }
+.tour-text { font-size: 13px; line-height: 1.55; color: var(--text-2); }
+.tour-foot { display: flex; align-items: center; gap: 6px; margin-top: 12px; }
+.tour-foot .spacer { flex: 1; }
+body.tour-on #luma-root { z-index: 3600; }
+.tour-sample { position: fixed; left: calc(var(--sidebar-w, 250px) + 60px); top: 140px; width: 168px; z-index: 3400; }
+body.tour-on .luma-sprite { pointer-events: none; }

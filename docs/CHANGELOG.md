@@ -5,7 +5,24 @@ Tsundoku was called AnimeVault up to 5.7.0; older entries keep the old name.
 All notable changes, newest first. Engineering context — test guide, security
 posture, design decisions, open roadmap — lives in [DEVELOPMENT.md](DEVELOPMENT.md).
 
-## 5.11.0 — Tsumi, an agenda Schedule, release priority, faster auto-download
+## 5.11.0 — Tsumi, a guided tour, an agenda Schedule, release priority, faster auto-download
+
+- **Guided tour.** Tsumi shows you around in four short parts: Basics, Cards
+  and series, Discover and plan, Library tools.
+  - The window dims except for the part being explained. A callout sits beside
+    it, and Tsumi hops over and "says" each step.
+  - Most steps use Next. A few "Try it" steps wait for you to do the thing
+    (switch modes, open the command palette, right-click a card, open a
+    series), always with a Skip.
+  - Keys: arrows move between steps, Esc ends the tour.
+  - With an empty library, a marked sample card stands in for the card steps.
+  - Start it from the end of the setup guide ("Take the tour" / "Later"), the
+    command palette, or Settings → Performance & window, where each part can
+    also be replayed on its own.
+- **Setup guide additions:**
+  - Choose whether to start in Anime or Manga.
+  - A new Explore step with the Chinese-animation (donghua) filter.
+  - A "Tsumi on screen" switch.
 
 - **Tsumi replaces Luma.** The star companion is gone, and the assistant is
   now called Tsumi everywhere. Tsumi is an original character: a little pile

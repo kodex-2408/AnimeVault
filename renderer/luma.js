@@ -240,13 +240,14 @@ function _lumaTick(ts){
   if(document.hidden)return;
   var dt=st.last?Math.min(.05,(ts-st.last)/1000):1/60;st.last=ts;st.t+=dt;
   var speedMul=S.cfg.lumaSpeed==='slow'?.6:S.cfg.lumaSpeed==='fast'?1.5:1;
-  var busy=!!(S.ai&&S.ai.busy);if(busy){st.mode='roam';st.idle=0;}
+  var busy=!!(S.ai&&S.ai.busy)||performance.now()<(st.talkUntil||0);if(busy||st.guide){st.mode='roam';st.idle=0;}
+  if(st.guide){st.tx=st.guide.x;st.ty=st.guide.y;st.rest=0;}
   var sleeping=st.mode==='sleep';
   // Travel: pick a spot, hop there, rest a moment. Long idle -> doze.
   if(!st.tx&&!st.ty)_lumaPick(st);
   var dx=st.tx-st.x,dy=st.ty-st.y,dist=Math.sqrt(dx*dx+dy*dy);
-  var want=(!sleeping&&st.rest<=0)?Math.min(80*speedMul,dist*1.8):0;
-  if(dist<3&&st.rest<=0){st.rest=1.5+Math.random()*3;st.idle++;if(st.idle>5&&!busy&&Math.random()<.4)st.mode='sleep';}
+  var want=(!sleeping&&st.rest<=0)?Math.min((st.guide?190:80)*speedMul,dist*1.8):0;
+  if(dist<3&&st.rest<=0&&!st.guide){st.rest=1.5+Math.random()*3;st.idle++;if(st.idle>5&&!busy&&Math.random()<.4)st.mode='sleep';}
   if(st.rest>0){st.rest-=dt;if(st.rest<=0)_lumaPick(st);}
   var acc=1-Math.exp(-dt*4);
   st.vx+=((dist>.1?dx/dist*want:0)-st.vx)*acc;st.vy+=((dist>.1?dy/dist*want:0)-st.vy)*acc;
@@ -277,9 +278,12 @@ function _lumaTick(ts){
   var talking=busy&&!sleeping&&Math.sin(st.t*22)>-.2;st.talk.style.display=talking?'':'none';st.smile.style.display=talking?'none':'';
   if(sleeping){g.sy*=1+Math.sin(st.t*2)*.025;if(Math.random()<dt*.6)_lumaFx(st,'z',st.x+18,st.y-30);}
   _tsT(st.root,g,50,86);
-  st.x=Math.max(60,Math.min(window.innerWidth-60,st.x));st.y=Math.max(80,Math.min(window.innerHeight-60,st.y));
+  if(!st.guide){st.x=Math.max(60,Math.min(window.innerWidth-60,st.x));st.y=Math.max(80,Math.min(window.innerHeight-60,st.y));}
   _lumaPlace(st);
 }
+// Guided tour: Tsumi hops to a point beside the callout and stays awake there.
+function lumaGuide(pt){var st=_lumaState;if(!st)return;st.guide=pt||null;if(pt&&lumaStill()){st.x=pt.x;st.y=pt.y;_lumaPlace(st);}}
+function lumaSay(ms){var st=_lumaState;if(st)st.talkUntil=performance.now()+(ms||2000);}
 function _lumaPick(st){st.tx=90+Math.random()*Math.max(1,window.innerWidth-180);st.ty=110+Math.random()*Math.max(1,window.innerHeight-240);}
 function _lumaDust(st,off){_lumaFx(st,'dust',st.x+off,st.y+st.img.offsetHeight*.32);}
 function _lumaFx(st,kind,x,y){
