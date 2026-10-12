@@ -41,6 +41,7 @@ function linkChips(title,malId){
     :[['Crunchyroll','https://www.crunchyroll.com/search?q='+sn],['Miruro','https://barelystarted.miruro.tv/search?q='+sn],['ani.pm','https://ani.pm/search?q='+sn]];
   var h='<div class="chips">';
   links.forEach(function(l){h+='<button class="chip"'+A('openUrl',l[1])+'>'+ic('external')+E(l[0])+'</button>';});
+  if(isManga())h+='<button class="chip on" data-haruneko'+A('openUrl',HARUNEKO_URL)+Tip('Download chapters with HaruNeko (WeebCentral, MangaDex)')+'>'+ic('download')+'Download with HaruNeko</button>';
   h+='<button class="chip"'+A('openNyaa',title)+'>'+ic('search')+'Nyaa</button>';
   if(malId)h+='<button class="chip"'+A('openUrl','https://myanimelist.net/'+VM('anime','manga')+'/'+malId)+'>'+ic('layers')+'MyAnimeList</button>';
   return h+'</div>';

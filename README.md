@@ -17,6 +17,7 @@ Toggle the **Anime / Manga** switch in the title bar (or press `Ctrl+Shift+M`):
 - **Translate pages** — the reader's Translate tool (`T`) finds the text with a manga text detector (downloaded once, 95 MB; runs on your GPU), erases it and letters the translation into each balloon's shape, one balloon at a time, even where balloons run together (Claude on OpenRouter with your Tsumi key; 16 languages; Claude Haiku 5.5 or Sonnet 5.5). `T` again shows the original. Switched on per chapter, since each new page is a paid request; translated pages are saved, so reading them again is free
 - **Reader apps** — or open chapters in CDisplayEx, OpenComic, SumatraPDF, calibre and others; a chapter is marked read after it has been open for a reading time you choose (default 120 seconds)
 - **Clean chapter names** — cards show a chapter's real title, or just its number; new manga series are renamed to `Series - Ch 012 - Title.cbz` on import (optional, undoable)
+- **Getting chapters** — Tsundoku doesn't download manga itself (Nyaa is mostly anime). The setup guide, the empty manga library and each manga series page point to [HaruNeko](https://github.com/manga-download/haruneko/releases), the successor of HakuNeko: pick WeebCentral or MangaDex as the source, download chapters as CBZ, and set HaruNeko's download folder to your Tsundoku manga folder so new chapters appear on their own
 - **Nyaa manga** — searches Nyaa category `c=3_1` (English-translated manga)
 - **Smart labels** — Ep → Ch, Watching → Reading, Plan to Watch → Plan to Read
 
@@ -103,7 +104,8 @@ Toggle the **Anime / Manga** switch in the title bar (or press `Ctrl+Shift+M`):
 ### Prerequisites
 - [Node.js](https://nodejs.org/) v18+
 - Windows 10 or 11, x64 or ARM64
-- A video player for anime playback: [VLC](https://www.videolan.org/) or [MPV](https://mpv.io/installation/)
+- A video player for anime playback: [VLC](https://www.videolan.org/) or [MPV](https://mpv.io/installation/). If VLC is missing, the setup guide and Settings → Playback can install it for you through winget
+- For manga (optional): a reader app such as [CDisplayEx](https://www.cdisplayex.com/) if you prefer it to the built-in reader, and [HaruNeko](https://github.com/manga-download/haruneko/releases) to download chapters
 
 ### Install & Run (Dev)
 ```bat

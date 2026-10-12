@@ -138,7 +138,8 @@ function vLib(){
       VM('Your library is empty. Add the folders where your anime lives and Tsundoku will organize it, fetch artwork and keep your MyAnimeList progress in sync.','Your manga library is empty. Add your manga folders and Tsundoku will track your reading progress with MyAnimeList.'),
       '<button class="btn btn-primary"'+A('go','settings')+'>'+ic('folderPlus')+'Add library folders</button>'
       +((S.pendingNewSeries||[]).length?'<button class="btn btn-secondary"'+A('openImportReviewer')+'>'+ic('inbox')+'Review imports</button>':'')
-      +(S.mal?'':'<button class="btn btn-secondary"'+A('go','mal')+'>'+ic('link')+'Connect MyAnimeList</button>'))+'</div>';
+      +(S.mal?'':'<button class="btn btn-secondary"'+A('go','mal')+'>'+ic('link')+'Connect MyAnimeList</button>'))
+      +(isManga()?'<div class="empty-extra">'+mangaSourcesCard()+'</div>':'')+'</div>';
   }
   var cw=all.filter(isInProgress).sort(byRecent);
   var heroList=(cw.length?cw:all.slice().sort(byRecent)).slice(0,8);
