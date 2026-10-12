@@ -39,6 +39,13 @@ function noteNyaaStatus(res) {
   return true;
 }
 
+// The poller waits out a short 429 back-off instead of reading it as "no
+// releases" (which skipped tracked episodes until the next poll).
+async function waitForNyaa(maxWaitMs = 90 * 1000) {
+  const wait = _nyaaBackoffUntil - Date.now();
+  if (wait > 0 && wait <= maxWaitMs) await new Promise(r => setTimeout(r, wait + 250));
+}
+
 function normalizeMagnet(url) {
   if (!url) return url;
   return url
@@ -314,15 +321,21 @@ function scoreRelease(r, preferredUploader, ctx) {
 }
 
 // ================================================================
-//  RELEASE CHOICE (5.1)
-//  Erai-raws is the go-to group. When it has no valid release, the most
-//  popular (most-seeded) release from any group wins, so matches follow what
-//  people actually seed. "Prefer HEVC" puts a healthy HEVC release (3+
-//  seeders) ahead of other codecs; newer uploads break ties. Full-series
-//  requests rank batch/season packs ahead of single episodes.
+//  RELEASE CHOICE (5.11)
+//  Single episodes (airing and recent series): Erai-raws first, then VARYG,
+//  then ToonsHub. When none of them has a valid release, the most popular
+//  (most-seeded) release from any group wins. Full-series requests give no
+//  group any priority: batch/season packs come first, then "Prefer HEVC",
+//  then seeders. "Prefer HEVC" puts a healthy HEVC release (3+ seeders) ahead
+//  of other codecs; newer uploads break ties.
 // ================================================================
 const PREFERRED_GROUP = 'erai';
+const PREFERRED_GROUPS = ['erai', 'varyg', 'toonshub'];
 const HEALTHY_SEEDERS = 3;
+function preferredGroupRank(r) {
+  for (let i = 0; i < PREFERRED_GROUPS.length; i++) if (releaseMatchesUploader(r, PREFERRED_GROUPS[i])) return i;
+  return PREFERRED_GROUPS.length;
+}
 function isHevcRelease(r) { return /\b(hevc|x265|h\.?265)\b/i.test(String(r && r.title || '')); }
 function isBatchRelease(r) {
   const t = String(r && r.title || '');
@@ -331,8 +344,12 @@ function isBatchRelease(r) {
     /\(\s*\d{1,3}\s*-\s*\d{1,3}\s*\)/.test(t) || parseNyaaEpisodeNumber(t) === null;
 }
 function releaseGroup(r) {
-  const m = String(r && r.title || '').match(/^\s*\[([^\]]{1,40})\]/);
-  return m ? m[1] : '';
+  const t = String(r && r.title || '');
+  const m = t.match(/^\s*\[([^\]]{1,40})\]/);
+  if (m) return m[1];
+  // Scene-style names end with the group: "Show.S02E05.1080p.WEB-DL.H.264-VARYG"
+  const tail = t.replace(/\.(mkv|mp4)$/i, '').match(/-([A-Za-z][A-Za-z0-9]{1,19})\s*$/);
+  return tail ? tail[1] : '';
 }
 function rankReleases(results, opts = {}) {
   const preferHevc = opts.preferHevc !== undefined ? !!opts.preferHevc : (d().config.forceHevc !== false);
@@ -342,7 +359,7 @@ function rankReleases(results, opts = {}) {
   const h264Ceiling = d().config.avoidOversizedHevc ? computeH264Ceiling(list) : 0;
   const keyed = list.map(r => ({
     r,
-    group: releaseMatchesUploader(r, PREFERRED_GROUP) ? 0 : 1,
+    group: wantBatch ? 0 : preferredGroupRank(r),
     batch: wantBatch ? (isBatchRelease(r) ? 0 : 1) : 0,
     hevc: preferHevc && isHevcRelease(r) && (r.seeders || 0) >= HEALTHY_SEEDERS &&
       !(h264Ceiling && parseReleaseSize(r.size) > h264Ceiling * 2) ? 0 : 1,
@@ -353,13 +370,13 @@ function rankReleases(results, opts = {}) {
   return keyed.map(k => k.r);
 }
 // Compact, renderer-safe description of a candidate for the release picker.
-function describeRelease(r) {
+function describeRelease(r, opts = {}) {
   const t = String(r.title || '');
   const res = (t.match(/\b(480|720|1080|2160)p\b/i) || [])[1];
   return {
     title: t, group: releaseGroup(r), seeders: Number(r.seeders) || 0, size: r.size || '',
     codec: isHevcRelease(r) ? 'HEVC' : (/\b(h\.?264|x264|avc)\b/i.test(t) ? 'H.264' : ''),
-    resolution: res ? res + 'p' : '', preferred: releaseMatchesUploader(r, PREFERRED_GROUP),
+    resolution: res ? res + 'p' : '', preferred: !opts.batch && preferredGroupRank(r) < PREFERRED_GROUPS.length,
     published: getReleasePublishedMs(r) || 0,
   };
 }
@@ -497,9 +514,15 @@ function seriesTitleMatchConfidence(seriesTitle, releaseOrTitle) {
 //              releases look exactly like this, so it needs more proof (date)
 function releaseSeasonFit(release, seriesTitle, entry) {
   const wanted = detectTitleSeason(seriesTitle) || detectTitleSeason(entry && entry.seriesName) || 0;
-  const candidate = detectTitleSeason(getReleaseSeriesTitle(release && release.title));
+  const candidate = detectTitleSeason(getReleaseSeriesTitle(release && release.title)) || sxeSeason(release && release.title);
   if (wanted >= 2) return candidate === wanted ? 'yes' : (candidate ? 'no' : 'unmarked');
   return candidate >= 2 ? 'no' : 'yes';
+}
+
+// "Show.S02E05.1080p..." - getReleaseSeriesTitle cuts the SxxEyy tag off.
+function sxeSeason(title) {
+  const m = String(title || '').match(/\bS(\d{1,2})E\d{1,4}\b/i);
+  return m ? parseInt(m[1], 10) || 0 : 0;
 }
 
 // Without tracking data there is no season start date, so an untagged release
@@ -533,6 +556,11 @@ function getCompactSearchQuery(seriesTitle, preferredUploader, epNum, forceHevc 
   return [uploaderTerm, codecTerm, anchor, episodeTerm].filter(Boolean).join(' ');
 }
 
+// Ordered queries for one episode. The uploader-tagged ones come first (two
+// title spellings only: each spelling fans out into up to five punctuation
+// variants, and a show Erai-raws does not release used to burn through ~40
+// Erai queries before a broad one ran). `queries.taggedCount` marks where the
+// broad, group-agnostic queries start (see episodeSearchSettled).
 function buildEpisodeSearchQueries(seriesTitle, quality, preferredUploader, epNum, forceHevc = true) {
   const epRaw = String(parseInt(epNum, 10));
   const epPadded = epRaw.padStart(2, '0');
@@ -541,29 +569,45 @@ function buildEpisodeSearchQueries(seriesTitle, quality, preferredUploader, epNu
   const anchor = getSearchAnchor(seriesTitle);
   const fullVariants = getSearchVariants(seriesTitle).slice(0, 4);
   const uploader = normalizeUploaderKey(preferredUploader);
-  const full = [];
+  const tagged = [compactWithEpisode, compactByDate];
   const broad = [];
-  for (const title of fullVariants) {
-    if (uploader === 'erairaws') {
-      full.push(`[Erai-raws] ${title} - ${epPadded} ${quality}`);
-      full.push(`[Erai-raws] ${title} - ${epRaw}`);
-    } else if (uploader === 'subsplease') {
-      full.push(`[SubsPlease] ${title} - ${epPadded} (${quality})`);
-    } else if (uploader === 'judas') {
-      full.push(`[Judas] ${title} ${epPadded} ${quality}`);
-    } else {
-      full.push(`${title} ${epPadded} ${quality}`, `${title} ${epRaw}`);
+  fullVariants.forEach((title, i) => {
+    if (i < 2) {
+      if (uploader === 'erairaws') {
+        tagged.push(`[Erai-raws] ${title} - ${epPadded} ${quality}`, `[Erai-raws] ${title} - ${epRaw}`);
+      } else if (uploader === 'subsplease') {
+        tagged.push(`[SubsPlease] ${title} - ${epPadded} (${quality})`);
+      } else if (uploader === 'judas') {
+        tagged.push(`[Judas] ${title} ${epPadded} ${quality}`);
+      }
     }
     broad.push(`${title} ${epPadded} ${quality}`, `${title} ${epRaw}`);
-  }
+  });
+  // Scene-style groups (VARYG, ToonsHub) number episodes "S02E05".
+  const season = detectTitleSeason(seriesTitle) || 1;
+  const sxe = 'S' + String(season).padStart(2, '0') + 'E' + epPadded;
   const broadAnchor = [
     forceHevc && anchor ? `hevc ${anchor} ${epPadded}` : '',
+    anchor ? `${anchor} ${epPadded}` : '',
+    anchor ? `${anchor} ${sxe}` : '',
     forceHevc && anchor ? `hevc ${anchor}` : '',
-    anchor ? `${anchor} ${epPadded}` : ''
   ];
-  return [compactWithEpisode, compactByDate].concat(full, broadAnchor, broad)
-    .flatMap(getSearchVariants)
-    .filter((query, index, all) => query && all.indexOf(query) === index);
+  const dedupe = list => list.flatMap(getSearchVariants).filter((query, index, all) => query && all.indexOf(query) === index);
+  const taggedList = dedupe(tagged);
+  const queries = dedupe(taggedList.concat(broadAnchor, broad));
+  queries.taggedCount = taggedList.length;
+  return queries;
+}
+
+// Whether an episode search can stop after `queriesRun` queries. An Erai-raws
+// release can never be beaten, so it ends the search at once. Any other valid
+// release ends it once the first broad query has run: broad queries return
+// every group (VARYG and ToonsHub included), so ranking can pick among them.
+function episodeSearchSettled(results, isValid, queriesRun, taggedCount) {
+  let best = Infinity;
+  for (const item of results) if (isValid(item)) best = Math.min(best, preferredGroupRank(item));
+  if (best === 0) return true;
+  return best !== Infinity && queriesRun > (Number(taggedCount) || 0);
 }
 
 function computeH264Ceiling(results) {
@@ -784,9 +828,12 @@ async function verifyLatestAvailableEpisode(entry) {
   const compact = getCompactSearchQuery(title, uploader, null, d().config.forceHevc !== false);
   const queries = [compact, title + ' ' + quality, title].filter((q, i, all) => q && all.indexOf(q) === i);
   const seen = new Map();
+  const pool = [];
   for (const query of queries) {
+    await waitForNyaa();
     const found = await nyaaSearchCached(query);
     for (const release of found || []) {
+      if (release && release.title && pool.length < 400 && !pool.some(p => (p.id || p.title) === (release.id || release.title))) pool.push(release);
       if (!release || !release.title || /\b(batch|complete|season\s*pack)\b/i.test(release.title)) continue;
       const episode = parseNyaaEpisodeNumber(release.title);
       if (!episode || episode < 1) continue;
@@ -804,6 +851,8 @@ async function verifyLatestAvailableEpisode(entry) {
   if (verified) verified = Math.max(1, verified + offset);
   entry.verifiedLatest = verified;
   entry.verifiedAt = Date.now();
+  // Kept for this poll only: non-enumerable, so saveConfig never writes it.
+  Object.defineProperty(entry, '_verifyPool', { value: pool, enumerable: false, configurable: true, writable: true });
   return verified;
 }
 
@@ -911,29 +960,30 @@ async function runAutoDownloadPoller(force = false) {
         console.log('[AutoDL] Queries:', expandedQueries);
         console.log('[AutoDL] Season info:', seasonInfo);
 
-        let allResults = [];
-        const seenIds = new Set();
+        // The latest-episode check already searched the series by title;
+        // its releases for this episode seed the pool, so a show whose
+        // preferred release is already known needs no further query.
+        let allResults = (entry._verifyPool || []).filter(item => parseNyaaEpisodeNumber(item.title) === cursorEp);
+        const seenIds = new Set(allResults.map(item => item.id || item.title));
+        const isValid = item =>
+          parseNyaaEpisodeNumber(item.title) === cursorEp &&
+          releaseMatchesTrackedSeason(item, entry, searchName) &&
+          releaseMatchesQuality(item, quality);
         let queryIndex = 0;
         for (const q of expandedQueries) {
+          if (episodeSearchSettled(allResults, isValid, queryIndex, expandedQueries.taggedCount)) break;
           if (queryIndex > 0) await new Promise(r => setTimeout(r, 200));
+          await waitForNyaa();
           console.log('[AutoDL] Searching:', q);
-          const r = await nyaaSearch(q);
+          const r = await nyaaSearchCached(q);
           console.log('[AutoDL] Query returned', r.length, 'results');
           for (const item of r) {
-            if (!seenIds.has(item.id)) {
-              seenIds.add(item.id);
+            const key = item.id || item.title;
+            if (!seenIds.has(key)) {
+              seenIds.add(key);
               allResults.push(item);
             }
           }
-          // Do not let an unrelated uploader returned by a specific query stop
-          // the fallback chain. Exhaust variants until the preferred uploader
-          // has a valid exact-episode candidate.
-          if (allResults.some(item =>
-            parseNyaaEpisodeNumber(item.title) === cursorEp &&
-            releaseMatchesUploader(item, uploader) &&
-            releaseMatchesTrackedSeason(item, entry, searchName) &&
-            releaseMatchesQuality(item, quality)
-          )) break;
           queryIndex++;
         }
 
@@ -1119,6 +1169,7 @@ module.exports = {
   nyaaSearch,
   nyaaSearchHtml,
   nyaaSearchCached,
+  waitForNyaa,
   handOffToClient,
   decodeEntities,
   downloadNyaaTorrentFile,
@@ -1132,6 +1183,8 @@ module.exports = {
   isHevcRelease,
   isBatchRelease,
   PREFERRED_GROUP,
+  PREFERRED_GROUPS,
+  preferredGroupRank,
   releaseMatchesSeriesTitle,
   releaseMatchesQuality,
   normalizeTitleWords,
@@ -1142,6 +1195,7 @@ module.exports = {
   getSearchAnchor,
   getCompactSearchQuery,
   buildEpisodeSearchQueries,
+  episodeSearchSettled,
   computeH264Ceiling,
   extractSeasonInfo,
   getReleasePublishedMs,

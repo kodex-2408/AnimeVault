@@ -6,7 +6,8 @@ var SETUP_STEPS=[
       +feat('folder','Organizes your folders','Renames files and sorts new downloads automatically.')
       +feat('layers','Syncs with MyAnimeList','Progress, scores and airing times stay in step.')
       +feat('download','Finds new episodes','Opt in per series and new releases are handed to your torrent client.')
-      +'</div><p class="field-hint" style="text-align:center;margin-top:16px">Switch between anime and manga any time from the title bar or with <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>M</kbd>.</p>';
+      +'</div><div class="row wrap" style="justify-content:center;margin-top:18px;gap:10px"><span class="muted">Start in</span>'+seg('setupMode',[{v:'anime',label:'Anime'},{v:'manga',label:'Manga'}],S.vaultMode||'anime','setupMode')+'</div>'
+      +'<p class="field-hint" style="text-align:center;margin-top:10px">Switch between anime and manga any time from the title bar or with <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>M</kbd>.</p>';
   }},
   {title:'Pick a look',icon:'palette',body:function(){
     var h='<div class="theme-grid compact">'+FULL_THEMES.map(themeSwatch).join('')+'</div>';
@@ -33,7 +34,7 @@ var SETUP_STEPS=[
     return h;
   }},
   {title:'Downloads',icon:'magnet',body:function(){
-    return '<p class="setup-lead">Tsundoku finds releases on Nyaa: Erai-raws first, otherwise the most-seeded release that matches the right season and episode.</p><div class="list-group">'
+    return '<p class="setup-lead">Tsundoku finds releases on Nyaa. New episodes come from Erai-raws, VARYG or ToonsHub when they have one, otherwise the most-seeded release for the right season and episode. Full series simply take the best-seeded batch.</p><div class="list-group">'
       +setRow({icon:'listCheck',color:'#0a84ff',title:'Let me pick the release',desc:'Show the best matches and choose one yourself.',ctrl:cfgSwitch('releasePicker')})
       +(S.cfg.releasePicker?releasePickerScopeRows():'')
       +setRow({icon:'box',color:'#0a84ff',title:'Prefer HEVC (x265)',desc:'Smaller files at the same quality.',ctrl:cfgSwitch('forceHevc',true)})
@@ -45,9 +46,15 @@ var SETUP_STEPS=[
       +'<div class="field-hint" style="margin:8px 0 12px">Set the app’s redirect URL to <code class="code-chip">http://localhost:19876/callback</code>.</div>'
       +'<div class="row"><button class="btn btn-secondary"'+A('openUrl','https://myanimelist.net/apiconfig')+'>'+ic('external')+'Open API page</button><button class="btn btn-primary"'+A('setupConnectMal')+'>'+ic('link')+'Connect</button></div>';
   }},
-  {title:'Meet Luma',icon:'sparkles',body:function(){
-    if(S.cfg.hasOpenRouterKey)return emptyState('checkCircle','Luma is ready','Your OpenRouter key is saved. Chat with Luma from the title bar.','',true);
-    return '<div class="setup-luma"><img src="luma/luma-front.png" alt="" class="luma-hero"></div><p class="setup-lead">Luma is your library assistant, powered by Claude Haiku 5.5 through OpenRouter. Open the page below, create a key, add a little credit (Haiku is a paid model) and paste the key here. Optional: you can add it later in Settings.</p>'
+  {title:'Explore',icon:'compass',body:function(){
+    return '<p class="setup-lead">Explore shows top-rated and seasonal titles from MyAnimeList, and the Schedule lists this season\'s shows.</p><div class="list-group">'
+      +setRow({icon:'globe',color:'#bf5af2',title:'Hide Chinese animation (donghua)',desc:'Leaves Chinese-produced series out of Explore and the Schedule\'s season view. Change it later in Settings → Import & matching.',ctrl:cfgSwitch('hideDonghua',true)})
+      +'</div>';
+  }},
+  {title:'Meet Tsumi',icon:'sparkles',body:function(){
+    var onScreen='<div class="list-group" style="margin-bottom:14px">'+setRow({icon:'sparkles',color:'#ffcc4d',title:'Tsumi on screen',desc:'A little pile of unread books that hops around the window. It never blocks your clicks.',ctrl:cfgSwitch('lumaMascot')})+'</div>';
+    if(S.cfg.hasOpenRouterKey)return onScreen+emptyState('checkCircle','Tsumi is ready','Your OpenRouter key is saved. Chat with Tsumi from the title bar.','',true);
+    return onScreen+'<div class="setup-luma"><img src="companion/tsumi.svg" alt="" class="luma-hero"></div><p class="setup-lead">Tsumi is your library assistant, powered by Claude Haiku 5.5 through OpenRouter. Open the page below, create a key, add a little credit (Haiku is a paid model) and paste the key here. Optional: you can add it later in Settings.</p>'
       +aiKeyForm('setupAiKey');
   }},
   {title:'After you watch…',icon:'film',body:function(){
@@ -57,7 +64,7 @@ var SETUP_STEPS=[
       +'<button class="row-card choice'+(del?' selected':'')+'"'+A('setupWatchDelete',true)+'><div class="lg-icon" style="--ic:var(--red)">'+ic('trash')+'</div><div class="grow"><div class="row-title">Watch & delete</div><div class="row-sub">Episodes are deleted after they’re marked as watched.</div></div><span class="match-check">'+ic('check')+'</span></button></div>';
   }},
   {title:'You’re all set',icon:'checkCircle',body:function(){
-    return '<div class="setup-feats">'+feat('inbox','Library Hub','New series land in the Import Inbox for a quick review.')+feat('calendarClock','Schedule','A week-at-a-glance TV guide in your time zone.')+feat('command','Command palette','Press Ctrl K to jump anywhere.')+feat('wand','Setup guide','Open this guide again any time from Settings → Performance & window.')+'</div>';
+    return '<p class="setup-lead">Want a quick look around? Tsumi can show you the main parts of the app in about three minutes. You can try things as you go.</p><div class="setup-feats">'+feat('inbox','Library Hub','New series land in the Import Inbox for a quick review.')+feat('calendarClock','Schedule','Your airing shows, day by day, in your time zone.')+feat('command','Command palette','Press Ctrl K to jump anywhere.')+feat('wand','Setup guide and tour','Open either again any time from Settings → Performance & window.')+'</div>';
   }}
 ];
 function feat(icon,title,text){return '<div class="setup-feat"><div class="lg-icon">'+ic(icon)+'</div><div><div class="row-title">'+E(title)+'</div><div class="row-sub">'+E(text)+'</div></div></div>';}
@@ -71,7 +78,7 @@ function renderSetupStep(){
     +'<div class="setup-head"><div class="empty-icon">'+ic(step.icon)+'</div><div class="setup-step">Step '+(S._setupStep+1)+' of '+n+'</div><div class="setup-title">'+E(step.title)+'</div></div>'
     +'<div class="setup-body" id="setupBody">'+step.body()+'</div>'
     +'<div class="setup-foot">'+(first?'<button class="btn btn-ghost"'+A('closeSetup')+'>Skip setup</button>':'<button class="btn btn-ghost"'+A('setupPrev')+'>'+ic('chevronLeft')+'Back</button>')
-    +'<span class="spacer"></span>'+(last?'<button class="btn btn-primary btn-lg"'+A('closeSetup')+'>Get started'+ic('arrowRight')+'</button>':'<button class="btn btn-primary btn-lg"'+A('setupNext')+'>Continue'+ic('chevronRight')+'</button>')+'</div></div></div>';
+    +'<span class="spacer"></span>'+(last?'<button class="btn btn-ghost btn-lg"'+A('closeSetup')+'>Later</button><button class="btn btn-primary btn-lg"'+A('setupStartTour')+'>'+ic('sparkles')+'Take the tour</button>':'<button class="btn btn-primary btn-lg"'+A('setupNext')+'>Continue'+ic('chevronRight')+'</button>')+'</div></div></div>';
   host.innerHTML=h;updateSegThumbs(host);
 }
 function setupNext(){if(S._setupStep<SETUP_STEPS.length-1){S._setupStep++;renderSetupStep();}}
@@ -96,6 +103,8 @@ async function setupConnectMal(){
 }
 act('setupAccent',function(el,ev,c){setThemeAccent(c);renderSetupStep();});
 act('setupType',function(el,ev,v){S._setupType=v;});
+act('setupMode',function(el,ev,v){if(v!==S.vaultMode)switchMode(v).then(function(){if(document.querySelector('.setup-layer'))renderSetupStep();});});
+act('setupStartTour',function(){closeSetup();setTimeout(function(){startTour(null);},320);});
 act('setupWatchDelete',function(el,ev,v){S.cfg.watchAndDelete=v;api.setConfig('watchAndDelete',v);renderSetupStep();});
 expose('setupNext','setupPrev','closeSetup','setupAddFolder','setupConnectMal');
 // Theme cards inside the wizard re-render the step after applying.

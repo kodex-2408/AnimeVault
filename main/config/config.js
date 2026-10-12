@@ -12,10 +12,10 @@ const { validateRendererConfigValue } = require('./security');
 
 const CONFIG_PATH = path.join(app.getPath('userData'), 'config.json');
 const CONFIG_BACKUP_PATH = CONFIG_PATH + '.bak';
-// Luma's OpenRouter key (safeStorage-encrypted). Not the 5.0 file name, which
+// Tsumi's OpenRouter key (safeStorage-encrypted). Not the 5.0 file name, which
 // held a different key and is removed on start.
 const LUMA_KEY_PATH = path.join(app.getPath('userData'), 'luma-openrouter.enc');
-// 5.2 stored a Google AI Studio key here; Luma no longer uses it.
+// 5.2 stored a Google AI Studio key here; Tsumi no longer uses it.
 const LEGACY_GEMINI_KEY_PATH = path.join(app.getPath('userData'), 'gemini-key.enc');
 const MAL_CREDENTIALS_PATH = path.join(app.getPath('userData'), 'mal-credentials.enc');
 // 5.0 stored an OpenRouter key here; 5.1 removes it on first start.
@@ -71,7 +71,7 @@ const STATIC_CONFIG_KEYS = new Set([
   'mangaReader', 'readerMode', 'readerDir', 'readerFit', 'readerMarkPercent', 'readerZoom',
   'translateLang', 'translateModel',
   // 5.0 UI preferences
-  'glassLevel', 'lastDarkTheme', 'lastLightTheme', 'sidebarCollapsed', 'schedView', 'heroTone'
+  'glassLevel', 'lastDarkTheme', 'lastLightTheme', 'sidebarCollapsed', 'schedView', 'schedViewV', 'heroTone', 'tourDone'
 ]);
 function isSafeConfigKey(key) {
   if (!key || typeof key !== 'string') return false;
@@ -215,7 +215,7 @@ function loadLumaKey() {
   delete config.openrouterApiKey;
   delete config.openrouterModel;
   for (const old of [LEGACY_OPENROUTER_KEY_PATH, LEGACY_GEMINI_KEY_PATH]) {
-    try { if (fs.existsSync(old)) fs.unlinkSync(old); } catch (e) { console.error('[AI] Could not remove an old Luma key:', e.message); }
+    try { if (fs.existsSync(old)) fs.unlinkSync(old); } catch (e) { console.error('[AI] Could not remove an old Tsumi key:', e.message); }
   }
   try {
     if (plaintextKey) saveLumaKey(plaintextKey);
@@ -239,7 +239,7 @@ function saveLumaKey(key) {
 }
 
 // MyAnimeList tokens and the client secret live in an OS-encrypted file
-// (safeStorage: DPAPI on Windows), like the Luma key - never in config.json,
+// (safeStorage: DPAPI on Windows), like the Tsumi key - never in config.json,
 // its backups or the daily snapshots. Without OS encryption they stay in
 // config.json as before rather than being lost.
 const MAL_SECRET_FIELDS = ['malAccessToken', 'malRefreshToken', 'malClientSecret'];

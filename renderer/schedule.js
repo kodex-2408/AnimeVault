@@ -1,6 +1,6 @@
 /* Tsundoku renderer — Schedule (TV guide). */
 
-if(!S.schedView)S.schedView='week';
+if(!S.schedView)S.schedView='agenda';
 var _schedTick=null;
 
 function findSchedLibMatch(anime){
@@ -76,7 +76,7 @@ function renderSchedule(){
   var tz='';try{tz=Intl.DateTimeFormat().resolvedOptions().timeZone||'';}catch(e){}
   var h='<div class="view sched">';
   h+=pageHead('Schedule',plural(items.length,'show','shows')+' airing this week'+(tz?' · times in '+E(tz.replace(/_/g,' ')):''),
-    seg('schedView',[{v:'week',label:'Week',icon:'grid'},{v:'agenda',label:'Agenda',icon:'list'}],S.schedView,'setSchedView'));
+    seg('schedView',[{v:'agenda',label:'Agenda',icon:'list'},{v:'week',label:'Week',icon:'grid'}],S.schedView,'setSchedView'));
   h+='<div class="toolbar-lite">'+seg('schedSrc',[{v:'watching',label:watchingLabel()},{v:'watching_plan',label:'+ Planned'},{v:'seasonal',label:'Whole season'}],src,'setSchedSource')
     +'<span class="spacer"></span>'+searchField({id:'schedSearchInput',value:S.schedQ||'',placeholder:'Filter by title or genre',input:'schedSearch',clear:'clearSchedSearch',size:'sm'}).replace('class="search','class="search toolbar-search')
     +'<button class="icon-btn"'+A('schedReload')+Tip('Refresh from MyAnimeList')+'>'+ic('refresh')+'</button></div>';
@@ -89,7 +89,8 @@ function renderSchedule(){
     mc.innerHTML=h+'</div>';updateSegThumbs(mc);startSchedTick(false);return;
   }
 
-  // Up next
+  // Up next (Week view; the agenda list carries its own countdowns)
+  if(S.schedView!=='agenda'){
   var upcoming=items.slice().sort(function(x,y){return x.next-y.next;}).slice(0,4);
   h+='<div class="upnext">';
   upcoming.forEach(function(it,i){
@@ -100,6 +101,7 @@ function renderSchedule(){
       +'<div class="upnext-title clamp-2">'+E(it.a.title)+'</div><div class="upnext-sub">'+E(dayName(it.next,now))+' · '+E(fmtTime(it.next))+'</div></div></div></div>';
   });
   h+='</div>';
+  }
 
   if(S.schedView==='agenda')h+=renderAgenda(items,now);
   else h+=renderWeekBoard(items,now);
@@ -143,33 +145,39 @@ function renderWeekBoard(items,now){
   });
   return h+'</div>';
 }
+// Agenda (5.11, the default): one list down the page, grouped by day. Full
+// titles, the episode number, time, live countdown and chips sit in fixed
+// columns; days with nothing airing fold into one quiet line.
+function schedEpisodeAt(a,when){
+  if(!a.start_date)return 0;var start=new Date(a.start_date);if(isNaN(start))return 0;
+  var n=Math.floor((when-start)/(7*864e5)+1/7)+1;var total=Number(a.num_episodes)||0;
+  if(n<1)return 0;return total&&n>total?0:n;
+}
 function renderAgenda(items,now){
-  var buckets=dayBuckets(items,now);
-  var sel=S.schedAgendaDay==null?0:S.schedAgendaDay;if(sel>6)sel=0;
-  var h='<div class="agenda-days">';
-  buckets.forEach(function(b,i){
-    var label=i===0?'Today':i===1?'Tomorrow':b.date.toLocaleDateString(undefined,{weekday:'short'});
-    h+='<button class="agenda-day'+(i===sel?' active':'')+(b.list.length?'':' empty')+'"'+A('setAgendaDay',i)+'><span class="ad-name">'+E(label)+'</span><span class="ad-date">'+b.date.getDate()+'</span><span class="ad-count">'+(b.list.length||'–')+'</span></button>';
+  var buckets=dayBuckets(items,now);var nowMins=now.getHours()*60+now.getMinutes();
+  var h='<div class="ag">',quiet=[];
+  function flushQuiet(){if(!quiet.length)return;h+='<div class="ag-day"><div></div><div class="ag-empty">'+ic('moon')+'Nothing airing '+E(quiet.join(', '))+'</div></div>';quiet=[];}
+  buckets.forEach(function(b,bi){
+    var name=bi===0?'Today':bi===1?'Tomorrow':b.date.toLocaleDateString(undefined,{weekday:'long'});
+    var date=b.date.toLocaleDateString(undefined,{month:'short',day:'numeric'});
+    if(!b.list.length){quiet.push(name+' '+date);return;}
+    flushQuiet();
+    h+='<div class="ag-day'+(b.today?' today':'')+'"><div class="ag-label"><b>'+E(name)+'</b><span>'+E(date)+'</span></div><div class="ag-list">';
+    var placedNow=false;
+    b.list.forEach(function(it){
+      var a=it.a;var hm=it.local.time24.split(':');var mins=+hm[0]*60+ +hm[1];var aired=b.today&&mins+24<=nowMins;
+      if(b.today&&!placedNow&&mins>nowMins){h+='<div class="ag-now">Now · '+E(fmtTime(now))+'</div>';placedNow=true;}
+      var ep=schedEpisodeAt(a,aired?now:it.next);
+      h+='<div class="ag-row'+(aired?' aired':'')+'"'+A('openExploreDetail',a.id)+On('ctx','schedCtx',a.id,a.title||'')+' role="button" tabindex="0">'
+        +'<div class="ag-time">'+E(it.local.time12)+'</div>'+schedThumb(a)
+        +'<div class="ag-main"><div class="ag-title">'+E(a.title)+'</div><div class="ag-meta">'+(ep?'<span class="ag-ep">'+E(epLabel())+' '+ep+'</span>':'')
+        +(a.mean?'<span class="star">★ '+Number(a.mean).toFixed(2)+'</span>':'')+schedTags(it)+'</div></div>'
+        +'<div class="ag-count"'+(aired?'':' data-countdown="'+it.next.getTime()+'"')+'>'+(aired?'<span class="tag">Aired</span>':E(fmtCountdown(it.next-now)))+'</div></div>';
+    });
+    if(b.today&&!placedNow)h+='<div class="ag-now">Now · '+E(fmtTime(now))+'</div>';
+    h+='</div></div>';
   });
-  h+='</div>';
-  var b=buckets[sel];var nowMins=now.getHours()*60+now.getMinutes();
-  if(!b.list.length)return h+emptyState('moon','A quiet day','Nothing on this list airs '+(sel===0?'today':'on '+b.date.toLocaleDateString(undefined,{weekday:'long'}))+'.','',true);
-  h+='<div class="timeline">';
-  var placedNow=false;
-  b.list.forEach(function(it){
-    var a=it.a;var hm=it.local.time24.split(':');var mins=+hm[0]*60+ +hm[1];var aired=b.today&&mins+24<=nowMins;
-    if(b.today&&!placedNow&&mins>nowMins){h+='<div class="tl-now"><span>Now</span></div>';placedNow=true;}
-    var syn=(a.synopsis||'').replace(/\s+/g,' ');var genres=(a.genres||[]).slice(0,3).map(function(g){return g.name||g;}).join(' · ');
-    h+='<div class="tl-item'+(aired?' aired':'')+'"><div class="tl-time">'+E(it.local.time12)+'</div><div class="tl-dot"></div>'
-      +'<div class="tl-card panel"'+A('openExploreDetail',a.id)+' role="button" tabindex="0">'+schedThumb(a,'thumb lg')
-      +'<div class="grow"><div class="row"><div class="row-title grow">'+E(a.title)+'</div>'+(aired?'<span class="tag">Aired</span>':'<span class="tag accent">'+E(fmtCountdown(it.next-now))+'</span>')+'</div>'
-      +'<div class="row wrap" style="margin:6px 0">'+(a.mean?'<span class="tag star">★ '+Number(a.mean).toFixed(2)+'</span>':'')+(genres?'<span class="muted" style="font-size:12px">'+E(genres)+'</span>':'')+schedTags(it)+'</div>'
-      +(syn?'<div class="tl-syn clamp-2">'+E(syn)+'</div>':'')
-      +'<div class="row" style="margin-top:10px"><button class="btn btn-secondary btn-sm"'+A('openExploreDetail',a.id)+'>'+ic('info')+'Details</button>'
-      +'<button class="btn btn-ghost btn-sm"'+A('openNyaa',a.title)+'>'+ic('search')+'Nyaa</button>'
-      +(it.lib&&!isManga()?'<button class="btn btn-ghost btn-sm"'+A('schedTrack',it.lib.name,a.id)+'>'+ic('download')+(it.tracked?'Tracking':'Track')+'</button>':'')+'</div></div></div></div>';
-  });
-  if(b.today&&!placedNow)h+='<div class="tl-now"><span>Now</span></div>';
+  flushQuiet();
   return h+'</div>';
 }
 function schedCtx(el,ev,id,title){
@@ -182,8 +190,7 @@ function schedCtx(el,ev,id,title){
 }
 ACT.schedCtx=function(el,ev,id,title){schedCtx(el,ev,id,title);};
 act('schedTrack',function(el,ev,name,id){return toggleAutoDownloadTrack(name,id).then(function(){renderSchedule();});});
-act('setAgendaDay',function(el,ev,i){S.schedAgendaDay=i;renderSchedule();});
-function setSchedView(v){S.schedView=v;api.setConfig('schedView',v);renderSchedule();}
+function setSchedView(v){S.schedView=v;api.setConfig('schedView',v);api.setConfig('schedViewV',2);renderSchedule();}
 function setSchedSource(src){S.schedSource=src;if(S._schedDataCache[src])renderSchedule();else loadSchedule(true);}
 function clearSchedSearch(){S.schedQ='';renderSchedule();}
 act('schedSearch',function(el){S.schedQ=el.value;var pos=el.selectionStart;schedSearchRender(pos);});

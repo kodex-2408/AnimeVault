@@ -14,7 +14,7 @@ Toggle the **Anime / Manga** switch in the title bar (or press `Ctrl+Shift+M`):
 - **MAL manga sync** — manga mode uses MyAnimeList's manga endpoints (chapters read, manga list, manga details)
 - **File support** — `.cbz`, `.cbr`, `.zip`, `.pdf`, `.epub` and `.mobi`; chapter numbers and titles are read from the file names
 - **Built-in reader** — single page, double page or long strip, left-to-right or right-to-left, zoom (Ctrl + wheel or the − / % / + control), whole-window fullscreen; marks a chapter read when you reach a share of its pages (default 90%)
-- **Translate pages** — the reader's Translate tool (`T`) finds the text with a manga text detector (downloaded once, 95 MB; runs on your GPU), erases it and letters the translation into each balloon's shape, one balloon at a time, even where balloons run together (Claude on OpenRouter with your Luma key; 16 languages; Claude Haiku 5.5 or Sonnet 5.5). `T` again shows the original. Switched on per chapter, since each new page is a paid request; translated pages are saved, so reading them again is free
+- **Translate pages** — the reader's Translate tool (`T`) finds the text with a manga text detector (downloaded once, 95 MB; runs on your GPU), erases it and letters the translation into each balloon's shape, one balloon at a time, even where balloons run together (Claude on OpenRouter with your Tsumi key; 16 languages; Claude Haiku 5.5 or Sonnet 5.5). `T` again shows the original. Switched on per chapter, since each new page is a paid request; translated pages are saved, so reading them again is free
 - **Reader apps** — or open chapters in CDisplayEx, OpenComic, SumatraPDF, calibre and others; a chapter is marked read after it has been open for a reading time you choose (default 120 seconds)
 - **Clean chapter names** — cards show a chapter's real title, or just its number; new manga series are renamed to `Series - Ch 012 - Title.cbz` on import (optional, undoable)
 - **Nyaa manga** — searches Nyaa category `c=3_1` (English-translated manga)
@@ -92,8 +92,9 @@ Toggle the **Anime / Manga** switch in the title bar (or press `Ctrl+Shift+M`):
 - **Accessible by default** — follows the Windows animation setting until you pick a Motion speed, readable secondary text in every theme, and dialogs that keep keyboard focus
 - **Animated backgrounds** — ambient, orbs, particles or mesh, with intensity control
 - **Right-click menus** on cards
-- **Luma assistant** — chat about your library, powered by Claude Haiku 5.5 through OpenRouter with your own OpenRouter key (paid per use; low reasoning effort), with optional web search
-- **Luma companion** — a star spirit that drifts across the window, toggled from Settings → Companion
+- **Tsumi, the assistant** — chat about your library, powered by Claude Haiku 5.5 through OpenRouter with your own OpenRouter key (paid per use; low reasoning effort), with optional web search
+- **Guided tour** — Tsumi shows you around the app, with a few "try it" steps; replay any part from Settings
+- **Tsumi, the companion** — a little pile of unread books that hops around the window (it never blocks clicks), toggled from Settings → Tsumi
 
 ---
 
@@ -114,7 +115,7 @@ npm start
 ```bat
 npm test
 ```
-Fifteen suites (run on Windows and Ubuntu in CI) covering the IPC contract and CSP, search matching, MAL data and sync, state integrity, file safety and moves, library layout, playback and tracking, the renderer store, Luma's OpenRouter client, the manga reader (titles, renames, reading timer, EPUB/MOBI/PDF) and page translation. Details in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+Seventeen suites (run on Windows and Ubuntu in CI) covering the IPC contract and CSP, search matching, MAL data and sync, state integrity, file safety and moves, library layout, playback and tracking, the renderer store, Tsumi's OpenRouter client, the manga reader (titles, renames, reading timer, EPUB/MOBI/PDF) and page translation. Details in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ---
 
@@ -134,9 +135,9 @@ The batch files wrap the `npm run build*` / `npm run build-installer*` scripts i
 
 **Why is ARM64 a folder, not one `.exe`?** The single-file portable format starts the app through a small x86 launcher, which Windows on ARM runs emulated (and flags as such) for as long as the app is open. The folder/zip build is native ARM64 end to end.
 
-**Coming from AnimeVault?** Your settings, library, MyAnimeList sign-in and Luma key carry over: on its first start Tsundoku moves `%APPDATA%\AnimeVault` to `%APPDATA%\Tsundoku` (or keeps using the old folder if it can't be moved). Delete the old `AnimeVault` build or shortcut afterwards. An installed copy updates in place, because the installer ID is unchanged.
+**Coming from AnimeVault?** Your settings, library, MyAnimeList sign-in and assistant key carry over: on its first start Tsundoku moves `%APPDATA%\AnimeVault` to `%APPDATA%\Tsundoku` (or keeps using the old folder if it can't be moved). Delete the old `AnimeVault` build or shortcut afterwards. An installed copy updates in place, because the installer ID is unchanged.
 
-**Is my OpenRouter key shared when I share the app?** No. Luma's key is entered once per PC (Settings → Companion) and stored encrypted with that Windows account in `%APPDATA%\Tsundoku`. It is not in the app files, `config.json`, backups or exports, and it survives updates and rebuilds. Anyone you share the app with adds their own key. Don't build a key into the app: anything inside an app can be extracted.
+**Is my OpenRouter key shared when I share the app?** No. Tsumi's key is entered once per PC (Settings → Tsumi) and stored encrypted with that Windows account in `%APPDATA%\Tsundoku`. It is not in the app files, `config.json`, backups or exports, and it survives updates and rebuilds. Anyone you share the app with adds their own key. Don't build a key into the app: anything inside an app can be extracted.
 
 **Will the portable build work on another computer?**
 Yes — it is self-contained (Electron runtime + Chromium + Node.js), fonts included. The recipient needs no Node.js, only a video player (VLC or MPV) for anime playback.
@@ -146,7 +147,7 @@ Yes — it is self-contained (Electron runtime + Chromium + Node.js), fonts incl
 ## Configuration
 
 ### First Launch
-The setup guide walks you through theme, library folders, player and subtitles, the Bluetooth audio delay, download preferences, the MAL connection and Luma. Reopen it any time from Settings → Performance & window.
+The setup guide walks you through theme, library folders, player and subtitles, the Bluetooth audio delay, download preferences, the MAL connection and Tsumi. Reopen it any time from Settings → Performance & window.
 
 ### MyAnimeList
 1. Create an API app at [myanimelist.net/apiconfig](https://myanimelist.net/apiconfig)
@@ -169,7 +170,7 @@ Settings → Notifications → toggle categories individually. Turning a categor
 - **Figtree**, **Bricolage Grotesque** and **Comic Neue** (manga lettering) — bundled typefaces (SIL Open Font License)
 - **MyAnimeList API v2** — anime/manga data and list sync
 - **AniList GraphQL** — cover art and search
-- **OpenRouter** — Luma (Claude Haiku 5.5) and page translation (Claude Haiku 5.5 or Sonnet 5.5)
+- **OpenRouter** — Tsumi (Claude Haiku 5.5) and page translation (Claude Haiku 5.5 or Sonnet 5.5)
 
 ## License
 Personal use. The bundled fonts are under the SIL Open Font License (see `fonts/`).

@@ -177,8 +177,8 @@ function mustExtract(fnCode, label) {
     assert(fs.existsSync(path.join(root, f)), 'build.files literal missing from repo: ' + f); checks++;
     assert(pkg.build.files.includes(f), 'build.files must include ' + f); checks++;
   }
-  assert(pkg.build.files.includes('luma/**/*'), 'build.files must keep shipping luma assets'); checks++;
-  assert(fs.existsSync(path.join(root, 'luma')), 'luma/ is referenced by build.files — do not delete it'); checks++;
+  assert(pkg.build.files.includes('companion/**/*'), 'build.files must ship the companion art'); checks++;
+  assert(fs.existsSync(path.join(root, 'companion', 'tsumi.svg')), 'companion/tsumi.svg is referenced by build.files — do not delete it'); checks++;
   assert.strictEqual(pkg.main, 'main.js'); checks++;
   // The main process is split across main/: every local require must resolve
   // to a file the packaged app ships, or the exe exits before any window.

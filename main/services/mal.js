@@ -610,7 +610,7 @@ function register() {
     const isManga = config.vaultMode === 'manga';
     const endpoint = isManga
       ? `/manga/ranking?ranking_type=all&limit=${l}&offset=${o}&fields=id,title,main_picture,mean,media_type,status`
-      : `/anime/ranking?ranking_type=all&limit=${l}&offset=${o}&fields=id,title,main_picture,mean,media_type,status`;
+      : `/anime/ranking?ranking_type=all&limit=${l}&offset=${o}&fields=id,title,alternative_titles,main_picture,mean,media_type,status,studios`;
     const r = await malRequestWithRetry(endpoint);
     return r.data || [];
   });
@@ -620,7 +620,7 @@ function register() {
     const s = String(season || '').toLowerCase();
     if (!/^(winter|spring|summer|fall)$/.test(s)) throw new Error('Invalid season');
     if (!Number.isInteger(y) || y < 1970 || y > 2100) throw new Error('Invalid year');
-    const r = await malRequestWithRetry(`/anime/season/${y}/${s}?limit=500&fields=id,title,main_picture,num_episodes,status,mean,media_type,genres,start_date,synopsis`);
+    const r = await malRequestWithRetry(`/anime/season/${y}/${s}?limit=500&fields=id,title,alternative_titles,main_picture,num_episodes,status,mean,media_type,genres,start_date,synopsis,studios`);
     return r.data || [];
   });
 

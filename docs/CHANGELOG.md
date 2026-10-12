@@ -5,6 +5,77 @@ Tsundoku was called AnimeVault up to 5.7.0; older entries keep the old name.
 All notable changes, newest first. Engineering context — test guide, security
 posture, design decisions, open roadmap — lives in [DEVELOPMENT.md](DEVELOPMENT.md).
 
+## 5.11.0 — Tsumi, a guided tour, an agenda Schedule, release priority, faster auto-download
+
+- **Guided tour.** Tsumi shows you around in four short parts: Basics, Cards
+  and series, Discover and plan, Library tools.
+  - The window dims except for the part being explained. A callout sits beside
+    it, and Tsumi hops over and "says" each step.
+  - Most steps use Next. A few "Try it" steps wait for you to do the thing
+    (switch modes, open the command palette, right-click a card, open a
+    series), always with a Skip.
+  - Keys: arrows move between steps, Esc ends the tour.
+  - With an empty library, a marked sample card stands in for the card steps.
+  - Start it from the end of the setup guide ("Take the tour" / "Later"), the
+    command palette, or Settings → Performance & window, where each part can
+    also be replayed on its own.
+- **Setup guide additions:**
+  - Choose whether to start in Anime or Manga.
+  - A new Explore step with the Chinese-animation (donghua) filter.
+  - A "Tsumi on screen" switch.
+
+- **Tsumi replaces Luma.** The star companion is gone, and the assistant is
+  now called Tsumi everywhere. Tsumi is an original character: a little pile
+  of unread books, drawn as vector art so it stays sharp at every size.
+  - It hops from place to place, and the top book wobbles a beat behind.
+  - It puffs dust when it lands; the "Dust puffs" switch replaces "Sparkle trail".
+  - It blinks and looks where it's going.
+  - It talks while the chat is answering, dozes off when left alone, and does
+    a happy hop when clicked.
+  - Settings, config keys and the OpenRouter key carry over unchanged. The old
+    `luma/` PNGs are removed; the art is `companion/tsumi.svg`.
+- **Schedule: Agenda is the new default.**
+  - One list down the page, grouped by day.
+  - Each row shows the full title on one line, the episode number, time, live
+    countdown and the library/auto-download chips.
+  - Days with nothing airing fold into one quiet line.
+  - Week stays one click away. A saved view choice applies again once you pick
+    one in this version.
+- **Series links:**
+  - Miruro now opens `barelystarted.miruro.tv`.
+  - ani.pm replaces Netflix.
+  - Manga mode: Comix (`comix.to`) replaces MangaReader.
+
+- **Release choice.** New episodes: Erai-raws, then VARYG, then ToonsHub, then
+  the most-seeded release from any group. **Full-series downloads give no group
+  priority**: batches first, then "Prefer HEVC", then seeders; the full-series
+  search is no longer Erai-led either.
+- **Auto-download is faster and misses fewer episodes.**
+  - A show Erai-raws doesn't release used to run ~40 Erai-only searches per
+    episode before a broad one. Now only a few tagged searches run first; the
+    search stops at an Erai-raws match, or at any valid match once a broad
+    search has run.
+  - The title search that finds the latest episode now seeds each episode's
+    candidates, so many episodes need no extra search at all.
+  - Searches go through the 5-minute cache.
+  - The poller waits out a short Nyaa rate limit (HTTP 429) instead of treating
+    it as "no releases", which used to skip tracked episodes until the next poll.
+  - Scene-style names (`Show.S02E05…-VARYG`) count their `S02` as the season,
+    and an `SxxEyy` search is added for those groups.
+- **Covers no longer flash blank.**
+  - Lazy covers start loading about 2.5 screens before they scroll into view.
+  - "Load more" and the first Explore / My List page wait up to 1.5 s for their
+    covers.
+  - A cover still on its way shows a shimmer and fades in, instead of a white box.
+- **Explore search:** the media type no longer runs into the title, and types
+  read "TV Special", "Movie", and so on.
+- **Donghua filter.**
+  - Explore and Schedule now ask MAL for studios and alternative titles. The
+    studio check never had studio data before.
+  - Two new signals: a native title written with simplified-only characters,
+    and a romanized title that is pinyin, not romaji.
+  - More Chinese studios are listed.
+
 ## 5.10.1 — Episode cards; the extension shares the translator
 
 - **Fixed: on episode cards the play button overlapped the watched checkmark.**

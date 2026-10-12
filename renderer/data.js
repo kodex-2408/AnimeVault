@@ -742,7 +742,7 @@ function showReleasePicker(r){
       +'<span class="release-seeds"><b class="num">'+c.seeders.toLocaleString()+'</b><span>seeders</span></span>'+(i===0?'<span class="release-best">'+ic('sparkles')+'Best match</span>':'')+'</button>';
   }).join('');
   openModal({id:'releasePicker',title:'Choose a release',sub:E(r.seriesTitle)+(r.epNum!=null?' · '+epLabel()+' '+E(r.epNum):' · full series'),icon:'magnet',width:680,
-    body:'<div class="release-list">'+rows+'</div>',foot:'<span class="muted left">Erai-raws first, then most seeded</span><button class="btn btn-ghost" data-modal-close>Cancel</button>'});
+    body:'<div class="release-list">'+rows+'</div>',foot:'<span class="muted left">'+(r.epNum!=null?'Erai-raws, VARYG, ToonsHub first, then most seeded':'Batches first, then most seeded · no group priority')+'</span><button class="btn btn-ghost" data-modal-close>Cancel</button>'});
 }
 act('pickRelease',async function(el,ev,token,i){
   var m=document.getElementById('releasePicker');if(m&&m._modal)m._modal.close();

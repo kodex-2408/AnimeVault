@@ -17,7 +17,7 @@ function mediaCard(a,i,opts){
     +(opts.showProgress&&(pct>0||airedPct>0)&&ls&&ls.status!=='completed'?'<div class="pc-bottom"><div class="pc-prog" style="--p:'+pct.toFixed(1)+'%;--a:'+airedPct.toFixed(1)+'%"><b></b><i></i></div></div>':'')
     +'</div><div class="pc-body"><div class="pc-title">'+E(a.title)+'</div><div class="pc-meta">'
     +(opts.showProgress&&ls&&ls.status?'<span class="status st-'+ls.status+'">'+E(statusLabel(ls.status))+'</span>'+(ls.score?'<span class="sep"></span><span class="star">★ '+ls.score+'</span>':'')
-      :'<span>'+(a.media_type?E(String(a.media_type).toUpperCase())+' · ':'')+(total||'?')+' '+epLabel().toLowerCase()+'</span>'+(a.mean&&opts.showProgress?'<span class="sep"></span><span class="star">★ '+a.mean+'</span>':''))
+      :'<span>'+(a.media_type?E(mediaTypeLabel(a.media_type))+' · ':'')+(total||'?')+' '+epLabel().toLowerCase()+'</span>'+(a.mean&&opts.showProgress?'<span class="sep"></span><span class="star">★ '+a.mean+'</span>':''))
     +'</div></div></div>';
   return h;
 }
@@ -53,6 +53,8 @@ async function loadExplore(){
       S.exploreTop=_filterDonghua((r[0]&&r[0].data?r[0].data:[]).map(function(x){return x.node;}));S.exploreTopOffset=30;
       S.exploreSeasonal=_filterDonghua((r[1]&&r[1].data?r[1].data:[]).map(function(x){return x.node;}).sort(function(a,b){return(b.mean||0)-(a.mean||0);}));
     }
+    if(S.view!=='explore'||seq!==S._exSeq)return;
+    await preloadImages(malCoverUrls(S.exploreSeasonal,12).concat(malCoverUrls(S.exploreTop,12)));
     if(S.view!=='explore'||seq!==S._exSeq)return;
     renderExplore();
   }catch(err){if(S.view!=='explore'||seq!==S._exSeq)return;mc.innerHTML='<div class="view">'+emptyState('alert','Couldn’t load Explore',E(err.message||'Unknown error'),'<button class="btn btn-secondary"'+A('reloadExplore')+'>Try again</button>')+'</div>';}
@@ -109,6 +111,7 @@ async function loadMoreTop(){
   try{
     var r=await api.malGetTopAnime(30,S.exploreTopOffset);
     var items=_filterDonghua((r&&r.data?r.data:[]).map(function(x){return x.node;}));
+    await preloadImages(malCoverUrls(items));
     S.exploreTop=S.exploreTop.concat(items);S.exploreTopOffset+=30;
   }catch(e){toast('Couldn’t load more','e');}
   S.exploreLoading=false;
@@ -148,7 +151,7 @@ function renderExsResults(items){
   dd.innerHTML=items.slice(0,8).map(function(a,i){
     var img=a.main_picture?a.main_picture.medium:'';var genres=(a.genres||[]).slice(0,2).map(function(g){return g.name;}).join(' · ');
     return '<button class="exs-item'+(i===exsSelIdx?' kbd-active':'')+'" data-exs="'+i+'"'+A('exsPick',a.id)+'>'+(img?'<img src="'+E(img)+'" alt="" loading="lazy">':'<span class="thumb"></span>')
-      +'<span class="grow"><span class="row-title ellipsis">'+E(a.title)+'</span><span class="row-sub">'+(a.media_type?E(a.media_type.toUpperCase())+' · ':'')+(a.num_episodes||a.num_chapters||'?')+' '+epLabel().toLowerCase()+(a.mean?' · ★ '+a.mean:'')+(genres?' · '+E(genres):'')+'</span></span>'+ic('chevronRight')+'</button>';
+      +'<span class="grow"><span class="row-title ellipsis">'+E(a.title)+'</span><span class="row-sub">'+(a.media_type?E(mediaTypeLabel(a.media_type))+' · ':'')+(a.num_episodes||a.num_chapters||'?')+' '+epLabel().toLowerCase()+(a.mean?' · ★ '+a.mean:'')+(genres?' · '+E(genres):'')+'</span></span>'+ic('chevronRight')+'</button>';
   }).join('');
   dd.classList.add('open');
 }
@@ -180,6 +183,8 @@ async function loadMyList(resetPagination){
     var st=S.myListFilter==='all'?null:myListStatusKey(S.myListFilter);
     var r=await api.malGetUserList(st,fetchSize,0);
     if(seq!==S._mlSeq)return;
+    if(!S.myListData&&r&&r.data)await preloadImages(malCoverUrls(r.data,24));
+    if(seq!==S._mlSeq)return;
     S.myListData=r||{data:[]};S._myListOffset=(r&&r.data?r.data.length:0);S._myListHasMore=!!(r&&r.paging&&r.paging.next);
     if(S.view==='mylist')renderMyList();
   }catch(err){if(seq!==S._mlSeq||S.view!=='mylist')return;mc.innerHTML='<div class="view">'+emptyState('alert','Couldn’t load your list',E(err.message||''),'<button class="btn btn-secondary"'+A('reloadMyList')+'>Try again</button>')+'</div>';}
@@ -191,6 +196,8 @@ async function loadMoreMyList(){
   try{
     var st=S.myListFilter==='all'?null:myListStatusKey(S.myListFilter);
     var r=await api.malGetUserList(st,S._myListLoadMoreSize,S._myListOffset);
+    if(seq!==S._mlSeq)return;
+    if(r&&r.data&&r.data.length)await preloadImages(malCoverUrls(r.data));
     if(seq!==S._mlSeq)return;
     if(r&&r.data&&r.data.length){S.myListData.data=S.myListData.data.concat(r.data);S._myListOffset+=r.data.length;S._myListHasMore=!!(r.paging&&r.paging.next);}else S._myListHasMore=false;
     var mc=document.getElementById('mc');var sc=mc.scrollTop;renderMyList();setScrollInstant(mc,sc);

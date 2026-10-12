@@ -4,7 +4,7 @@
 //
 // The reader (renderer/typeset.js) finds the speech balloons on a page and
 // sends the page with them outlined and numbered. The model, a Claude model
-// on OpenRouter with Luma's key, answers which balloon says what, and gives
+// on OpenRouter with Tsumi's key, answers which balloon says what, and gives
 // boxes (0-1000 of the page) only for text outside the numbered balloons.
 // The reader then erases the original text and letters the translation in.
 // Translation is switched on per chapter, because every new page is a paid
