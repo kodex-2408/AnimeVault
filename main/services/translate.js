@@ -95,11 +95,31 @@ function parseTranslation(text, regions) {
 }
 
 // ---- cache -------------------------------------------------------------------
-// One file per chapter, named after the file's path, size and date, so an
-// edited or replaced file starts over.
+// One file per chapter. Its name comes from the file's size and first 64 KB,
+// so renaming or moving a chapter (auto-rename, File Management, a new folder)
+// keeps its translations, while a replaced file starts over. 5.11.1: before
+// this, the name came from the full path and the date, and any rename lost
+// the cache; such a file is adopted under the new name on first use.
+const HEAD_BYTES = 64 * 1024;
+const _keyMemo = new Map();
+function legacyChapterKey(filePath, st) {
+  return crypto.createHash('sha1').update(path.resolve(filePath) + '\0' + st.size + '\0' + Math.round(st.mtimeMs)).digest('hex');
+}
 function chapterKey(filePath) {
   const st = fs.statSync(filePath);
-  return crypto.createHash('sha1').update(path.resolve(filePath) + '\0' + st.size + '\0' + Math.round(st.mtimeMs)).digest('hex');
+  const memo = path.resolve(filePath) + '\0' + st.size + '\0' + st.mtimeMs;
+  if (_keyMemo.has(memo)) return _keyMemo.get(memo);
+  const fd = fs.openSync(filePath, 'r');
+  let head;
+  try { head = Buffer.alloc(Math.min(HEAD_BYTES, st.size)); fs.readSync(fd, head, 0, head.length, 0); } finally { fs.closeSync(fd); }
+  const key = crypto.createHash('sha1').update('v2\0' + st.size + '\0').update(head).digest('hex');
+  try {
+    const legacy = cachePath(legacyChapterKey(filePath, st));
+    if (!fs.existsSync(cachePath(key)) && fs.existsSync(legacy)) fs.renameSync(legacy, cachePath(key));
+  } catch (e) { /* best effort */ }
+  if (_keyMemo.size > 500) _keyMemo.clear();
+  _keyMemo.set(memo, key);
+  return key;
 }
 function cachePath(key) { return path.join(cacheDir(), key + '.json'); }
 function readCache(key) {
@@ -129,6 +149,60 @@ function pruneCache(dir) {
   } catch (e) { /* the cache is best effort */ }
 }
 function pageKey(index, lang, choice) { return index + '|' + lang + '|' + choice; }
+
+// ---- finished pages ----------------------------------------------------------
+// The lettered page itself (a JPEG), so reopening a chapter shows it at once
+// instead of running the text detector, erasing and lettering again. One
+// folder per chapter; the name carries the page, language, model and the
+// renderer's lettering version. Oldest pages go first past MAX_PAGE_BYTES.
+const MAX_PAGE_BYTES = 1536 * 1024 * 1024;
+const MAX_PAGE_IMAGE = 12 * 1024 * 1024;
+function pagesDir(key) { return path.join(cacheDir(), 'pages', key); }
+function pageImageName(index, lang, choice, rv) {
+  return Number(index) + '-' + crypto.createHash('sha1').update(lang + '|' + choice + '|' + String(rv || '')).digest('hex').slice(0, 12) + '.jpg';
+}
+function pageImagePath(token, index, rv) {
+  const s = reader.getSession(token);
+  if (!s || (s.kind !== 'pages' && s.kind !== 'pdf')) return null;
+  index = Number(index);
+  if (!Number.isInteger(index) || index < 0 || index > 99999) return null;
+  return path.join(pagesDir(chapterKey(s.filePath)), pageImageName(index, targetLang(), modelChoice(), rv));
+}
+function readPageImage(token, index, rv) {
+  const file = pageImagePath(token, index, rv);
+  if (!file || !fs.existsSync(file)) return null;
+  const now = new Date();
+  try { fs.utimesSync(file, now, now); } catch (e) { /* only for pruning order */ }
+  return fs.readFileSync(file);
+}
+function savePageImage(token, index, rv, bytes) {
+  const file = pageImagePath(token, index, rv);
+  if (!file || !(bytes instanceof Uint8Array) || !bytes.length || bytes.length > MAX_PAGE_IMAGE) return false;
+  const buf = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (reader.sniffImageMime(buf) !== 'image/jpeg') return false;
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = file + '.' + process.pid + '.tmp';
+  fs.writeFileSync(tmp, buf);
+  fs.renameSync(tmp, file);
+  prunePages();
+  return true;
+}
+let _pruneAt = 0;
+function prunePages() {
+  if (Date.now() - _pruneAt < 60 * 1000) return;
+  _pruneAt = Date.now();
+  try {
+    const root = path.join(cacheDir(), 'pages');
+    const all = [];
+    for (const d of fs.readdirSync(root)) {
+      const dir = path.join(root, d);
+      for (const f of fs.readdirSync(dir)) { const st = fs.statSync(path.join(dir, f)); all.push({ file: path.join(dir, f), size: st.size, t: st.mtimeMs }); }
+    }
+    let total = all.reduce((n, x) => n + x.size, 0);
+    all.sort((a, b) => a.t - b.t);
+    for (const x of all) { if (total <= MAX_PAGE_BYTES) break; try { fs.unlinkSync(x.file); total -= x.size; } catch (e) { /* in use */ } }
+  } catch (e) { /* best effort */ }
+}
 
 // ---- model -------------------------------------------------------------------
 // ---- text detector model -------------------------------------------------------
@@ -322,6 +396,12 @@ function register() {
   ipcMain.handle('translate:state', (_, token) => {
     try { return chapterState(String(token || '')); } catch (e) { return { enabled: false, pages: {}, supported: false, error: e.message }; }
   });
+  ipcMain.handle('translate:pageImage', (_, token, index, rv) => {
+    try { return readPageImage(String(token || ''), index, String(rv || '')); } catch (e) { return null; }
+  });
+  ipcMain.handle('translate:savePageImage', (_, token, index, rv, bytes) => {
+    try { return savePageImage(String(token || ''), index, String(rv || ''), bytes); } catch (e) { return false; }
+  });
   ipcMain.handle('translate:setEnabled', (_, token, on) => {
     try { return setEnabled(String(token || ''), on === true); } catch (e) { return false; }
   });
@@ -344,7 +424,10 @@ module.exports = {
   LANGS,
   detectorModel,
   buildPrompt,
+  chapterKey,
   chapterState,
+  readPageImage,
+  savePageImage,
   parseTranslation,
   register,
   setDeps,

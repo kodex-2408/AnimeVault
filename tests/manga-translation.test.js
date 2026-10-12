@@ -131,9 +131,25 @@ config.folders = [];
   config.translateLang = 'English';
   config.translateModel = 'haiku';
 
+  // renamed or moved (auto-rename, File Management): the translations follow the file
+  const renamed = path.join(lib, 'Yotsuba', 'Yotsuba - Ch 001 - Renamed.cbz');
+  fs.renameSync(chapter, renamed);
+  const moved = await reader.openChapter(renamed);
+  st = tr.chapterState(moved.token);
+  assert.deepStrictEqual([st.enabled, Object.keys(st.pages)], [true, ['0']], 'a renamed chapter keeps its translations'); checks++;
+  // finished pages: saved once, served back for the same language and lettering version
+  const jpeg = new Uint8Array([0xFF, 0xD8, 0xFF, 0xE0, 0, 16, 74, 70, 73, 70, 0, 1, 1, 0, 0, 1, 0, 1, 0, 0, 0xFF, 0xD9]);
+  assert.strictEqual(tr.savePageImage(moved.token, 0, 'v1', jpeg), true); checks++;
+  assert.deepStrictEqual([...tr.readPageImage(moved.token, 0, 'v1')], [...jpeg], 'a finished page comes back as saved'); checks++;
+  assert.strictEqual(tr.readPageImage(moved.token, 0, 'v2'), null, 'another lettering version letters again'); checks++;
+  assert.strictEqual(tr.savePageImage(moved.token, 0, 'v1', new Uint8Array([1, 2, 3])), false, 'only JPEGs are saved'); checks++;
+  config.translateLang = 'Spanish';
+  assert.strictEqual(tr.readPageImage(moved.token, 0, 'v1'), null, 'another language has its own pages'); checks++;
+  config.translateLang = 'English';
+  fs.renameSync(renamed, chapter);
+
   // an edited file starts over
-  const later = new Date(Date.now() + 60000);
-  fs.utimesSync(chapter, later, later);
+  const z2 = new AdmZip(chapter); z2.addFile('extra.txt', Buffer.from('changed')); z2.writeZip(chapter);
   const edited = await reader.openChapter(chapter);
   st = tr.chapterState(edited.token);
   assert.deepStrictEqual([st.enabled, Object.keys(st.pages).length], [false, 0]); checks++;
