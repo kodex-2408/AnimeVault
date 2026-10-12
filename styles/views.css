@@ -860,6 +860,9 @@
 .tour-layer.try .tour-spot:not(.none) { animation: tourPulse 1.6s ease-in-out infinite; }
 @keyframes tourPulse { 50% { box-shadow: 0 0 0 4px var(--accent), 0 0 0 9999px rgba(8, 6, 12, .58); } }
 .tour-block { position: absolute; pointer-events: auto; }
+/* Steps that open a page dim less, so the page itself reads behind the callout. */
+.tour-layer.light .tour-spot { box-shadow: 0 0 0 2px var(--accent), 0 0 0 9999px rgba(8, 6, 12, .3); }
+.tour-layer.light .tour-spot.none { box-shadow: 0 0 0 9999px rgba(8, 6, 12, .3); }
 .tour-call { position: absolute; left: 0; top: 0; width: 320px; max-width: calc(100vw - 16px); pointer-events: auto; padding: 14px 16px 12px; border-radius: var(--r-xl); background: var(--glass-bg-strong); backdrop-filter: var(--glass-filter); box-shadow: var(--glass-edge-strong), var(--shadow-4); transition: transform calc(320ms * var(--m)) var(--ease-out); z-index: 1; }
 .tour-head { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-3); }
 .tour-head img { width: 26px; height: 26px; }
