@@ -9,7 +9,7 @@ const { html, js } = require('./renderer-source');
 
 assert(/<script src="renderer\/tour\.js"><\/script>/.test(html), 'index.html must load renderer/tour.js');
 const src = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'tour.js'), 'utf8');
-const ctx = vm.createContext({ S: { vaultMode: 'anime' }, document: { querySelector: () => null }, act() {}, expose() {}, isManga: () => false });
+const ctx = vm.createContext({ S: { vaultMode: 'anime' }, document: { querySelector: () => null }, act() {}, expose() {}, isManga: () => false, VM: (a, b) => a });
 vm.runInContext(src + ';this.tourSteps=tourSteps;this.TOUR_CHAPTERS=TOUR_CHAPTERS;', ctx);
 let total = 0;
 for (const c of ctx.TOUR_CHAPTERS) {

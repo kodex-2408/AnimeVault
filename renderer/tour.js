@@ -38,8 +38,8 @@ function tourSteps(chapter){
     cards:[
       {title:'A series card',text:'The cover, a badge for what is new or local, and a bar along the bottom: the bright part is what you have watched, the faint part is what has aired so far.',view:'library',before:tourEnsureCard,target:tourCard},
       {title:'Try it: right-click the card',text:'Right-click any card for quick actions: open the folder, mark everything watched, change the cover, track new episodes, and more. Click anywhere else to close the menu and carry on.',target:tourCard,wait:function(){return !!(typeof _openMenu!=='undefined'&&_openMenu);},hold:function(){return !!(typeof _openMenu!=='undefined'&&_openMenu);}},
-      {title:'Try it: open the series',text:'Click the card to open its page.',target:tourCard,wait:tourSheetOpen,skipIf:function(){return !$q('#mc .pc');}},
-      {title:'Episodes',text:'Click an episode to play it. The check in the corner marks it watched (and syncs to MyAnimeList); watching past the auto-mark point ticks it for you.',target:function(){return $q('#dpn .ep-grid')||$q('#dpn .ep-list')||$q('#dpn .ep');},skipIf:function(){return !tourSheetOpen();}},
+      {title:'Try it: open the series',text:'Click the card to open its page.',target:tourCard,wait:function(){var o=tourSheetOpen();if(o&&_tour)_tour.openedSheet=true;return o;},skipIf:function(){return !$q('#mc .pc');}},
+      {title:VM('Episodes','Chapters'),open:true,text:VM('Click an episode to play it.','Click a chapter to read it; the tour waits while it is open.')+' The check in the corner marks it '+VM('watched','read')+' (and syncs to MyAnimeList); '+VM('watching past the auto-mark point','reading to the end')+' ticks it for you.',target:function(){return $q('#dpn .ep-grid')||$q('#dpn .ep-list')||$q('#dpn .ep');},skipIf:function(){return !tourSheetOpen();}},
       {title:'Track new episodes',text:'Switch this on and new episodes are handed to your torrent client as soon as a good release appears on Nyaa.',target:function(){var sw=$q('#dpn [data-act="toggleTrackSwitch"]');return sw?(sw.closest('.panel')||sw):null;},skipIf:function(){return !tourSheetOpen()||isManga()||!$q('#dpn [data-act="toggleTrackSwitch"]');},after:function(){if(tourSheetOpen()&&typeof cdtl==='function')cdtl();}}
     ],
     discover:[
@@ -109,6 +109,7 @@ async function tourGo(i,dir){
   if(i<0)return;
   if(i>=_tour.steps.length){endTour(true);return;}
   var st=_tour.steps[i];
+  if(st.view&&tourSheetOpen()&&typeof cdtl==='function')cdtl();
   if(st.view&&S.view!==st.view){go(st.view);await new Promise(function(r){setTimeout(r,350);});}
   if(st.before)try{st.before();}catch(e){}
   if(st.skipIf&&st.skipIf()){var n=i+(dir||1);if(n<0)return;return tourGo(n,dir||1);}
@@ -132,6 +133,8 @@ function tourFrame(){
   if(!_tour)return;
   _tour.raf=requestAnimationFrame(tourFrame);
   var st=_tour.steps[_tour.i];if(!st)return;
+  // The built-in reader (opened from a chapter) sits under the tour: step aside until it closes.
+  var reading=!!document.getElementById('rdLayer');_tour.layer.classList.toggle('paused',reading);if(reading){if(typeof lumaGuide==='function')lumaGuide(null);return;}
   // A Try it step moves on once its action happened and, for the palette or
   // a menu, once that is closed again, so there is time to look around in it.
   if(st.wait&&!_tour.waitDone&&st.wait()){_tour.waitDone=true;tourSyncNext();}
@@ -147,7 +150,7 @@ function tourFrame(){
   var set=function(k,x,y,w,h){var d=L.querySelector('[data-b="'+k+'"]');d.style.left=x+'px';d.style.top=y+'px';d.style.width=Math.max(0,w)+'px';d.style.height=Math.max(0,h)+'px';};
   set('t',0,0,vw,r.y);set('b',0,r.y+r.h,vw,vh-r.y-r.h);set('l',0,r.y,r.x,r.h);set('r',r.x+r.w,r.y,vw-r.x-r.w,r.h);
   // Next-only steps also block the highlight itself; Try it steps leave it clickable.
-  if(st.wait&&!_tour.waitDone)set('c',0,0,0,0);else set('c',r.x,r.y,r.w,r.h);
+  if((st.wait&&!_tour.waitDone)||st.open)set('c',0,0,0,0);else set('c',r.x,r.y,r.w,r.h);
   // Callout: right of the target, else below, left, above; clamped to the window.
   var call=L.querySelector('.tour-call'),cw=call.offsetWidth,ch=call.offsetHeight,g=16,x,y;
   if(!r.w){x=(vw-cw)/2;y=(vh-ch)/2;}
@@ -166,6 +169,7 @@ function endTour(finished){
   window.removeEventListener('keydown',tourKeys,true);
   var L=_tour.layer;L.classList.add('closing');setTimeout(function(){L.remove();},200);
   document.body.classList.remove('tour-on');tourRemoveSample();
+  if(_tour.openedSheet&&tourSheetOpen()&&typeof cdtl==='function')cdtl();
   if(typeof lumaGuide==='function')lumaGuide(null);
   if(finished&&_tour.chapter==='all'){S.cfg.tourDone=true;api.setConfig('tourDone',true);toast('Tour finished. Replay any part from Settings → Performance & window.','s');}
   _tour=null;
