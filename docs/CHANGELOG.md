@@ -50,6 +50,13 @@ posture, design decisions, open roadmap — lives in [DEVELOPMENT.md](DEVELOPMEN
     ZIP64, a long trailing comment) is read entry by entry from the start.
   - Anything still unreadable opens in your reader app instead of showing an
     error.
+- **Install VLC from the app.** When VLC isn't found, the setup guide and
+  Settings → Playback show "VLC isn't installed".
+  - **Install VLC** runs Windows' package manager (`winget install
+    VideoLAN.VLC`). Windows asks for permission, and once VLC is found its
+    path is saved and VLC is selected.
+  - A videolan.org link is always there as well.
+  - Settings → Manga gets a "Get CDisplayEx" link next to the reader app field.
 - **Series links:**
   - Miruro now opens `barelystarted.miruro.tv`.
   - ani.pm replaces Netflix.

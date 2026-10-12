@@ -115,6 +115,45 @@ function vlcExecutable() {
   return candidates.find(p => { try { return fs.existsSync(p); } catch (e) { return false; } }) || null;
 }
 
+// winget (Windows Package Manager) ships with Windows 11 and current Windows 10.
+function wingetPath() {
+  if (process.platform !== 'win32') return null;
+  const p = path.join(process.env.LOCALAPPDATA || '', 'Microsoft', 'WindowsApps', 'winget.exe');
+  try { return fs.existsSync(p) ? p : null; } catch (e) { return null; }
+}
+
+// Installs VLC from its official winget package (VideoLAN.VLC). Windows asks
+// for permission (UAC) because VLC installs for all users. Resolves once the
+// installer exits; the path is saved when vlc.exe is found afterwards.
+let _vlcInstall = null;
+function installVlc() {
+  if (_vlcInstall) return _vlcInstall;
+  const winget = wingetPath();
+  if (!winget) return Promise.resolve({ success: false, error: 'winget isn\'t available on this PC. Download VLC from videolan.org instead.' });
+  _vlcInstall = new Promise((resolve) => {
+    let out = '';
+    const child = spawn(winget, ['install', '--id', 'VideoLAN.VLC', '--exact', '--source', 'winget', '--silent',
+      '--accept-package-agreements', '--accept-source-agreements', '--disable-interactivity'], { windowsHide: true });
+    const timer = setTimeout(() => { try { child.kill(); } catch (e) {} }, 15 * 60 * 1000);
+    child.stdout.on('data', d => { out = (out + d).slice(-4000); });
+    child.stderr.on('data', d => { out = (out + d).slice(-4000); });
+    child.on('error', (e) => { clearTimeout(timer); resolve({ success: false, error: e.message }); });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      const found = vlcExecutable();
+      if (found) {
+        config.vlcPath = found;
+        try { require('../config/config').saveConfig(); } catch (e) {}
+        resolve({ success: true, path: found });
+      } else {
+        const last = out.split(/\r?\n/).map(l => l.trim()).filter(l => l && !/^[-\\|/ █▒]+$/.test(l)).pop() || '';
+        resolve({ success: false, error: 'The VLC installer didn\'t finish (code ' + code + ')' + (last ? ': ' + last : '') });
+      }
+    });
+  }).finally(() => { _vlcInstall = null; });
+  return _vlcInstall;
+}
+
 // Subtitle preference -> language codes. Track tags are 2- or 3-letter ISO
 // codes depending on the release, so both spellings are passed; 'none' turns
 // subtitles off.
@@ -303,6 +342,12 @@ function register() {
       return { success: true, tracked: !!r.tracked };
     } catch (e) { return { success: false, error: e.message }; }
   });
+
+  // ================================================================
+  //  HELPER APPS (5.11): is VLC installed, and install it with winget
+  // ================================================================
+  ipcMain.handle('apps:status', () => ({ vlc: vlcExecutable(), winget: !!wingetPath() }));
+  ipcMain.handle('apps:installVlc', () => installVlc());
 
   ipcMain.handle('manga:detectReaders', async () => {
     const local = process.env.LOCALAPPDATA || '';

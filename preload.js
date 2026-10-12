@@ -144,6 +144,8 @@ contextBridge.exposeInMainWorld('api', {
   translateDetectorModel: () => invoke('translate:detectorModel'),
   onTranslateModelProgress: (cb) => on('translate:modelProgress', cb),
   detectMangaReaders: () => invoke('manga:detectReaders'),
+  appsStatus: () => invoke('apps:status'),
+  installVlc: () => invoke('apps:installVlc'),
 
   // Watcher
   watcherStart: (watchFolder, destFolder) => invoke('watcher:start', watchFolder, destFolder),

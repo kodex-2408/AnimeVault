@@ -26,7 +26,7 @@ var SETUP_STEPS=[
     var pt=S.cfg.playerType||'vlc';
     var h='<div class="list-group">'
       +setRow({icon:'playCircle',color:'#30d158',title:'Video player',desc:pt==='system-default'?'Your default video app. Auto-mark, subtitles and the audio delay fix need VLC or MPV.':'VLC or MPV lets Tsundoku mark episodes as watched for you.',ctrl:cfgSelect('playerType',[['vlc','VLC'],['mpv','MPV'],['system-default','System default']],'vlc')});
-    if(pt==='vlc')h+=pathRow('VLC executable','setupVlc','vlcPath','C:\\Program Files\\VideoLAN\\VLC\\vlc.exe');
+    if(pt==='vlc'){refreshAppsStatus();h+=vlcHelperRow();h+=pathRow('VLC executable','setupVlc','vlcPath','C:\\Program Files\\VideoLAN\\VLC\\vlc.exe');}
     if(pt==='mpv')h+=pathRow('MPV executable','setupMpv','mpvPath','C:\\Tools\\mpv\\mpv.exe');
     h+=setRow({icon:'subtitles',color:'#ffcc4d',title:'Subtitle language',ctrl:cfgSelect('subLangPrimary',[['','Player default'],['none','Off (no subtitles)'],['en','English'],['es','Spanish'],['pt','Portuguese'],['fr','French'],['de','German'],['it','Italian'],['ja','Japanese']],'')})
       +setRow({icon:'volume',color:'#64d2ff',title:'Bluetooth headphones?',desc:'Plays audio '+audioDelayMsValue()+' ms earlier so voices match lips. Fine-tune it in Settings → Playback.',ctrl:cfgSwitch('audioDelay')})
