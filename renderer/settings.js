@@ -46,7 +46,7 @@ function sectionHtml(id){
     var ext=S.cfg.mangaReader==='external';
     h+=setRow({icon:'book',color:'#ff9f0a',title:'Open chapters in',desc:ext?'Your reader app opens every chapter.':'The built-in reader opens .cbz, .cbr, .pdf, .epub and .mobi files. Your reader app opens the rest: .azw3, MOBI files with HUFF/CDIC compression and PDFs over 1 GB.',ctrl:cfgSelect('mangaReader',[['builtin','Built-in reader'],['external','Reader app']],'builtin'),kw:'reader built-in builtin external app'});
     if(!ext)h+=setRow({icon:'check',color:'#30d158',title:'Mark read at',desc:'In the built-in reader, a chapter is marked read once you reach this share of its pages.',ctrl:'<input class="input sm pct-input" type="number" min="10" max="100" step="5" value="'+readerMarkPctValue()+'"'+On('change','setReaderMarkPct')+'><span class="muted">%</span>',kw:'reader mark read percent pages'});
-    h+=setRow({block:'<div class="field"><label class="field-label">Reader application</label><div class="input-row"><input class="input mono" id="sReaderPath" value="'+E(S.cfg.readerPath||'')+'" placeholder="Leave empty to use the system default"'+On('change','cfgText','readerPath')+'><button class="btn btn-secondary btn-sm"'+A('brsReader')+'>Browse…</button><button class="btn btn-ghost btn-sm"'+A('detectReader')+'>'+ic('search')+'Detect</button></div><div class="field-hint" id="readerDetectHint">Opens .cbz / .cbr / .pdf files in Manga mode. CDisplayEx, OpenComic, SumatraPDF, Honeyview, calibre, YACReader and MComix are detected automatically.</div></div>',kw:'reader cbz cbr opencomic sumatra cdisplayex calibre'});
+    h+=setRow({block:'<div class="field"><label class="field-label">Reader application</label><div class="input-row"><input class="input mono" id="sReaderPath" value="'+E(S.cfg.readerPath||'')+'" placeholder="Leave empty to use the system default"'+On('change','cfgText','readerPath')+'><button class="btn btn-secondary btn-sm"'+A('brsReader')+'>Browse…</button><button class="btn btn-ghost btn-sm"'+A('detectReader')+'>'+ic('search')+'Detect</button></div><div class="field-hint" id="readerDetectHint">Opens .cbz / .cbr / .pdf files in Manga mode. CDisplayEx, OpenComic, SumatraPDF, Honeyview, calibre, YACReader and MComix are detected automatically. No reader app yet? CDisplayEx is free.</div><div class="row" style="margin-top:8px"><button class="btn btn-ghost btn-sm"'+A('openUrl','https://www.cdisplayex.com/')+'>'+ic('external')+'Get CDisplayEx</button></div></div>',kw:'reader cbz cbr opencomic sumatra cdisplayex calibre'});
     h+=setRow({icon:'clock',color:'#30d158',title:'Reading time for reader apps',desc:'With a reader app (CDisplayEx, SumatraPDF…), a chapter is marked read once it has been open this long. 120 s is recommended. Off: chapters are marked read as soon as they open.',ctrl:'<input class="input sm pct-input" type="number" min="15" max="3600" step="5" value="'+readerTimerValue()+'"'+On('change','setReaderTimer')+(S.cfg.readerTimerEnabled===false?' disabled':'')+Tip('Recommended: 120 seconds')+'><span class="muted">s</span>'+cfgSwitch('readerTimerEnabled',true),kw:'reader timer read mark chapter cdisplayex seconds minutes'});
     if(!ext){
       h+=setRow({icon:'translate',color:'#5e5ce6',title:'Translate pages to',desc:'In the built-in reader, the Translate tool (T) erases the original text in each speech balloon and letters the translation into it, using your OpenRouter key from Companion. T again shows the original. The first time, a 95 MB text detector is downloaded. It is switched on per chapter; each new page is one paid request, and translated pages are saved so reading them again is free.',ctrl:cfgSelect('translateLang',RD_TR_LANGS.map(function(l){return [l,l];}),'English'),kw:'translate translation language manga raw japanese openrouter'});
@@ -56,7 +56,7 @@ function sectionHtml(id){
   }else if(id==='playback'){
     var pt=S.cfg.playerType||'vlc';
     h+=setRow({icon:'playCircle',color:'#30d158',title:'Video player',desc:pt==='system-default'?'Uses your default video app. Auto-mark, subtitle and audio-delay options need VLC or MPV.':'Set the executable path below.',ctrl:cfgSelect('playerType',[['vlc','VLC'],['mpv','MPV'],['system-default','System default']],'vlc'),kw:'player vlc mpv default'});
-    if(pt==='vlc')h+=pathRow('VLC executable','sVlc','vlcPath','C:\\Program Files\\VideoLAN\\VLC\\vlc.exe');
+    if(pt==='vlc'){refreshAppsStatus();h+=vlcHelperRow();h+=pathRow('VLC executable','sVlc','vlcPath','C:\\Program Files\\VideoLAN\\VLC\\vlc.exe');}
     if(pt==='mpv')h+=pathRow('MPV executable','sMpv','mpvPath','C:\\Tools\\mpv\\mpv.exe');
     h+=setRow({icon:'checkCircle',color:'#30d158',title:'Auto-mark as '+watchedLabel(),desc:'Marks the episode when playback passes a percentage (VLC and MPV).',ctrl:'<input class="input sm pct-input" type="number" min="10" max="100" value="'+(S.cfg.autoMarkPercent||80)+'"'+On('change','setAutoMarkPct')+'><span class="muted">%</span>'+cfgSwitch('autoMarkEnabled',true),kw:'auto mark percent'});
     h+=setRow({icon:'volume',color:'#64d2ff',title:'Bluetooth audio delay fix',desc:'Plays audio earlier to make up for wireless headphone lag. 300 ms suits most Bluetooth headphones; raise it if voices still trail lips (VLC and MPV).',ctrl:'<input class="input sm pct-input" type="number" min="0" max="5000" step="10" value="'+audioDelayMsValue()+'"'+On('change','setAudioDelayMs')+(S.cfg.audioDelay?'':' disabled')+Tip('Recommended: 300 ms')+'><span class="muted">ms</span>'+cfgSwitch('audioDelay'),kw:'audio delay headphones wireless bluetooth ms latency sync'});
@@ -121,6 +121,27 @@ function sectionHtml(id){
   }
   return h;
 }
+// VLC missing: offer to install it (winget) or open the download page.
+// S._apps is filled by refreshAppsStatus(); null while unknown.
+function vlcHelperRow(){
+  var st=S._apps;if(!st||st.vlc)return '';
+  var busy=!!S._vlcInstalling;
+  return setRow({icon:'download',color:'#ff9f0a',title:'VLC isn’t installed',
+    desc:busy?'Installing VLC… Windows may ask for permission. This can take a few minutes.':'Tsundoku plays episodes in VLC so it can mark them watched, pick subtitles and fix the audio delay.',
+    ctrl:(st.winget?'<button class="btn btn-primary btn-sm"'+A('installVlcNow')+(busy?' disabled':'')+'>'+(busy?'<span class="spinner"></span>Installing…':ic('download')+'Install VLC')+'</button>':'')
+      +'<button class="btn btn-ghost btn-sm"'+A('openUrl','https://www.videolan.org/vlc/')+'>'+ic('external')+'videolan.org</button>',kw:'vlc install download player'});
+}
+function refreshAppsStatus(){api.appsStatus().then(function(st){var had=JSON.stringify(S._apps);S._apps=st||null;if(had!==JSON.stringify(S._apps))rerenderAppHelpers();}).catch(function(){});}
+function rerenderAppHelpers(){if(document.querySelector('.setup-layer')&&typeof renderSetupStep==='function')renderSetupStep();if(S.view==='settings')render();}
+async function installVlcNow(){
+  if(S._vlcInstalling)return;S._vlcInstalling=true;rerenderAppHelpers();
+  var r;try{r=await api.installVlc();}catch(e){r={success:false,error:e.message};}
+  S._vlcInstalling=false;
+  if(r&&r.success){S.cfg.vlcPath=r.path;S.cfg.playerType='vlc';api.setConfig('playerType','vlc');toast('VLC is installed and ready','s');}
+  else toast((r&&r.error)||'VLC couldn’t be installed','e');
+  refreshAppsStatus();rerenderAppHelpers();
+}
+expose('installVlcNow');
 function pathRow(label,id,key,ph){return setRow({block:'<div class="field"><label class="field-label">'+E(label)+'</label><div class="input-row"><input class="input mono" id="'+id+'" value="'+E(S.cfg[key]||'')+'" placeholder="'+E(ph)+'"'+On('change','cfgText',key)+'><button class="btn btn-secondary btn-sm"'+A('brsPlayer',id,key)+'>Browse…</button></div></div>',kw:'path executable '+key});}
 function folderRows(key,types){
   var list=S.cfg[key]||[];var h='';
