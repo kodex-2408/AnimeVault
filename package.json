@@ -1,6 +1,6 @@
 {
   "name": "tsundoku",
-  "version": "5.11.0",
+  "version": "5.11.1",
   "description": "Personal anime/manga library manager with MAL sync, Nyaa integration, and enhanced HEVC-aware auto-download",
   "main": "main.js",
   "author": "Kike",

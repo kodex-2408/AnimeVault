@@ -7,6 +7,7 @@ var SETUP_STEPS=[
       +feat('layers','Syncs with MyAnimeList','Progress, scores and airing times stay in step.')
       +feat('download','Finds new episodes','Opt in per series and new releases are handed to your torrent client.')
       +'</div><div class="row wrap" style="justify-content:center;margin-top:18px;gap:10px"><span class="muted">Start in</span>'+seg('setupMode',[{v:'anime',label:'Anime'},{v:'manga',label:'Manga'}],S.vaultMode||'anime','setupMode')+'</div>'
+      +(S.vaultMode!=='manga'?'<div class="row wrap" style="justify-content:center;margin-top:10px;gap:10px"><span class="muted">I read manga too</span>'+switchCtl(!!S.cfg.readsManga,'setupReadsManga',[])+'</div>':'')
       +'<p class="field-hint" style="text-align:center;margin-top:10px">Switch between anime and manga any time from the title bar or with <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>M</kbd>.</p>';
   }},
   {title:'Pick a look',icon:'palette',body:function(){
@@ -14,13 +15,24 @@ var SETUP_STEPS=[
     h+='<div class="row wrap" style="margin-top:14px;justify-content:center"><div class="swatches">'+ACCENT_PRESETS.map(function(c){return '<button class="swatch'+(c.toLowerCase()===String(themeAccent()).toLowerCase()?' active':'')+'" style="--sw:'+c+'"'+A('setupAccent',c)+'></button>';}).join('')+'</div></div>';
     return h;
   }},
-  {title:'Add your library',icon:'folderPlus',body:function(){
+  {title:'Add your anime folders',icon:'folderPlus',body:function(){
     var list=S.cfg.folders||[];
     var h='<p class="setup-lead">Point Tsundoku at the folders that hold your anime. You can add more later in Settings.</p>'
       +'<p class="field-hint" style="text-align:center;margin:-4px 0 12px">One folder with <b>Seasonal</b>, <b>Series</b> and <b>Movies</b> subfolders inside? Add it as “Mixed” and each subfolder is sorted by its name.</p>';
     if(list.length){h+='<div class="list-group" style="margin-bottom:12px">';list.forEach(function(f){h+='<div class="lg-row"><span class="tag accent cap">'+E(f.type)+'</span><div class="lg-main mono ellipsis" style="font-size:12px">'+E(f.path)+'</div></div>';});h+='</div>';}
     h+='<div class="row wrap" style="justify-content:center">'+seg('setupType',[{v:'seasonal',label:'Seasonal'},{v:'series',label:'Series'},{v:'movies',label:'Movies'},{v:'custom',label:'Mixed'}],S._setupType||'seasonal','setupType')+'<button class="btn btn-primary"'+A('setupAddFolder')+'>'+ic('folderPlus')+'Choose folder…</button></div>';
     return h;
+  }},
+  {title:'Manga',icon:'book',when:function(){return S.vaultMode==='manga'||!!S.cfg.readsManga;},body:function(){
+    var list=S.cfg.mangaFolders||[];
+    var h='<p class="setup-lead">Point Tsundoku at the folder that holds your manga: one subfolder per series, chapters as .cbz, .cbr, .pdf or .epub files.</p>';
+    if(list.length){h+='<div class="list-group" style="margin-bottom:12px">';list.forEach(function(f){h+='<div class="lg-row"><span class="tag accent cap">'+E(f.type)+'</span><div class="lg-main mono ellipsis" style="font-size:12px">'+E(f.path)+'</div></div>';});h+='</div>';}
+    h+='<div class="row wrap" style="justify-content:center;margin-bottom:14px"><button class="btn btn-primary"'+A('setupAddMangaFolder')+'>'+ic('folderPlus')+'Choose manga folder…</button></div>';
+    h+='<div class="list-group" style="margin-bottom:14px">'
+      +setRow({icon:'book',color:'#ff9f0a',title:'Open chapters in',desc:'The built-in reader can also translate pages. Prefer CDisplayEx or another reader app? Pick "Reader app".',ctrl:cfgSelect('mangaReader',[['builtin','Built-in reader'],['external','Reader app']],'builtin')})
+      +(S.cfg.mangaReader==='external'?setRow({icon:'download',color:'#ff9f0a',title:'No reader app yet?',desc:'CDisplayEx is free and opens .cbz and .cbr files.',ctrl:'<button class="btn btn-ghost btn-sm"'+A('openUrl','https://www.cdisplayex.com/')+'>'+ic('external')+'Get CDisplayEx</button>'}):'')
+      +'</div>';
+    return h+mangaSourcesCard();
   }},
   {title:'Playback',icon:'playCircle',body:function(){
     var pt=S.cfg.playerType||'vlc';
@@ -69,10 +81,12 @@ var SETUP_STEPS=[
 ];
 function feat(icon,title,text){return '<div class="setup-feat"><div class="lg-icon">'+ic(icon)+'</div><div><div class="row-title">'+E(title)+'</div><div class="row-sub">'+E(text)+'</div></div></div>';}
 S._setupStep=0;
+function setupSteps(){return SETUP_STEPS.filter(function(st){return !st.when||st.when();});}
 function showSetupWizard(){S._setupStep=0;renderSetupStep();}
 expose('showSetupWizard');
 function renderSetupStep(){
-  var step=SETUP_STEPS[S._setupStep],n=SETUP_STEPS.length,first=S._setupStep===0,last=S._setupStep===n-1;
+  var steps=setupSteps();if(S._setupStep>=steps.length)S._setupStep=steps.length-1;
+  var step=steps[S._setupStep],n=steps.length,first=S._setupStep===0,last=S._setupStep===n-1;
   var host=document.getElementById('setupWizard');
   var h='<div class="setup-layer"><div class="setup-card"><div class="setup-progress"><i style="width:'+((S._setupStep+1)/n*100)+'%"></i></div>'
     +'<div class="setup-head"><div class="empty-icon">'+ic(step.icon)+'</div><div class="setup-step">Step '+(S._setupStep+1)+' of '+n+'</div><div class="setup-title">'+E(step.title)+'</div></div>'
@@ -81,7 +95,7 @@ function renderSetupStep(){
     +'<span class="spacer"></span>'+(last?'<button class="btn btn-ghost btn-lg"'+A('closeSetup')+'>Later</button><button class="btn btn-primary btn-lg"'+A('setupStartTour')+'>'+ic('sparkles')+'Take the tour</button>':'<button class="btn btn-primary btn-lg"'+A('setupNext')+'>Continue'+ic('chevronRight')+'</button>')+'</div></div></div>';
   host.innerHTML=h;updateSegThumbs(host);
 }
-function setupNext(){if(S._setupStep<SETUP_STEPS.length-1){S._setupStep++;renderSetupStep();}}
+function setupNext(){if(S._setupStep<setupSteps().length-1){S._setupStep++;renderSetupStep();}}
 function setupPrev(){if(S._setupStep>0){S._setupStep--;renderSetupStep();}}
 function closeSetup(){var l=document.querySelector('.setup-layer');if(l){l.classList.add('closing');setTimeout(function(){document.getElementById('setupWizard').innerHTML='';},220);}S.cfg.setupDone=true;api.setConfig('setupDone',true);}
 async function setupAddFolder(){
@@ -91,6 +105,27 @@ async function setupAddFolder(){
   S.cfg.folders.push({path:f,label:type==='custom'?'Anime':type.charAt(0).toUpperCase()+type.slice(1),type:type});
   await api.setConfig('folders',S.cfg.folders);loadLib(true);renderSetupStep();toast('Folder added','s');
 }
+async function setupAddMangaFolder(){
+  var f=await api.browseFolder();if(!f)return;
+  if(!S.cfg.mangaFolders)S.cfg.mangaFolders=[];
+  if(S.cfg.mangaFolders.some(function(x){return String(x.path).toLowerCase()===f.toLowerCase();})){toast('That folder is already added','i');return;}
+  S.cfg.mangaFolders.push({path:f,label:'Manga',type:'series'});
+  await api.setConfig('mangaFolders',S.cfg.mangaFolders);if(isManga())loadLib(true);renderSetupStep();toast('Manga folder added','s');
+}
+// Where manga chapters come from: Tsundoku has no manga downloader of its own
+// worth the name (Nyaa is mostly anime), so it points to HaruNeko, the
+// successor of HakuNeko. Used by the setup guide and the empty manga library.
+var HARUNEKO_URL='https://github.com/manga-download/haruneko/releases';
+function mangaSourcesCard(){
+  var folder=(S.cfg.mangaFolders||[])[0];
+  return '<div class="panel panel-pad manga-sources"><div class="row" style="gap:10px;margin-bottom:8px">'+ic('download')+'<div class="panel-title grow">Where to get chapters</div>'
+    +'<button class="btn btn-primary btn-sm"'+A('openUrl',HARUNEKO_URL)+'>'+ic('external')+'Get HaruNeko</button></div>'
+    +'<p class="muted" style="margin:0 0 8px;font-size:12.5px">HaruNeko is a free manga downloader (the successor of HakuNeko).</p>'
+    +'<ol class="manga-steps"><li>In HaruNeko, pick <b>WeebCentral</b> or <b>MangaDex</b> as the source and search for the series.</li>'
+    +'<li>Select the chapters and download them as <b>CBZ</b>.</li>'
+    +'<li>Set HaruNeko’s download folder to your Tsundoku manga folder'+(folder?' (<span class="mono">'+E(folder.path)+'</span>)':'')+'. New chapters show up in your library on their own, and Tsundoku tidies the file names.</li></ol></div>';
+}
+act('setupReadsManga',function(){S.cfg.readsManga=!S.cfg.readsManga;api.setConfig('readsManga',S.cfg.readsManga);renderSetupStep();});
 async function setupConnectMal(){
   var cid=document.getElementById('setupMalCid');if(!cid||!cid.value.trim()){toast('Enter your Client ID','e');return;}
   try{
@@ -106,7 +141,7 @@ act('setupType',function(el,ev,v){S._setupType=v;});
 act('setupMode',function(el,ev,v){if(v!==S.vaultMode)switchMode(v).then(function(){if(document.querySelector('.setup-layer'))renderSetupStep();});});
 act('setupStartTour',function(){closeSetup();setTimeout(function(){startTour(null);},320);});
 act('setupWatchDelete',function(el,ev,v){S.cfg.watchAndDelete=v;api.setConfig('watchAndDelete',v);renderSetupStep();});
-expose('setupNext','setupPrev','closeSetup','setupAddFolder','setupConnectMal');
+expose('setupNext','setupPrev','closeSetup','setupAddFolder','setupAddMangaFolder','setupConnectMal');
 // Theme cards inside the wizard re-render the step after applying.
 var _setFullThemeBase=setFullTheme;
 setFullTheme=function(id){_setFullThemeBase(id);if(document.querySelector('.setup-layer'))setTimeout(renderSetupStep,30);};

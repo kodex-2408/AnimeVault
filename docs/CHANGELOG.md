@@ -5,6 +5,32 @@ Tsundoku was called AnimeVault up to 5.7.0; older entries keep the old name.
 All notable changes, newest first. Engineering context — test guide, security
 posture, design decisions, open roadmap — lives in [DEVELOPMENT.md](DEVELOPMENT.md).
 
+## 5.11.1 — Manga onboarding, tour fixes
+
+- **Manga in the setup guide.**
+  - A new Manga step appears when you start in Manga, or switch on "I read
+    manga too" on the first screen.
+  - In it, you add your manga folder and choose how chapters open (built-in
+    reader or a reader app, with a "Get CDisplayEx" link).
+  - The step ends with **Where to get chapters**: a HaruNeko download button
+    and three steps (pick WeebCentral or MangaDex, download chapters as CBZ,
+    point HaruNeko's download folder at your manga folder).
+- **The empty manga library** shows the same "Where to get chapters" card.
+- **Manga series pages** get a "Download with HaruNeko" link next to MangaDex,
+  MangaFire and Comix. In manga mode, the tour adds one step pointing at it.
+- **The anime folder step** is now called "Add your anime folders".
+- **Tour fixes:**
+  - The command palette and right-click steps wait until you close the palette
+    or menu, so you can use it first.
+  - The highlighted element scrolls into view, and the mouse wheel scrolls the
+    page under the tour.
+  - The My List, Library Hub, File Management, Stats and Settings steps open
+    their page.
+  - Episodes and chapters can be opened during the tour. It steps aside while
+    the built-in reader is open.
+  - The series window closes when the tour moves on, so the tour no longer
+    stays stuck in it.
+
 ## 5.11.0 — Tsumi, a guided tour, an agenda Schedule, release priority, faster auto-download
 
 - **Guided tour.** Tsumi shows you around in four short parts: Basics, Cards
