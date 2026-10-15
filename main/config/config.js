@@ -71,7 +71,7 @@ const STATIC_CONFIG_KEYS = new Set([
   'mangaReader', 'readerMode', 'readerDir', 'readerFit', 'readerMarkPercent', 'readerZoom',
   'translateLang', 'translateModel',
   // 5.0 UI preferences
-  'glassLevel', 'lastDarkTheme', 'lastLightTheme', 'sidebarCollapsed', 'schedView', 'schedViewV', 'heroTone', 'tourDone', 'readsManga', 'useLuna'
+  'glassLevel', 'lastDarkTheme', 'lastLightTheme', 'sidebarCollapsed', 'schedView', 'schedViewV', 'heroTone', 'tourDone', 'readsManga'
 ]);
 function isSafeConfigKey(key) {
   if (!key || typeof key !== 'string') return false;

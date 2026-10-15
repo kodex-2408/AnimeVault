@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Manga Translator",
-  "version": "0.7.2",
+  "version": "0.7.1",
   "description": "Translate manga, manhwa and manhua in place with your free Gemini key. Runs entirely in the browser.",
   "minimum_chrome_version": "116",
   "permissions": ["storage", "unlimitedStorage", "contextMenus", "declarativeNetRequestWithHostAccess", "tabs", "scripting", "offscreen"],
