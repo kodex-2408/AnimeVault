@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.7.1
+
+- **The text detector downloads itself.** A copy of the extension from the
+  Tsundoku repository has no model file, and stopped with "Engine error: Text
+  detection model missing".
+  - On first start the extension now downloads `comictextdetector.pt.onnx`
+    (95 MB) from the manga-image-translator releases and checks its SHA-256.
+  - The model is kept in the extension's Cache Storage, so it downloads once.
+    The popup shows the download progress.
+  - A model file in `engine/models` is still used first.
+  - A failed download is retried when the popup reopens or a page is
+    translated.
+
 ## 0.7.0
 
 - **The same translation engine as Tsundoku's reader** (`engine/typeset.js` is one shared file). Before, each detected text block got one box: a block covering two touching balloons got a single translation spread across both, and the text was drawn in the largest rectangle inside the bubble with CSS, falling back to breaking words anywhere. Now:

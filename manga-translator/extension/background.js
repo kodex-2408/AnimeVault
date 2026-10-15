@@ -117,7 +117,7 @@ async function health() {
   const { provider, apiKey } = await getTranslator();
   try {
     const st = await engine({ type: "status", provider });
-    return { ok: !st.error, error: st.error, translator: provider, has_key: !!apiKey, models: st.models, detector_device: st.device };
+    return { ok: !st.error, error: st.error, translator: provider, has_key: !!apiKey, models: st.models, detector_device: st.device, detector_download: st.download };
   } catch (e) {
     return { ok: false, error: String(e.message || e) };
   }
