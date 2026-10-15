@@ -1,4 +1,4 @@
-import { getApiKey, getOpenRouterKey, getSettings, setApiKey, setOpenRouterKey, setSettings } from "./settings.js";
+import { getApiKey, getOpenRouterKey, getSettings, getUseLuna, setApiKey, setOpenRouterKey, setSettings, setUseLuna } from "./settings.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -18,6 +18,8 @@ async function main() {
   $("tgt-lang").value = s.tgtLang;
   $("gemini-key").value = await getApiKey();
   $("openrouter-key").value = await getOpenRouterKey();
+  $("use-luna").checked = await getUseLuna();
+  $("use-luna").disabled = !$("openrouter-key").value;
   $("min-size").value = s.minSize;
 
   $("site-enabled").addEventListener("change", async (e) => {
@@ -43,6 +45,11 @@ async function main() {
   });
   $("openrouter-key").addEventListener("change", async (e) => {
     await setOpenRouterKey(e.target.value);
+    $("use-luna").disabled = !e.target.value.trim();
+    checkHealth();
+  });
+  $("use-luna").addEventListener("change", async (e) => {
+    await setUseLuna(e.target.checked);
     checkHealth();
   });
   $("min-size").addEventListener("change", (e) => setSettings({ minSize: Number(e.target.value) || 300 }));

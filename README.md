@@ -93,6 +93,7 @@ Toggle the **Anime / Manga** switch in the title bar (or press `Ctrl+Shift+M`):
 - **Accessible by default** — follows the Windows animation setting until you pick a Motion speed, readable secondary text in every theme, and dialogs that keep keyboard focus
 - **Animated backgrounds** — ambient, orbs, particles or mesh, with intensity control
 - **Right-click menus** on cards
+- **GPT-6 Luna switch** — Settings → Tsumi → "Use GPT-6 Luna" moves Tsumi's chat and page translation to OpenAI's GPT-6 Luna at medium reasoning (same OpenRouter key)
 - **Tsumi, the assistant** — chat about your library, powered by Claude Haiku 5.5 through OpenRouter with your own OpenRouter key (paid per use; low reasoning effort), with optional web search
 - **Guided tour** — Tsumi shows you around the app, with a few "try it" steps; replay any part from Settings
 - **Tsumi, the companion** — a little pile of unread books that hops around the window (it never blocks clicks), toggled from Settings → Tsumi

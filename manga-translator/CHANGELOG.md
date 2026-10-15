@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.2
+
+- **"Use GPT-6 Luna (medium)" switch** in the popup's Advanced section, under
+  the OpenRouter key.
+  - With an OpenRouter key and the switch on, pages are translated by OpenAI's
+    GPT-6 Luna (`openai/gpt-6-luna`) at medium reasoning instead of Claude
+    Haiku 5.5. Same prompt, page images and JSON answer.
+  - Luna gets 32,000 output tokens, since its reasoning counts toward them.
+  - Luna's translations are cached apart from Haiku's and Gemini's.
+  - The popup's status line names the model in use. The switch stays greyed
+    out until an OpenRouter key is entered.
+
 ## 0.7.1
 
 - **The text detector downloads itself.** A copy of the extension from the

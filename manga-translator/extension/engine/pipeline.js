@@ -9,7 +9,7 @@
 // The result is the lettered page as a transparent PNG holding only the pixels
 // that changed; the page draws it over the image.
 import { TextDetector, modelProgress } from "./detector.js";
-import { GeminiTranslator, OpenRouterTranslator, OPENROUTER_LABEL, TranslatorError, renderInputs } from "./translator.js";
+import { GeminiTranslator, OpenRouterTranslator, OPENROUTER_LABEL, LUNA_MODEL, LUNA_LABEL, TranslatorError, renderInputs } from "./translator.js";
 
 // Bump when detection/layout/translation output changes, to invalidate cached results.
 const PIPELINE_VERSION = "9";
@@ -97,6 +97,7 @@ export class Engine {
     this.startDetector();
     this.translator = new GeminiTranslator();
     this.openrouter = new OpenRouterTranslator();
+    this.luna = new OpenRouterTranslator(LUNA_MODEL);
     this.inflight = new Map();
     this.context = new Map(); // reading context (series/chapter) -> recent lines, for consistency
     this.detections = new Map(); // recent pages' detections, so a new text size only re-letters
@@ -117,7 +118,7 @@ export class Engine {
       device: this.detector?.device || (this.startError ? "failed" : "loading"),
       download: modelProgress,
       error: this.startError ? String(this.startError.message || this.startError) : null,
-      models: provider === "openrouter" ? [OPENROUTER_LABEL] : this.translator.ranked(), // fastest first
+      models: provider === "openrouter-luna" ? [LUNA_LABEL] : provider === "openrouter" ? [OPENROUTER_LABEL] : this.translator.ranked(), // fastest first
     };
   }
 
@@ -190,7 +191,7 @@ export class Engine {
         const t1 = performance.now();
         const boxes = plan.units.map((u) => ({ x1: u.tb.x1, y1: u.tb.y1, x2: u.tb.x2 + 1, y2: u.tb.y2 + 1 }));
         const images = await renderInputs(bitmap, w, h, boxes);
-        const translator = provider === "openrouter" ? this.openrouter : this.translator;
+        const translator = provider === "openrouter-luna" ? this.luna : provider === "openrouter" ? this.openrouter : this.translator;
         items = await translator.translate({ apiKey, images, n: boxes.length, src, tgt, context: [...hist] });
         result.timings.translate = +((performance.now() - t1) / 1000).toFixed(2);
         await cachePut(key, items);
