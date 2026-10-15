@@ -1,4 +1,9 @@
-Text detection model: put ONE of these files in this folder.
+Text detection model.
+
+You don't need to do anything: on first start the extension downloads
+comictextdetector.pt.onnx from the URL below, checks its SHA-256 and keeps it
+in the browser's storage for the extension. A file in THIS folder is used
+instead when present (no download), for example to use the faster fp16 copy:
 
   comictextdetector-fp16.onnx   (preferred: half precision, faster on the GPU)
   comictextdetector.pt.onnx     (as published, full precision)

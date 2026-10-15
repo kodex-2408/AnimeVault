@@ -8,7 +8,7 @@
 //   translator.js reads and translates the numbered units (Gemini / OpenRouter).
 // The result is the lettered page as a transparent PNG holding only the pixels
 // that changed; the page draws it over the image.
-import { TextDetector } from "./detector.js";
+import { TextDetector, modelProgress } from "./detector.js";
 import { GeminiTranslator, OpenRouterTranslator, OPENROUTER_LABEL, TranslatorError, renderInputs } from "./translator.js";
 
 // Bump when detection/layout/translation output changes, to invalidate cached results.
@@ -94,8 +94,7 @@ function dilate(m, w, h, r) {
 export class Engine {
   constructor() {
     this.detector = null;
-    this.detectorReady = TextDetector.create().then((d) => (this.detector = d));
-    this.detectorReady.catch((e) => (this.startError = e));
+    this.startDetector();
     this.translator = new GeminiTranslator();
     this.openrouter = new OpenRouterTranslator();
     this.inflight = new Map();
@@ -103,9 +102,20 @@ export class Engine {
     this.detections = new Map(); // recent pages' detections, so a new text size only re-letters
   }
 
+  // A failed start (no connection for the model download, say) is retried on
+  // the next page instead of needing an extension reload.
+  startDetector() {
+    this.startError = null;
+    this.detectorReady = TextDetector.create().then((d) => (this.detector = d));
+    this.detectorReady.catch((e) => { this.startError = e; this.failedAt = Date.now(); });
+  }
+
   status(provider) {
+    // Opening the panel a while after a failure tries again.
+    if (this.startError && Date.now() - (this.failedAt || 0) > 15000) this.startDetector();
     return {
       device: this.detector?.device || (this.startError ? "failed" : "loading"),
+      download: modelProgress,
       error: this.startError ? String(this.startError.message || this.startError) : null,
       models: provider === "openrouter" ? [OPENROUTER_LABEL] : this.translator.ranked(), // fastest first
     };
@@ -144,6 +154,7 @@ export class Engine {
     }
     const { width: w, height: h } = bitmap;
     try {
+      if (this.startError) this.startDetector();
       await this.detectorReady;
       let det = this.detections.get(key);
       if (!det) {

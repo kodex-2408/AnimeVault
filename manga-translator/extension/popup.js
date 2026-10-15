@@ -94,7 +94,9 @@ async function checkHealth() {
     field.closest("details")?.setAttribute("open", "");
     field.focus();
   } else if (h.detector_device === "loading") {
-    text.textContent = "Starting…";
+    text.textContent = h.detector_download != null
+      ? `Downloading the text detector (95 MB, once): ${Math.round(h.detector_download * 100)}%`
+      : "Starting…";
     setTimeout(checkHealth, 700);
   } else {
     el.classList.add("ok");

@@ -12,6 +12,15 @@ const INPUT = 1024;
 // manga-image-translator (full precision; the same file Tsundoku downloads).
 const MODEL_FILES = ["comictextdetector-fp16.onnx", "comictextdetector.pt.onnx"];
 
+// Not in the Git repository (size and license), so a fresh copy of the
+// extension downloads the published model once, checks it, and keeps it in the
+// extension's own Cache Storage. A file placed in engine/models still wins.
+const MODEL_URL = "https://github.com/zyddnys/manga-image-translator/releases/download/beta-0.3/comictextdetector.pt.onnx";
+const MODEL_SHA256 = "1a86ace74961413cbd650002e7bb4dcec4980ffa21b2f19b86933372071d718f";
+const MODEL_CACHE = "mt-models-v1";
+/** Download progress of the model, 0..1, or null when not downloading. */
+export let modelProgress = null;
+
 async function loadModel() {
   for (const f of MODEL_FILES) {
     try {
@@ -19,7 +28,42 @@ async function loadModel() {
       if (r.ok) return new Uint8Array(await r.arrayBuffer());
     } catch {} // not there: try the next
   }
-  throw new Error(`Text detection model missing: put ${MODEL_FILES.join(" or ")} in extension/engine/models (see the README there)`);
+  const cache = await caches.open(MODEL_CACHE);
+  const hit = await cache.match(MODEL_URL);
+  if (hit) return new Uint8Array(await hit.arrayBuffer());
+  const bytes = await downloadModel();
+  await cache.put(MODEL_URL, new Response(bytes, { headers: { "Content-Type": "application/octet-stream" } }));
+  return bytes;
+}
+
+async function downloadModel() {
+  modelProgress = 0;
+  try {
+    const r = await fetch(MODEL_URL);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const total = Number(r.headers.get("content-length")) || 94669756;
+    const reader = r.body.getReader();
+    const parts = [];
+    let got = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      parts.push(value);
+      got += value.length;
+      modelProgress = Math.min(0.99, got / total);
+    }
+    const bytes = new Uint8Array(got);
+    let off = 0;
+    for (const p of parts) { bytes.set(p, off); off += p.length; }
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+    const hex = [...digest].map((b) => b.toString(16).padStart(2, "0")).join("");
+    if (hex !== MODEL_SHA256) throw new Error("the download was damaged (checksum mismatch)");
+    return bytes;
+  } catch (e) {
+    throw new Error(`Could not download the text detector (95 MB, once): ${e.message}. Check your connection and try again.`);
+  } finally {
+    modelProgress = null;
+  }
 }
 export const DETECT_CONF = 0.3;
 

@@ -9,12 +9,13 @@ lettered page (erased + re-lettered balloons) laid over the image ◀── type
 
 ## Install (once)
 
-1. If `extension/engine/models` has no model file (the Tsundoku repository doesn't keep it), download `comictextdetector.pt.onnx` into it: see `extension/engine/models/README.txt`.
-2. Open `chrome://extensions` (or `edge://extensions`, `brave://extensions`), turn on **Developer mode**, click **Load unpacked** and select the `extension` folder.
-3. Get a free Gemini key at <https://aistudio.google.com/apikey>.
-4. Click the extension icon. The **Advanced** section opens by itself: paste your key into **Gemini API key**.
+1. Open `chrome://extensions` (or `edge://extensions`, `brave://extensions`), turn on **Developer mode**, click **Load unpacked** and select the `extension` folder.
+2. Get a free Gemini key at <https://aistudio.google.com/apikey>.
+3. Click the extension icon. The **Advanced** section opens by itself: paste your key into **Gemini API key**.
 
 The key stays in your browser (it isn't synced or shared) and is only sent to Google's Gemini API.
+
+**First start:** the extension downloads its text detector (95 MB, once) from the [manga-image-translator releases](https://github.com/zyddnys/manga-image-translator/releases/tag/beta-0.3), checks it and keeps it in the browser. The popup shows "Downloading the text detector… %" until it says **Ready**. To skip the download, put the model file in `extension/engine/models` yourself (see the README.txt there).
 
 **Optional: Claude Haiku 5.5 instead of Gemini.** Paste an [OpenRouter key](https://openrouter.ai/keys) under **Advanced** → **OpenRouter API key**. While it's set, every page is translated by Claude Haiku 5.5 (low reasoning) through OpenRouter, paid from your OpenRouter credits. Clear the field to go back to Gemini. Each service's translations are cached separately.
 
@@ -34,6 +35,7 @@ The popup also sets the source language (auto, Japanese, Chinese, Korean) and th
 
 | You see | What to do |
 |---|---|
+| "Could not download the text detector" | The 95 MB model couldn't be fetched (offline, or GitHub blocked). Check the connection; it tries again when you reopen the popup or translate a page. Or put the file in `extension/engine/models` by hand. |
 | "Add your Gemini API key" | Paste your key in the popup, under **Advanced**. Then click **Retry** on the badge or **Retry failed** in the popup. |
 | "Your Gemini API key isn't valid" | Copy it again from <https://aistudio.google.com/apikey> and paste it in the popup. |
 | "Gemini refused this page" | Gemini won't translate some content. Nothing to fix on your side. |
@@ -75,7 +77,7 @@ extension/                 The browser extension (load this folder with "Load un
   engine/                  Runs in a hidden page: detection, typesetting, Gemini, cache
     typeset.js             Balloon units + lettering, shared with Tsundoku (keep the two identical)
     lib/ort/               ONNX Runtime Web 1.30 (MIT)
-    models/                The text detection model (not in Git: see README.txt there)
+    models/                Optional local copy of the model (not in Git; otherwise downloaded on first start)
 design-options/            Alternative popup designs and their preview
 dev/test_pages/            Synthetic Japanese, Korean and Chinese test pages
 package.bat                Builds a zip to share
