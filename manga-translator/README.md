@@ -19,6 +19,8 @@ The key stays in your browser (it isn't synced or shared) and is only sent to Go
 
 **Optional: Claude Haiku 5.5 instead of Gemini.** Paste an [OpenRouter key](https://openrouter.ai/keys) under **Advanced** → **OpenRouter API key**. While it's set, every page is translated by Claude Haiku 5.5 (low reasoning) through OpenRouter, paid from your OpenRouter credits. Clear the field to go back to Gemini. Each service's translations are cached separately.
 
+**Optional: GPT-6 Luna.** With an OpenRouter key, switch on **Use GPT-6 Luna (medium)** under **Advanced** to translate with OpenAI's GPT-6 Luna at medium reasoning instead of Claude Haiku 5.5 (same key and credits).
+
 ## Use
 
 1. On a reader site, click the extension icon. Then either:

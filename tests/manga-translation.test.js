@@ -74,7 +74,7 @@ config.folders = [];
   const calls = [];
   tr.setDeps({
     cacheDir: path.join(userData, 'translations'),
-    listModelIds: async () => ['anthropic/claude-haiku-5.5', 'anthropic/claude-sonnet-5.5'],
+    listModelIds: async () => ['anthropic/claude-haiku-5.5', 'anthropic/claude-sonnet-5.5', 'openai/gpt-6-luna'],
     request: async (key, body) => {
       calls.push(body);
       await new Promise(r => setTimeout(r, 20));
@@ -130,6 +130,15 @@ config.folders = [];
   assert.strictEqual(tr.chapterState(reopened.token).lang, 'English', 'unknown languages fall back to English'); checks++;
   config.translateLang = 'English';
   config.translateModel = 'haiku';
+  // "Use GPT-6 Luna": its own set of pages, medium reasoning, no temperature
+  config.useLuna = true;
+  st = tr.chapterState(reopened.token);
+  assert.deepStrictEqual([st.model, Object.keys(st.pages).length], ['luna', 0], 'Luna has its own pages'); checks++;
+  const lu = await tr.translatePage(reopened.token, 0, page);
+  const lb = calls[calls.length - 1];
+  assert.deepStrictEqual([lb.model, lb.reasoning && lb.reasoning.effort, lb.max_tokens, lb.temperature], ['openai/gpt-6-luna', 'medium', 16000, undefined]); checks++;
+  assert(lu.items.length, 'Luna answer parsed'); checks++;
+  delete config.useLuna;
 
   // renamed or moved (auto-rename, File Management): the translations follow the file
   const renamed = path.join(lib, 'Yotsuba', 'Yotsuba - Ch 001 - Renamed.cbz');

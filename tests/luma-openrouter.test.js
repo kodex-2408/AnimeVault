@@ -81,6 +81,15 @@ const msgs = [{ role: 'system', content: 'You are Luma' }, { role: 'user', conte
   assert(last('ai:done'), 'done event sent'); checks++;
   assert(!JSON.stringify(c.body).includes(KEY) && !JSON.stringify(events).includes(KEY), 'the key is only ever in the Authorization header'); checks++;
 
+  // ---- "Use GPT-6 Luna": Luna at medium reasoning with more room
+  reset();
+  cfg.useLuna = true;
+  handler = () => ({ status: 200, parts: [delta('Hi'), 'data: [DONE]\n\n'] });
+  await openrouter.chatStream(msgs, { webSearch: false });
+  assert.deepStrictEqual([calls[0].body.model, calls[0].body.reasoning, calls[0].body.max_tokens], ['openai/gpt-6-luna', { effort: 'medium' }, 16000], 'Luna switch: GPT-6 Luna, medium reasoning'); checks++;
+  delete cfg.useLuna;
+  assert.strictEqual(openrouter.chatModel(cfg), 'anthropic/claude-haiku-5.5', 'switched off: back to Haiku'); checks++;
+
   // ---- web search: plugin on, citations -> sources
   reset();
   handler = () => ({ status: 200, parts: [

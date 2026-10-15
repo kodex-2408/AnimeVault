@@ -35,7 +35,7 @@ function setDeps(deps) { _deps = deps || {}; }
 function cacheDir() { return _deps.cacheDir || path.join(app.getPath('userData'), 'translations'); }
 
 function targetLang() { return LANGS.includes(config.translateLang) ? config.translateLang : 'English'; }
-function modelChoice() { return config.translateModel === 'sonnet' ? 'sonnet' : 'haiku'; }
+function modelChoice() { return config.useLuna === true ? 'luna' : config.translateModel === 'sonnet' ? 'sonnet' : 'haiku'; }
 
 function buildPrompt(lang) {
   return [
@@ -276,6 +276,10 @@ async function modelId(choice) {
   if (choice === 'haiku' && config.lumaModel) return openrouter.safeModelId(config.lumaModel);
   if (!_catalog) _catalog = (_deps.listModelIds || openrouter.listModelIds)().then(ids => { if (!ids) _catalog = null; return ids; });
   const ids = await _catalog;
+  if (choice === 'luna') {
+    if (ids && !ids.includes(openrouter.LUNA_MODEL)) throw Object.assign(new Error('OpenRouter doesn’t offer GPT-6 Luna to this account right now. Switch it off in Settings → Tsumi'), { kind: 'other' });
+    return openrouter.LUNA_MODEL;
+  }
   if (!ids) return 'anthropic/claude-' + MODELS[choice];
   const id = openrouter.resolveClaudeModel(ids, MODELS[choice]);
   if (!id) throw Object.assign(new Error('OpenRouter doesn’t offer Claude ' + MODELS[choice].replace('-', ' ') + ' to this account right now'), { kind: 'other' });
@@ -337,10 +341,13 @@ async function translatePage(token, index, page) {
     const ask = 'Page ' + (index + 1) + '. ' + (regions.length
       ? 'Numbered boxes: ' + regions.map(r => r.id).join(', ') + '.'
       : 'No text was found automatically; give boxes for all text.') + ' Translate into ' + lang + '.';
+    const luna = choice === 'luna';
     const body = {
       model,
-      max_tokens: 4096,
-      temperature: 0.2,
+      // GPT-6 Luna reasons at medium effort, and its reasoning counts toward
+      // max_tokens; it takes no temperature.
+      max_tokens: luna ? openrouter.LUNA_MAX_TOKENS : 4096,
+      ...(luna ? { reasoning: { ...openrouter.LUNA_REASONING, exclude: true } } : { temperature: 0.2 }),
       messages: [
         { role: 'system', content: buildPrompt(lang) },
         { role: 'user', content: [
