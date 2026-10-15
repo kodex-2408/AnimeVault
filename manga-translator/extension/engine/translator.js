@@ -391,6 +391,13 @@ const JSON_SCHEMA = {
   additionalProperties: false,
 };
 
+// Latency (0.7.2): OpenRouter routes to the provider answering fastest right now
+// (provider.sort = "latency"), and a reply still missing after OPENROUTER_HEDGE_MS
+// gets a second identical request; the first good reply wins and the other is
+// cancelled. Most pages are back before the hedge, so only slow pages (the
+// 20-30 s ones) cost a second request.
+const OPENROUTER_HEDGE_MS = 9000;
+
 export class OpenRouterTranslator {
   async translate({ apiKey, images, n, src, tgt, context }) {
     const body = {
@@ -403,19 +410,50 @@ export class OpenRouterTranslator {
       reasoning: { effort: "low", exclude: true }, // reasoning isn't shown, so don't send it back
       response_format: { type: "json_schema", json_schema: { name: "translations", strict: true, schema: JSON_SCHEMA } },
       max_tokens: 16000,
-      provider: { require_parameters: true }, // only providers that honour the JSON schema
+      // Only providers that honour the JSON schema, fastest first.
+      provider: { require_parameters: true, sort: "latency" },
     };
     for (let attempt = 1; ; attempt++) {
-      const items = await this.attempt(apiKey, body, n);
+      const items = await this.hedged(apiKey, body, n);
       if (items) return items;
       if (attempt >= OPENROUTER_ATTEMPTS) throw new TranslatorError("OpenRouter: too many retries");
       await sleep(Math.min(2 ** attempt, 8) * 1000);
     }
   }
 
+  /** One request, plus a second one if the first is slow. The first usable reply wins;
+   *  null when both came back empty-handed (worth retrying). */
+  hedged(apiKey, body, n) {
+    return new Promise((resolve, reject) => {
+      const aborts = [];
+      let pending = 0, settled = false;
+      const finish = (ok, v) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        aborts.forEach((a) => a.abort());
+        (ok ? resolve : reject)(v);
+      };
+      // A first request that came back empty-handed is retried by the caller right away.
+      const done = () => { if (!pending) finish(true, null); };
+      const launch = (tag) => {
+        const abort = new AbortController();
+        aborts.push(abort);
+        pending++;
+        this.attempt(apiKey, body, n, abort.signal, tag).then(
+          (items) => { pending--; if (items) finish(true, items); else done(); },
+          (e) => { pending--; finish(false, e); }, // a real error (bad key, no credits): no point waiting
+        );
+      };
+      const timer = setTimeout(() => { if (!settled) launch("hedge"); }, OPENROUTER_HEDGE_MS);
+      launch("first");
+    });
+  }
+
   /** One request. Returns the items, null if worth retrying, or throws TranslatorError. */
-  async attempt(apiKey, body, n) {
+  async attempt(apiKey, body, n, outer, tag = "") {
     const abort = new AbortController();
+    if (outer) outer.addEventListener("abort", () => abort.abort(), { once: true });
     const timeout = setTimeout(() => abort.abort(), OPENROUTER_TIMEOUT);
     const t0 = Date.now();
     let r, text;
@@ -428,12 +466,13 @@ export class OpenRouterTranslator {
       });
       text = await r.text();
     } catch (e) {
+      if (outer?.aborted) return null; // the other request won
       console.warn(`[translator] OpenRouter: ${abort.signal.aborted ? `no reply in ${OPENROUTER_TIMEOUT / 1000}s` : e.message}`);
       return null;
     } finally {
       clearTimeout(timeout);
     }
-    console.info(`[translator] ${OPENROUTER_MODEL} -> ${r.status} in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+    console.info(`[translator] ${OPENROUTER_MODEL}${tag === "hedge" ? " (hedge)" : ""} -> ${r.status} in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
     if (r.status === 401) throw new TranslatorError("Your OpenRouter API key isn't valid. Check it in the extension popup.");
     if (r.status === 402) throw new TranslatorError("Your OpenRouter account is out of credits");
     if (r.status === 429 || r.status === 408 || r.status >= 500) return null;

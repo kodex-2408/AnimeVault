@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.7.2
+
+- **Faster pages with Claude Haiku 5.5 (OpenRouter).** Some pages took 20-30 s.
+  - Requests now ask OpenRouter for the provider with the lowest latency at the
+    moment (`provider.sort: "latency"`), still limited to providers that honour
+    the JSON schema.
+  - A page with no reply after 9 s gets a second, identical request. The first
+    good reply wins and the other is cancelled, so a stuck request no longer
+    holds a page for its full timeout. Errors such as a bad key or no credits
+    still stop at once.
+  - The model stays Claude Haiku 5.5 at low reasoning.
+- **Whole chapter at once.**
+  - When translation starts (Translate! or Auto on this site), every page
+    image is loaded, lazy-loaded ones included, and queued straight away
+    instead of only those within about four screens.
+  - The page you're reading still goes first, then the ones after it, up to 8
+    at a time.
+  - Pages that need a screenshot (protected images, tainted canvases) wait for
+    you to scroll to them outside the queue, so they don't hold up the rest.
+
 ## 0.7.1
 
 - **The text detector downloads itself.** A copy of the extension from the

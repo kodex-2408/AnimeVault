@@ -481,8 +481,32 @@ function rdTrTargets(){
 function rdTrUpdate(){
   if(!RD||!RD.tr||!RD.tr.on)return;
   var R=RD;
-  rdTrTargets().forEach(function(i){rdTrRequest(R,i);});
+  if(R.mode==='strip')rdTrQueueAll(R);
+  else rdTrTargets().forEach(function(i){rdTrRequest(R,i);});
   rdTrApply();rdTrStatus();
+}
+// Long strips (manhwa, webtoons): the whole chapter is queued the moment
+// translation is switched on. RD_TR_PARALLEL pages are worked on at a time
+// (detection, the request, lettering): the ones on screen first, then the rest
+// of the chapter in reading order, then anything above.
+var RD_TR_PARALLEL=3;
+function rdTrQueueAll(R){
+  var T=R.tr;if(T.queueRunning)return;
+  var first=rdTrTargets()[0]||0,order=[];
+  for(var k=first;k<R.count;k++)order.push(k);
+  for(var j=0;j<first;j++)order.push(j);
+  T.queueRunning=true;
+  var next=0;
+  function worker(){
+    while(next<order.length){
+      var i=order[next++];
+      if(RD!==R||!T.on||T.halted)break;
+      if(T.urls[i]||T.pending[i]||T.errors[i])continue;
+      return rdTrRequest(R,i).then(worker);
+    }
+  }
+  var workers=[];for(var w=0;w<RD_TR_PARALLEL;w++)workers.push(Promise.resolve().then(worker));
+  Promise.all(workers).then(function(){T.queueRunning=false;});
 }
 // The page's own picture: from the archive, or as pdf.js drew it.
 async function rdTrPageBlob(R,i){
@@ -570,6 +594,7 @@ function rdTrStatus(){
   if(!T||!T.on){el.textContent='';el.classList.remove('on');return;}
   var busy=Object.keys(T.pending).length,failed=Object.keys(T.errors).length,txt;
   if(busy&&_rdTrModelPct!==null)txt='Downloading the text detector (95 MB, once): '+_rdTrModelPct+'%';
+  else if(busy&&T.queueRunning)txt='Translating the chapter: '+Object.keys(T.urls).length+' of '+RD.count+' pages ready…';
   else if(busy)txt='Translating '+(busy===1?'1 page':busy+' pages')+'…';
   else if(T.halted)txt='Translation stopped: '+T.errors[Object.keys(T.errors)[0]];
   else if(failed)txt=(failed===1?'1 page':failed+' pages')+' not translated. Press T twice to retry.';

@@ -28,7 +28,7 @@ const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const MAX_ITEMS = 80;
 const MAX_REGIONS = 80;
 const MAX_CACHE_FILES = 400;
-const MAX_PARALLEL = 2;
+const MAX_PARALLEL = 3; // matches the reader's RD_TR_PARALLEL (whole long strips are queued at once)
 
 let _deps = {};
 function setDeps(deps) { _deps = deps || {}; }
