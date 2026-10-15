@@ -16,13 +16,6 @@ const APP_REFERER = 'https://github.com/kodex-2408/AnimeVault';
 const DEFAULT_MODEL = 'anthropic/claude-haiku-5.5';
 const REASONING = { effort: 'low' };
 const MAX_TOKENS = 4096;
-// Settings → Tsumi → "Use GPT-6 Luna": OpenAI's GPT-6 Luna at medium reasoning,
-// for Tsumi's chat and page translation, on the same OpenRouter key. Its
-// reasoning counts toward max_tokens, so it gets more room.
-const LUNA_MODEL = 'openai/gpt-6-luna';
-const LUNA_REASONING = { effort: 'medium' };
-const LUNA_MAX_TOKENS = 16000;
-function chatModel(cfg) { return cfg && cfg.useLuna === true ? LUNA_MODEL : (cfg && cfg.lumaModel) || DEFAULT_MODEL; }
 // OpenRouter's web plugin (Exa-powered search results added to the prompt).
 const WEB_PLUGIN = { id: 'web', max_results: 3 };
 const REQUEST_TIMEOUT_MS = 60000;
@@ -91,15 +84,14 @@ function resolveLumaModel(ids) {
 // OpenAI-style messages plus low reasoning effort; options.webSearch adds the
 // web plugin so the reply is grounded in current search results.
 // options.reasoning === false drops the effort setting (see chatStream).
-function body0Luna(model) { return safeModelId(model) === LUNA_MODEL; }
 function toOpenRouterRequest(messages, model, options = {}) {
   const body = {
     model: safeModelId(model),
     messages: messages.map(m => ({ role: m.role, content: m.content })),
     stream: true,
-    max_tokens: body0Luna(model) ? LUNA_MAX_TOKENS : MAX_TOKENS,
+    max_tokens: MAX_TOKENS,
   };
-  if (!options || options.reasoning !== false) body.reasoning = { ...(body0Luna(model) ? LUNA_REASONING : REASONING) };
+  if (!options || options.reasoning !== false) body.reasoning = { ...REASONING };
   if (options && options.webSearch === true) body.plugins = [{ ...WEB_PLUGIN }];
   return body;
 }
@@ -248,7 +240,7 @@ async function chatStream(messages, options = {}) {
     let used = attempts[0];
     for (const attempt of attempts) {
       used = attempt;
-      r = await send(apiKey, toOpenRouterRequest(messages, chatModel(cfg), attempt), onText);
+      r = await send(apiKey, toOpenRouterRequest(messages, cfg.lumaModel, attempt), onText);
       if (r.ok || r.gotText || (r.status !== 400 && r.status !== 422)) break;
       console.warn('[Tsumi] OpenRouter rejected the request (' + r.status + '); retrying with fewer options:', r.message);
     }
@@ -393,10 +385,6 @@ module.exports = {
   drainSse,
   apiError,
   DEFAULT_MODEL,
-  LUNA_MODEL,
-  LUNA_REASONING,
-  LUNA_MAX_TOKENS,
-  chatModel,
   KEY_PAGE_URL,
   CREDITS_URL,
 };

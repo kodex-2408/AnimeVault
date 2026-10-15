@@ -25,7 +25,7 @@
     showOverlay: true,
     textScale: 1,
   };
-  const PREFETCH_MARGIN = "400% 0px 400% 0px"; // translate ~4 screens ahead
+  const PREFETCH_MARGIN = "400% 0px 400% 0px"; // pages that only become candidates later
   // The engine spreads requests over Gemini models and their per-minute quotas.
   const MAX_IN_FLIGHT = 8;
 
@@ -431,6 +431,14 @@
           state.mode = "capture"; // tainted canvas
         }
       }
+      if (state.mode === "capture" && !captureReady(el)) {
+        // A screenshot needs the page on screen. Wait for it outside the queue, so
+        // pages further down don't hold up the rest of the chapter.
+        state.status = "await-scroll";
+        setBadge(el, state, "busy", "Scroll here to translate");
+        captureIo.observe(el);
+        return;
+      }
       if (state.mode === "capture") {
         await captureAndTranslate(el, state);
       } else if (tracked.get(el) === state && state.key === key) {
@@ -480,6 +488,22 @@
     };
   }
 
+  function captureReady(el) {
+    const v = visibleRect(el);
+    return !!v && v.vis.height >= Math.min(v.r.height, innerHeight) * 0.8;
+  }
+  const captureIo = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      const st = tracked.get(e.target);
+      if (!st || st.status !== "await-scroll") { captureIo.unobserve(e.target); continue; }
+      if (!captureReady(e.target)) continue;
+      captureIo.unobserve(e.target);
+      st.status = "queued";
+      queue.add(e.target);
+      pump();
+    }
+  }, { threshold: [0, 0.05, 0.1, 0.2, 0.35, 0.5, 0.65, 0.8, 0.9, 1] });
+
   async function captureAndTranslate(el, state) {
     // Wait until enough of the element is on screen to be worth capturing.
     for (;;) {
@@ -522,12 +546,15 @@
   // swaps a placeholder for the real URL in data-src as you scroll. Within the
   // read-ahead range, load them early so they can be translated before you get there.
   const lazySrc = (img) => img.dataset.src || img.dataset.lazySrc || img.dataset.original || "";
+  // Compared as absolute URLs: setting img.src to the same address again would
+  // fire the attribute observer, which calls consider() -> loadEarly() again.
+  const lazyUrl = (img) => { try { return lazySrc(img) ? new URL(lazySrc(img), location.href).href : ""; } catch { return ""; } };
   const isPlaceholder = (img) =>
-    !!lazySrc(img) && lazySrc(img) !== img.getAttribute("src") && (!img.complete || img.naturalWidth < 50);
+    !!lazyUrl(img) && lazyUrl(img) !== img.src && (!img.complete || img.naturalWidth < 50);
 
   function loadEarly(img) {
     if (img.loading === "lazy") img.loading = "eager";
-    if (isPlaceholder(img)) img.src = new URL(lazySrc(img), location.href).href;
+    if (isPlaceholder(img)) img.src = lazyUrl(img);
   }
 
   // Read-ahead is measured against the element's scroll root: the page, or the reader's
@@ -563,13 +590,18 @@
     if (!running || !(el instanceof HTMLImageElement || el instanceof HTMLCanvasElement)) return;
     if (el.closest(".mt-layer")) return; // our own lettered pages
     const w = watchersFor(el);
+    // Whole chapter (0.7.2): every page is loaded and queued as soon as translation
+    // starts, not only those within a few screens. The queue still serves the page
+    // you're reading first, then the ones after it.
     if (el instanceof HTMLImageElement && (!el.complete || !el.naturalWidth || isPlaceholder(el))) {
       el.addEventListener("load", () => consider(el), { once: true });
-      w.lazyIo.observe(el);
+      loadEarly(el);
+      w.lazyIo.observe(el); // in case the site swaps the source in on scroll
       return;
     }
     unwatch(el);
-    w.io.observe(el); // IntersectionObserver always reports the initial state
+    enqueue(el);
+    w.io.observe(el); // a page that isn't a candidate yet (hidden, still sizing) is queued once it shows
   }
 
   function scan(node) {
@@ -616,6 +648,7 @@
     mo?.disconnect();
     for (const el of [...tracked.keys()]) forget(el);
     queue.clear();
+    captureIo.disconnect();
     removeLayers();
     stopLoop();
   }

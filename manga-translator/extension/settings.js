@@ -35,18 +35,8 @@ export function setOpenRouterKey(key) {
   return chrome.storage.local.set({ openrouterKey: key.trim() });
 }
 
-/** "Use GPT-6 Luna (medium)": with an OpenRouter key, Luna translates instead of Haiku. */
-export async function getUseLuna() {
-  return !!(await chrome.storage.local.get("useLuna")).useLuna;
-}
-
-export function setUseLuna(on) {
-  return chrome.storage.local.set({ useLuna: !!on });
-}
-
-/** Which service translates, and with which key. Each one caches its own results. */
+/** Which service translates, and with which key. */
 export async function getTranslator() {
-  const { geminiKey, openrouterKey, useLuna } = await chrome.storage.local.get(["geminiKey", "openrouterKey", "useLuna"]);
-  if (openrouterKey) return { provider: useLuna ? "openrouter-luna" : "openrouter", apiKey: openrouterKey };
-  return { provider: "gemini", apiKey: geminiKey || "" };
+  const { geminiKey, openrouterKey } = await chrome.storage.local.get(["geminiKey", "openrouterKey"]);
+  return openrouterKey ? { provider: "openrouter", apiKey: openrouterKey } : { provider: "gemini", apiKey: geminiKey || "" };
 }

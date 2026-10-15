@@ -5,21 +5,21 @@ Tsundoku was called AnimeVault up to 5.7.0; older entries keep the old name.
 All notable changes, newest first. Engineering context — test guide, security
 posture, design decisions, open roadmap — lives in [DEVELOPMENT.md](DEVELOPMENT.md).
 
-## 5.11.3 — GPT-6 Luna switch
+## 5.11.3 — Long strips translate the whole chapter
 
-- **Settings → Tsumi → "Use GPT-6 Luna".** It moves both Tsumi's chat and
-  manga page translation from Claude Haiku 5.5 (low reasoning) to OpenAI's
-  GPT-6 Luna (`openai/gpt-6-luna`) at medium reasoning, on the same
-  OpenRouter key.
-  - Luna gets 16,000 output tokens, since its reasoning counts toward them.
-    Translation requests send no temperature.
-  - Translated pages are kept per model, so switching back and forth reuses
-    each model's pages.
-  - While it's on, Settings → Manga shows "GPT-6 Luna · medium" in place of
-    the Haiku/Sonnet choice.
-  - If OpenRouter doesn't list Luna for the account, translation says so.
-- The browser extension gets the same switch (0.7.2; see
-  `manga-translator/CHANGELOG.md`).
+- **Built-in reader, long-strip mode:** switching on Translate (T) now queues
+  every page of the chapter at once.
+  - Pages on screen come first, then the rest of the chapter in reading order,
+    then any pages above.
+  - Three pages are worked on at a time (detection, the request, lettering).
+  - The status line counts "N of M pages ready".
+  - Paged modes still translate the pages on screen plus the next one.
+- Up to three translation requests now run at once (was two).
+- The browser extension gets faster Haiku replies and whole-chapter queuing
+  (0.7.2; see `manga-translator/CHANGELOG.md`).
+- The GPT-6 Luna switch from the previous change was rolled back. Tsumi and
+  translation stay on Claude Haiku 5.5 at low reasoning (Sonnet 5.5 remains an
+  option for translation), and the extension keeps Gemini or Haiku.
 
 ## 5.11.2 — Translated pages are kept
 

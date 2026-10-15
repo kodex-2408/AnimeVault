@@ -16,7 +16,7 @@ function register() {
 
   ipcMain.handle('ai:getStatus', () => ({
     hasKey: !!config.openRouterApiKey,
-    model: openrouter.chatModel(config),
+    model: config.lumaModel || openrouter.DEFAULT_MODEL,
     keyPage: openrouter.KEY_PAGE_URL,
     creditsPage: openrouter.CREDITS_URL
   }));

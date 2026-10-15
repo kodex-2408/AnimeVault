@@ -361,18 +361,10 @@ function toItems(data, n) {
 
 // ------------------------------------------------------------------ OpenRouter
 // With an OpenRouter key, every page goes to Claude Haiku 5.5 with low reasoning
-// (or GPT-6 Luna at medium reasoning, when switched on) instead of Gemini. Same prompt and page images; one model, so no routing.
+// instead of Gemini. Same prompt and page images; one model, so no routing.
 const OPENROUTER_API = "https://openrouter.ai/api/v1/chat/completions";
 export const OPENROUTER_MODEL = "anthropic/claude-haiku-5.5";
 export const OPENROUTER_LABEL = "Claude Haiku 5.5";
-// "Use GPT-6 Luna" in the popup: OpenAI's GPT-6 Luna at medium reasoning, on the
-// same OpenRouter key. Medium reasoning thinks longer, so it gets more room.
-export const LUNA_MODEL = "openai/gpt-6-luna";
-export const LUNA_LABEL = "GPT-6 Luna (medium)";
-const MODEL_SETUP = {
-  [OPENROUTER_MODEL]: { reasoning: { effort: "low", exclude: true }, max_tokens: 16000 },
-  [LUNA_MODEL]: { reasoning: { effort: "medium", exclude: true }, max_tokens: 32000 },
-};
 // Reasoning can make replies slower than Gemini Flash-Lite's; a request still pending
 // after this is stuck, and a retry is faster.
 const OPENROUTER_TIMEOUT = 90000;
@@ -399,36 +391,69 @@ const JSON_SCHEMA = {
   additionalProperties: false,
 };
 
-export class OpenRouterTranslator {
-  constructor(model = OPENROUTER_MODEL) {
-    this.model = model;
-  }
+// Latency (0.7.2): OpenRouter routes to the provider answering fastest right now
+// (provider.sort = "latency"), and a reply still missing after OPENROUTER_HEDGE_MS
+// gets a second identical request; the first good reply wins and the other is
+// cancelled. Most pages are back before the hedge, so only slow pages (the
+// 20-30 s ones) cost a second request.
+const OPENROUTER_HEDGE_MS = 9000;
 
+export class OpenRouterTranslator {
   async translate({ apiKey, images, n, src, tgt, context }) {
-    const setup = MODEL_SETUP[this.model] || MODEL_SETUP[OPENROUTER_MODEL];
     const body = {
-      model: this.model,
+      model: OPENROUTER_MODEL,
       messages: [{
         role: "user",
         content: [{ type: "text", text: buildPrompt(n, src, tgt, context) },
           ...images.map((data) => ({ type: "image_url", image_url: { url: `data:image/jpeg;base64,${data}` } }))],
       }],
-      reasoning: setup.reasoning, // reasoning isn't shown, so it isn't sent back (exclude)
+      reasoning: { effort: "low", exclude: true }, // reasoning isn't shown, so don't send it back
       response_format: { type: "json_schema", json_schema: { name: "translations", strict: true, schema: JSON_SCHEMA } },
-      max_tokens: setup.max_tokens,
-      provider: { require_parameters: true }, // only providers that honour the JSON schema
+      max_tokens: 16000,
+      // Only providers that honour the JSON schema, fastest first.
+      provider: { require_parameters: true, sort: "latency" },
     };
     for (let attempt = 1; ; attempt++) {
-      const items = await this.attempt(apiKey, body, n);
+      const items = await this.hedged(apiKey, body, n);
       if (items) return items;
       if (attempt >= OPENROUTER_ATTEMPTS) throw new TranslatorError("OpenRouter: too many retries");
       await sleep(Math.min(2 ** attempt, 8) * 1000);
     }
   }
 
+  /** One request, plus a second one if the first is slow. The first usable reply wins;
+   *  null when both came back empty-handed (worth retrying). */
+  hedged(apiKey, body, n) {
+    return new Promise((resolve, reject) => {
+      const aborts = [];
+      let pending = 0, settled = false;
+      const finish = (ok, v) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        aborts.forEach((a) => a.abort());
+        (ok ? resolve : reject)(v);
+      };
+      // A first request that came back empty-handed is retried by the caller right away.
+      const done = () => { if (!pending) finish(true, null); };
+      const launch = (tag) => {
+        const abort = new AbortController();
+        aborts.push(abort);
+        pending++;
+        this.attempt(apiKey, body, n, abort.signal, tag).then(
+          (items) => { pending--; if (items) finish(true, items); else done(); },
+          (e) => { pending--; finish(false, e); }, // a real error (bad key, no credits): no point waiting
+        );
+      };
+      const timer = setTimeout(() => { if (!settled) launch("hedge"); }, OPENROUTER_HEDGE_MS);
+      launch("first");
+    });
+  }
+
   /** One request. Returns the items, null if worth retrying, or throws TranslatorError. */
-  async attempt(apiKey, body, n) {
+  async attempt(apiKey, body, n, outer, tag = "") {
     const abort = new AbortController();
+    if (outer) outer.addEventListener("abort", () => abort.abort(), { once: true });
     const timeout = setTimeout(() => abort.abort(), OPENROUTER_TIMEOUT);
     const t0 = Date.now();
     let r, text;
@@ -441,12 +466,13 @@ export class OpenRouterTranslator {
       });
       text = await r.text();
     } catch (e) {
+      if (outer?.aborted) return null; // the other request won
       console.warn(`[translator] OpenRouter: ${abort.signal.aborted ? `no reply in ${OPENROUTER_TIMEOUT / 1000}s` : e.message}`);
       return null;
     } finally {
       clearTimeout(timeout);
     }
-    console.info(`[translator] ${body.model} -> ${r.status} in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+    console.info(`[translator] ${OPENROUTER_MODEL}${tag === "hedge" ? " (hedge)" : ""} -> ${r.status} in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
     if (r.status === 401) throw new TranslatorError("Your OpenRouter API key isn't valid. Check it in the extension popup.");
     if (r.status === 402) throw new TranslatorError("Your OpenRouter account is out of credits");
     if (r.status === 429 || r.status === 408 || r.status >= 500) return null;

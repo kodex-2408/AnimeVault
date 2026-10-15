@@ -2,15 +2,23 @@
 
 ## 0.7.2
 
-- **"Use GPT-6 Luna (medium)" switch** in the popup's Advanced section, under
-  the OpenRouter key.
-  - With an OpenRouter key and the switch on, pages are translated by OpenAI's
-    GPT-6 Luna (`openai/gpt-6-luna`) at medium reasoning instead of Claude
-    Haiku 5.5. Same prompt, page images and JSON answer.
-  - Luna gets 32,000 output tokens, since its reasoning counts toward them.
-  - Luna's translations are cached apart from Haiku's and Gemini's.
-  - The popup's status line names the model in use. The switch stays greyed
-    out until an OpenRouter key is entered.
+- **Faster pages with Claude Haiku 5.5 (OpenRouter).** Some pages took 20-30 s.
+  - Requests now ask OpenRouter for the provider with the lowest latency at the
+    moment (`provider.sort: "latency"`), still limited to providers that honour
+    the JSON schema.
+  - A page with no reply after 9 s gets a second, identical request. The first
+    good reply wins and the other is cancelled, so a stuck request no longer
+    holds a page for its full timeout. Errors such as a bad key or no credits
+    still stop at once.
+  - The model stays Claude Haiku 5.5 at low reasoning.
+- **Whole chapter at once.**
+  - When translation starts (Translate! or Auto on this site), every page
+    image is loaded, lazy-loaded ones included, and queued straight away
+    instead of only those within about four screens.
+  - The page you're reading still goes first, then the ones after it, up to 8
+    at a time.
+  - Pages that need a screenshot (protected images, tainted canvases) wait for
+    you to scroll to them outside the queue, so they don't hold up the rest.
 
 ## 0.7.1
 

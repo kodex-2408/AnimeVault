@@ -255,8 +255,8 @@ function mustExtract(fnCode, label) {
   const orSrc = fs.readFileSync(path.join(root, 'openrouter.js'), 'utf8');
   assert(orSrc.includes("API_HOST = 'openrouter.ai'") && orSrc.includes("'Authorization': 'Bearer ' + apiKey"),
     'OpenRouter requests must originate in the main process with the key in a header'); checks++;
-  assert(/const REASONING = \{ effort: 'low' \}/.test(orSrc) && /const LUNA_REASONING = \{ effort: 'medium' \}/.test(orSrc) && orSrc.includes('LUNA_REASONING : REASONING'),
-    'Tsumi must send low reasoning effort (medium with the GPT-6 Luna switch)'); checks++;
+  assert(/const REASONING = \{ effort: 'low' \}/.test(orSrc) && orSrc.includes('body.reasoning = { ...REASONING }'),
+    'Luma must send low reasoning effort'); checks++;
   assert(!/generativelanguage\.googleapis\.com|openrouter\.ai\/api/.test(htmlSrc),
     'renderer must never construct AI network calls'); checks++;
   assert(htmlSrc.includes('aiSend') && htmlSrc.includes('https://openrouter.ai/keys'),
